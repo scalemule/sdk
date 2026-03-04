@@ -1,0 +1,90 @@
+{
+  "name": "@scalemule/sdk",
+  "version": "0.0.1",
+  "description": "Official TypeScript/JavaScript SDK for ScaleMule Backend-as-a-Service",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean --external @scalemule/ui --external browser-image-compression",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build && npm test && npm run lint",
+    "release": "npm run prepublishOnly && npm publish --access public"
+  },
+  "keywords": [
+    "scalemule",
+    "backend-as-a-service",
+    "baas",
+    "api",
+    "sdk",
+    "typescript",
+    "javascript",
+    "client",
+    "rest",
+    "http"
+  ],
+  "author": "ScaleMule Inc. <support@scalemule.com>",
+  "license": "MIT",
+  "homepage": "https://scalemule.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/scalemule/sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/scalemule/sdk/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {},
+  "peerDependencies": {
+    "@scalemule/ui": "^0.0.1",
+    "browser-image-compression": ">=2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@scalemule/ui": {
+      "optional": false
+    },
+    "browser-image-compression": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@scalemule/ui": "^0.0.1",
+    "@types/node": "^20.10.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "@vitest/coverage-v8": "^1.0.0",
+    "eslint": "^8.54.0",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-prettier": "^5.0.0",
+    "prettier": "^3.1.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}
