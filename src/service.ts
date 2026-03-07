@@ -9,25 +9,20 @@
  * into the standard PaginatedResponse<T> envelope.
  */
 
-import type { ScaleMuleClient } from './client'
-import type {
-  ApiResponse,
-  PaginatedResponse,
-  PaginationMetadata,
-  RequestOptions,
-} from './types'
-import { buildClientContextHeaders } from './context'
+import type { ScaleMuleClient } from './client';
+import type { ApiResponse, PaginatedResponse, PaginationMetadata, RequestOptions } from './types';
+import { buildClientContextHeaders } from './context';
 
 // ============================================================================
 // ServiceModule
 // ============================================================================
 
 export abstract class ServiceModule {
-  protected client: ScaleMuleClient
-  protected abstract basePath: string
+  protected client: ScaleMuleClient;
+  protected abstract basePath: string;
 
   constructor(client: ScaleMuleClient) {
-    this.client = client
+    this.client = client;
   }
 
   // --------------------------------------------------------------------------
@@ -39,10 +34,11 @@ export abstract class ServiceModule {
    * Explicit headers take precedence over context-derived ones.
    */
   private resolveOptions(options?: RequestOptions): RequestOptions | undefined {
-    if (!options?.clientContext) return options
-    const contextHeaders = buildClientContextHeaders(options.clientContext)
-    const { clientContext: _, ...rest } = options
-    return { ...rest, headers: { ...contextHeaders, ...rest.headers } }
+    if (!options?.clientContext) return options;
+    const contextHeaders = buildClientContextHeaders(options.clientContext);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { clientContext: _, ...rest } = options;
+    return { ...rest, headers: { ...contextHeaders, ...rest.headers } };
   }
 
   // --------------------------------------------------------------------------
@@ -50,23 +46,23 @@ export abstract class ServiceModule {
   // --------------------------------------------------------------------------
 
   protected _get<T>(path: string, options?: RequestOptions): Promise<ApiResponse<T>> {
-    return this.client.get<T>(`${this.basePath}${path}`, this.resolveOptions(options))
+    return this.client.get<T>(`${this.basePath}${path}`, this.resolveOptions(options));
   }
 
   protected post<T>(path: string, body?: unknown, options?: RequestOptions): Promise<ApiResponse<T>> {
-    return this.client.post<T>(`${this.basePath}${path}`, body, this.resolveOptions(options))
+    return this.client.post<T>(`${this.basePath}${path}`, body, this.resolveOptions(options));
   }
 
   protected put<T>(path: string, body?: unknown, options?: RequestOptions): Promise<ApiResponse<T>> {
-    return this.client.put<T>(`${this.basePath}${path}`, body, this.resolveOptions(options))
+    return this.client.put<T>(`${this.basePath}${path}`, body, this.resolveOptions(options));
   }
 
   protected patch<T>(path: string, body?: unknown, options?: RequestOptions): Promise<ApiResponse<T>> {
-    return this.client.patch<T>(`${this.basePath}${path}`, body, this.resolveOptions(options))
+    return this.client.patch<T>(`${this.basePath}${path}`, body, this.resolveOptions(options));
   }
 
   protected del<T>(path: string, options?: RequestOptions): Promise<ApiResponse<T>> {
-    return this.client.del<T>(`${this.basePath}${path}`, this.resolveOptions(options))
+    return this.client.del<T>(`${this.basePath}${path}`, this.resolveOptions(options));
   }
 
   // --------------------------------------------------------------------------
@@ -87,27 +83,25 @@ export abstract class ServiceModule {
   protected async _list<T>(
     path: string,
     params?: Record<string, unknown>,
-    options?: RequestOptions,
+    options?: RequestOptions
   ): Promise<PaginatedResponse<T>> {
     // Convert params to query string
-    const qs = buildQueryString(params)
-    const fullPath = qs
-      ? `${this.basePath}${path}?${qs}`
-      : `${this.basePath}${path}`
+    const qs = buildQueryString(params);
+    const fullPath = qs ? `${this.basePath}${path}?${qs}` : `${this.basePath}${path}`;
 
-    const response = await this.client.get<unknown>(fullPath, this.resolveOptions(options))
+    const response = await this.client.get<unknown>(fullPath, this.resolveOptions(options));
 
     // Error path — return empty list with error
     if (response.error) {
       return {
         data: [],
         metadata: { total: 0, totalPages: 0, page: asNum(params?.page) ?? 1, perPage: asNum(params?.perPage) ?? 20 },
-        error: response.error,
-      }
+        error: response.error
+      };
     }
 
     // Normalize the backend response into PaginatedResponse
-    return normalizePaginatedResponse<T>(response.data, params)
+    return normalizePaginatedResponse<T>(response.data, params);
   }
 
   // --------------------------------------------------------------------------
@@ -118,9 +112,14 @@ export abstract class ServiceModule {
     path: string,
     file: File | Blob,
     additionalFields?: Record<string, string>,
-    options?: RequestOptions & { onProgress?: (progress: number) => void },
+    options?: RequestOptions & { onProgress?: (progress: number) => void }
   ): Promise<ApiResponse<T>> {
-    return this.client.upload<T>(`${this.basePath}${path}`, file, additionalFields, this.resolveOptions(options) as typeof options)
+    return this.client.upload<T>(
+      `${this.basePath}${path}`,
+      file,
+      additionalFields,
+      this.resolveOptions(options) as typeof options
+    );
   }
 
   // --------------------------------------------------------------------------
@@ -133,8 +132,8 @@ export abstract class ServiceModule {
    * Does NOT add basePath — the verb methods handle that.
    */
   protected withQuery(path: string, params?: Record<string, unknown>): string {
-    const qs = buildQueryString(params)
-    return qs ? `${path}?${qs}` : path
+    const qs = buildQueryString(params);
+    return qs ? `${path}?${qs}` : path;
   }
 }
 
@@ -147,29 +146,26 @@ export abstract class ServiceModule {
  * Skips undefined/null values. Encodes both keys and values.
  */
 function buildQueryString(params?: Record<string, unknown>): string {
-  if (!params) return ''
-  const pairs: string[] = []
+  if (!params) return '';
+  const pairs: string[] = [];
   for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null) continue
-    pairs.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
+    if (value === undefined || value === null) continue;
+    pairs.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
   }
-  return pairs.join('&')
+  return pairs.join('&');
 }
 
 /**
  * Normalize varying backend pagination responses into PaginatedResponse<T>.
  */
-function normalizePaginatedResponse<T>(
-  raw: unknown,
-  params?: Record<string, unknown>,
-): PaginatedResponse<T> {
+function normalizePaginatedResponse<T>(raw: unknown, params?: Record<string, unknown>): PaginatedResponse<T> {
   // If raw is null/undefined, return empty
   if (raw === null || raw === undefined) {
     return {
       data: [],
       metadata: { total: 0, totalPages: 0, page: 1, perPage: 20 },
-      error: null,
-    }
+      error: null
+    };
   }
 
   // If raw is a bare array, wrap it
@@ -180,55 +176,67 @@ function normalizePaginatedResponse<T>(
         total: raw.length,
         totalPages: 1,
         page: 1,
-        perPage: raw.length,
+        perPage: raw.length
       },
-      error: null,
-    }
+      error: null
+    };
   }
 
   // Object shape — extract data array and metadata
-  const obj = raw as Record<string, unknown>
-  const dataArray = (obj.data ?? obj.items ?? []) as T[]
+  const obj = raw as Record<string, unknown>;
+  const dataArray = (obj.data ?? obj.items ?? []) as T[];
 
   const metadata: PaginationMetadata = {
     total: asNumber(obj.metadata, 'total') ?? asNumber(obj, 'total') ?? dataArray.length,
-    totalPages: asNumber(obj.metadata, 'totalPages') ?? asNumber(obj.metadata, 'total_pages')
-      ?? asNumber(obj, 'total_pages') ?? asNumber(obj, 'totalPages') ?? 0,
+    totalPages:
+      asNumber(obj.metadata, 'totalPages') ??
+      asNumber(obj.metadata, 'total_pages') ??
+      asNumber(obj, 'total_pages') ??
+      asNumber(obj, 'totalPages') ??
+      0,
     page: asNumber(obj.metadata, 'page') ?? asNumber(obj, 'page') ?? asNum(params?.page) ?? 1,
-    perPage: asNumber(obj.metadata, 'perPage') ?? asNumber(obj.metadata, 'per_page')
-      ?? asNumber(obj, 'per_page') ?? asNumber(obj, 'perPage') ?? asNum(params?.perPage) ?? 20,
-  }
+    perPage:
+      asNumber(obj.metadata, 'perPage') ??
+      asNumber(obj.metadata, 'per_page') ??
+      asNumber(obj, 'per_page') ??
+      asNumber(obj, 'perPage') ??
+      asNum(params?.perPage) ??
+      20
+  };
 
   // Compute totalPages if backend didn't provide it
   if (metadata.totalPages === 0 && metadata.total > 0 && metadata.perPage > 0) {
-    metadata.totalPages = Math.ceil(metadata.total / metadata.perPage)
+    metadata.totalPages = Math.ceil(metadata.total / metadata.perPage);
   }
 
   // Optional cursor
-  const nextCursor = asString(obj.metadata, 'nextCursor') ?? asString(obj.metadata, 'next_cursor')
-    ?? asString(obj, 'next_cursor') ?? asString(obj, 'nextCursor')
+  const nextCursor =
+    asString(obj.metadata, 'nextCursor') ??
+    asString(obj.metadata, 'next_cursor') ??
+    asString(obj, 'next_cursor') ??
+    asString(obj, 'nextCursor');
   if (nextCursor) {
-    metadata.nextCursor = nextCursor
+    metadata.nextCursor = nextCursor;
   }
 
-  return { data: dataArray, metadata, error: null }
+  return { data: dataArray, metadata, error: null };
 }
 
 /** Safely extract a number from a nested object */
 function asNumber(parent: unknown, key: string): number | undefined {
-  if (parent === null || parent === undefined || typeof parent !== 'object') return undefined
-  const value = (parent as Record<string, unknown>)[key]
-  return typeof value === 'number' ? value : undefined
+  if (parent === null || parent === undefined || typeof parent !== 'object') return undefined;
+  const value = (parent as Record<string, unknown>)[key];
+  return typeof value === 'number' ? value : undefined;
 }
 
 /** Coerce unknown to number (returns undefined if not a number) */
 function asNum(value: unknown): number | undefined {
-  return typeof value === 'number' ? value : undefined
+  return typeof value === 'number' ? value : undefined;
 }
 
 /** Safely extract a string from a nested object */
 function asString(parent: unknown, key: string): string | undefined {
-  if (parent === null || parent === undefined || typeof parent !== 'object') return undefined
-  const value = (parent as Record<string, unknown>)[key]
-  return typeof value === 'string' ? value : undefined
+  if (parent === null || parent === undefined || typeof parent !== 'object') return undefined;
+  const value = (parent as Record<string, unknown>)[key];
+  return typeof value === 'string' ? value : undefined;
 }
