@@ -135,6 +135,37 @@ export type {
 export { FlagContentService } from './services/flagcontent'
 export type { ContentFlag, FlagCheck, Appeal } from './services/flagcontent'
 
+// Re-export agent service modules
+export { AgentAuthService } from './services/agent-auth'
+export type {
+  AuthRegisterAgentRequest, AuthRegisterAgentResponse, SecurityLayers,
+  AgentToken, AgentSigningKey, AgentProfile, AgentSecurityPolicy,
+} from './services/agent-auth'
+export { AgentsService } from './services/agents'
+export type {
+  AgentResponse, RegisterAgentRequest, RegisterAgentResponse,
+  RuntimeTemplate, RuntimeTemplateVersion, Workspace,
+} from './services/agents'
+export { AgentProjectsService } from './services/agent-projects'
+export type {
+  Project, ProjectMember, Task, ClaimResult, SubmitResult,
+  TaskTransition, TaskAttempt, ProjectDocument, Pipeline, PipelineVersion,
+} from './services/agent-projects'
+export { AgentToolsService } from './services/agent-tools'
+export type {
+  Tool, ToolCapability, ToolIntegration, Credential, CredentialScope,
+  AgentToolEntitlement, DataSource, DataAccessPolicy,
+} from './services/agent-tools'
+export { AgentModelsService } from './services/agent-models'
+export type {
+  ModelProvider, Model, ModelPricing, ModelEntitlement,
+  UsageRecord, UsageSummary as ModelUsageSummary, CostReportDay,
+} from './services/agent-models'
+export { AgentSessionsService } from './services/agent-sessions'
+export type {
+  Session, CreateSessionResponse, SessionLog, SessionArtifact,
+} from './services/agent-sessions'
+
 import type { ScaleMuleConfig } from './types'
 import { ScaleMuleClient } from './client'
 
@@ -173,6 +204,14 @@ import { IdentityService } from './services/identity'
 import { CatalogService } from './services/catalog'
 import { LoggerService } from './services/logger'
 import { FlagContentService } from './services/flagcontent'
+
+// Agent service imports
+import { AgentAuthService } from './services/agent-auth'
+import { AgentsService } from './services/agents'
+import { AgentProjectsService } from './services/agent-projects'
+import { AgentToolsService } from './services/agent-tools'
+import { AgentModelsService } from './services/agent-models'
+import { AgentSessionsService } from './services/agent-sessions'
 
 // ============================================================================
 // Main ScaleMule Class
@@ -257,6 +296,14 @@ export class ScaleMule {
   public readonly compliance: ComplianceService
   public readonly orchestrator: OrchestratorService
 
+  // Agent services
+  public readonly agentAuth: AgentAuthService
+  public readonly agents: AgentsService
+  public readonly agentProjects: AgentProjectsService
+  public readonly agentTools: AgentToolsService
+  public readonly agentModels: AgentModelsService
+  public readonly agentSessions: AgentSessionsService
+
   constructor(config: ScaleMuleConfig) {
     this._client = new ScaleMuleClient(config)
 
@@ -295,6 +342,14 @@ export class ScaleMule {
     this.flagContent = new FlagContentService(this._client)
     this.compliance = new ComplianceService(this._client)
     this.orchestrator = new OrchestratorService(this._client)
+
+    // Agent services
+    this.agentAuth = new AgentAuthService(this._client)
+    this.agents = new AgentsService(this._client)
+    this.agentProjects = new AgentProjectsService(this._client)
+    this.agentTools = new AgentToolsService(this._client)
+    this.agentModels = new AgentModelsService(this._client)
+    this.agentSessions = new AgentSessionsService(this._client)
   }
 
   /**
