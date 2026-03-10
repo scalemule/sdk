@@ -19,6 +19,15 @@ import type { ApiResponse, ApiError, ScaleMuleConfig, StorageAdapter, RequestOpt
 // Constants
 // ============================================================================
 
+/** Shape of a raw JSON response before it's narrowed to ApiResponse<T>. */
+interface RawApiResponse {
+  data?: unknown;
+  error?: { code?: string; message?: string; details?: Record<string, unknown> };
+  code?: string;
+  message?: string;
+  details?: Record<string, unknown>;
+}
+
 const SDK_VERSION = '0.0.1';
 const DEFAULT_TIMEOUT = 30000;
 const DEFAULT_MAX_RETRIES = 2;
@@ -468,7 +477,7 @@ export class ScaleMuleClient {
         }
 
         // Parse response
-        let responseData: any;
+        let responseData: RawApiResponse;
         const contentType = response.headers.get('Content-Type') || '';
         if (contentType.includes('application/json')) {
           responseData = await response.json();

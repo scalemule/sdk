@@ -2906,7 +2906,8 @@ var RealtimeService = class extends ServiceModule {
     });
   }
   handleMessage(msg) {
-    switch (msg.type) {
+    const type = msg.type;
+    switch (type) {
       case "auth_success":
         this.authenticated = true;
         this.setStatus("connected");

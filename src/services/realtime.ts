@@ -266,8 +266,9 @@ export class RealtimeService extends ServiceModule {
     });
   }
 
-  private handleMessage(msg: any): void {
-    switch (msg.type) {
+  private handleMessage(msg: Record<string, unknown>): void {
+    const type = msg.type as string;
+    switch (type) {
       case 'auth_success':
         this.authenticated = true;
         this.setStatus('connected');
@@ -282,7 +283,7 @@ export class RealtimeService extends ServiceModule {
         break;
 
       case 'message':
-        this.dispatchMessage(msg.channel, msg.data);
+        this.dispatchMessage(msg.channel as string, msg.data);
         break;
 
       case 'error':
@@ -292,24 +293,24 @@ export class RealtimeService extends ServiceModule {
       case 'presence_state':
         this.dispatchPresence({
           type: 'state',
-          channel: msg.channel,
-          members: msg.members
+          channel: msg.channel as string,
+          members: msg.members as PresenceEvent['members']
         });
         break;
 
       case 'presence_join':
         this.dispatchPresence({
           type: 'join',
-          channel: msg.channel,
-          user: msg.user
+          channel: msg.channel as string,
+          user: msg.user as PresenceEvent['user']
         });
         break;
 
       case 'presence_leave':
         this.dispatchPresence({
           type: 'leave',
-          channel: msg.channel,
-          user_id: msg.user_id
+          channel: msg.channel as string,
+          user_id: msg.user_id as string
         });
         break;
     }
