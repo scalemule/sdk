@@ -4567,6 +4567,9 @@ var AgentProjectsService = class extends ServiceModule {
   async revokeGrant(id, options) {
     return this.del(`/project-grants/${id}`, options);
   }
+  async resendGrantInvitation(id, data, options) {
+    return this.post(`/project-grants/${id}/resend`, data, options);
+  }
   async redeemGrant(id, options) {
     return this.post(`/project-grants/${id}/redeem`, void 0, options);
   }

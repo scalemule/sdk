@@ -54,7 +54,7 @@ export class CommunicationService extends ServiceModule {
   // --------------------------------------------------------------------------
 
   async sendEmail(
-    data: { to: string; subject: string; body: string; template_id?: string },
+    data: { to: string; subject: string; html_body: string; text_body?: string; message_type?: string },
     options?: RequestOptions
   ): Promise<ApiResponse<MessageStatus>> {
     return this.post<MessageStatus>('/email/send', data, options);

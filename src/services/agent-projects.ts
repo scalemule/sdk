@@ -116,6 +116,7 @@ export interface ProjectGrant {
   created_at: string;
   expires_at: string;
   redeemed_at?: string;
+  email_sent?: boolean;
 }
 
 export interface GrantInfo {
@@ -458,7 +459,7 @@ export class AgentProjectsService extends ServiceModule {
   // --------------------------------------------------------------------------
 
   async createGrant(
-    data: { project_id: string; role: string; user_email: string; expires_at: string },
+    data: { project_id: string; role: string; user_email: string; expires_at: string; invite_url?: string },
     options?: RequestOptions
   ): Promise<ApiResponse<ProjectGrant>> {
     return this.post<ProjectGrant>('/project-grants', data, options);
@@ -483,6 +484,14 @@ export class AgentProjectsService extends ServiceModule {
 
   async revokeGrant(id: string, options?: RequestOptions): Promise<ApiResponse<void>> {
     return this.del<void>(`/project-grants/${id}`, options);
+  }
+
+  async resendGrantInvitation(
+    id: string,
+    data: { invite_url: string },
+    options?: RequestOptions
+  ): Promise<ApiResponse<{ email_sent: boolean }>> {
+    return this.post<{ email_sent: boolean }>(`/project-grants/${id}/resend`, data, options);
   }
 
   async redeemGrant(id: string, options?: RequestOptions): Promise<ApiResponse<RedeemResult>> {

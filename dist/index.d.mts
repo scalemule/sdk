@@ -2268,8 +2268,9 @@ declare class CommunicationService extends ServiceModule {
     sendEmail(data: {
         to: string;
         subject: string;
-        body: string;
-        template_id?: string;
+        html_body: string;
+        text_body?: string;
+        message_type?: string;
     }, options?: RequestOptions): Promise<ApiResponse<MessageStatus>>;
     sendEmailTemplate(template: string, data: {
         to: string;
@@ -4275,6 +4276,7 @@ interface ProjectGrant {
     created_at: string;
     expires_at: string;
     redeemed_at?: string;
+    email_sent?: boolean;
 }
 interface GrantInfo {
     id: string;
@@ -4387,12 +4389,18 @@ declare class AgentProjectsService extends ServiceModule {
         role: string;
         user_email: string;
         expires_at: string;
+        invite_url?: string;
     }, options?: RequestOptions): Promise<ApiResponse<ProjectGrant>>;
     listGrants(projectId: string, options?: RequestOptions): Promise<ApiResponse<ProjectGrant[]>>;
     getGrant(id: string, options?: RequestOptions): Promise<ApiResponse<ProjectGrant>>;
     /** Public endpoint — no auth required. Returns masked email + project name. */
     getGrantInfo(id: string, options?: RequestOptions): Promise<ApiResponse<GrantInfo>>;
     revokeGrant(id: string, options?: RequestOptions): Promise<ApiResponse<void>>;
+    resendGrantInvitation(id: string, data: {
+        invite_url: string;
+    }, options?: RequestOptions): Promise<ApiResponse<{
+        email_sent: boolean;
+    }>>;
     redeemGrant(id: string, options?: RequestOptions): Promise<ApiResponse<RedeemResult>>;
 }
 
