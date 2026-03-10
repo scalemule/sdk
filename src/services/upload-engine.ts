@@ -16,9 +16,9 @@
  * and upload-telemetry for their respective concerns.
  */
 
-import type { UploadStrategy } from './upload-strategy'
-import { resolveStrategy } from './upload-strategy'
-import type { UploadTelemetryConfig } from './upload-telemetry'
+import type { UploadStrategy } from './upload-strategy';
+import { resolveStrategy } from './upload-strategy';
+import type { UploadTelemetryConfig } from './upload-telemetry';
 
 // ============================================================================
 // Types
@@ -26,28 +26,28 @@ import type { UploadTelemetryConfig } from './upload-telemetry'
 
 export interface UploadEngineConfig {
   /** Feature flag: enable multipart upload path (default: true) */
-  multipartEnabled: boolean
+  multipartEnabled: boolean;
   /** Application allowlist for multipart (empty = all allowed) */
-  multipartAllowlist: string[]
+  multipartAllowlist: string[];
   /** Telemetry configuration */
-  telemetry: Partial<UploadTelemetryConfig>
+  telemetry: Partial<UploadTelemetryConfig>;
 }
 
 export interface UploadPlan {
   /** Selected strategy */
-  strategy: UploadStrategy
+  strategy: UploadStrategy;
   /** Chunk size in bytes (for multipart) */
-  chunkSize: number
+  chunkSize: number;
   /** Max concurrent part uploads */
-  concurrency: number
+  concurrency: number;
   /** Stall timeout in ms */
-  stallTimeoutMs: number
+  stallTimeoutMs: number;
   /** Whether compression should be attempted */
-  shouldCompress: boolean
+  shouldCompress: boolean;
   /** Whether resume should be attempted */
-  shouldResume: boolean
+  shouldResume: boolean;
   /** Total number of parts (multipart only) */
-  totalParts: number
+  totalParts: number;
 }
 
 // ============================================================================
@@ -57,8 +57,8 @@ export interface UploadPlan {
 const DEFAULT_CONFIG: UploadEngineConfig = {
   multipartEnabled: true,
   multipartAllowlist: [],
-  telemetry: {},
-}
+  telemetry: {}
+};
 
 /**
  * Create an upload plan based on file characteristics, user options, and runtime context.
@@ -70,49 +70,48 @@ export function createUploadPlan(
   fileSize: number,
   contentType: string,
   options: {
-    forceMultipart?: boolean
-    skipCompression?: boolean
-    resume?: 'auto' | 'off'
-    chunkSize?: number
-    maxConcurrency?: number
-    appId?: string
+    forceMultipart?: boolean;
+    skipCompression?: boolean;
+    resume?: 'auto' | 'off';
+    chunkSize?: number;
+    maxConcurrency?: number;
+    appId?: string;
   } = {},
-  engineConfig: Partial<UploadEngineConfig> = {},
+  engineConfig: Partial<UploadEngineConfig> = {}
 ): UploadPlan {
-  const config = { ...DEFAULT_CONFIG, ...engineConfig }
+  const config = { ...DEFAULT_CONFIG, ...engineConfig };
 
   // Check feature flag and allowlist
   const multipartAllowed =
     config.multipartEnabled &&
     (config.multipartAllowlist.length === 0 ||
-      (options.appId != null && config.multipartAllowlist.includes(options.appId)))
+      (options.appId != null && config.multipartAllowlist.includes(options.appId)));
 
   const resolved = resolveStrategy(fileSize, {
     forceMultipart: multipartAllowed && options.forceMultipart,
     chunkSize: options.chunkSize,
-    concurrency: options.maxConcurrency,
-  })
+    concurrency: options.maxConcurrency
+  });
 
   // Override strategy if multipart is disabled
   const strategy: UploadStrategy =
-    resolved.strategy === 'multipart' && !multipartAllowed ? 'direct' : resolved.strategy
+    resolved.strategy === 'multipart' && !multipartAllowed ? 'direct' : resolved.strategy;
 
   // Compression: only in browser, only for images, and when not explicitly skipped
-  const isBrowser = typeof window !== 'undefined'
+  const isBrowser = typeof window !== 'undefined';
   const isCompressibleType =
     contentType.startsWith('image/') &&
     !contentType.includes('gif') &&
     !contentType.includes('svg') &&
     !contentType.includes('webp') &&
-    !contentType.includes('avif')
-  const shouldCompress = isBrowser && !options.skipCompression && isCompressibleType && fileSize >= 100 * 1024
+    !contentType.includes('avif');
+  const shouldCompress = isBrowser && !options.skipCompression && isCompressibleType && fileSize >= 100 * 1024;
 
   // Resume: only in browser, only for multipart, and when not explicitly disabled
-  const shouldResume = isBrowser && strategy === 'multipart' && options.resume !== 'off'
+  const shouldResume = isBrowser && strategy === 'multipart' && options.resume !== 'off';
 
   // Total parts for multipart
-  const totalParts =
-    strategy === 'multipart' ? Math.ceil(fileSize / resolved.chunkSize) : 1
+  const totalParts = strategy === 'multipart' ? Math.ceil(fileSize / resolved.chunkSize) : 1;
 
   return {
     strategy,
@@ -121,15 +120,15 @@ export function createUploadPlan(
     stallTimeoutMs: resolved.stallTimeoutMs,
     shouldCompress,
     shouldResume,
-    totalParts,
-  }
+    totalParts
+  };
 }
 
 /**
  * Calculate the total number of parts needed for a multipart upload.
  */
 export function calculateTotalParts(fileSize: number, chunkSize: number): number {
-  return Math.ceil(fileSize / chunkSize)
+  return Math.ceil(fileSize / chunkSize);
 }
 
 /**
@@ -138,9 +137,9 @@ export function calculateTotalParts(fileSize: number, chunkSize: number): number
 export function getPartRange(
   partNumber: number,
   chunkSize: number,
-  totalSize: number,
+  totalSize: number
 ): { start: number; end: number; size: number } {
-  const start = (partNumber - 1) * chunkSize
-  const end = Math.min(start + chunkSize, totalSize)
-  return { start, end, size: end - start }
+  const start = (partNumber - 1) * chunkSize;
+  const end = Math.min(start + chunkSize, totalSize);
+  return { start, end, size: end - start };
 }

@@ -12,21 +12,21 @@
  *   GET    /events    → list available event types
  */
 
-import { ServiceModule } from '../service'
-import type { ApiResponse, RequestOptions } from '../types'
+import { ServiceModule } from '../service';
+import type { ApiResponse, RequestOptions } from '../types';
 
 // ============================================================================
 // Types
 // ============================================================================
 
 export interface Webhook {
-  id: string
-  url: string
-  events: string[]
-  secret?: string
-  is_active: boolean
-  created_at: string
-  updated_at: string
+  id: string;
+  url: string;
+  events: string[];
+  secret?: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 // ============================================================================
@@ -34,44 +34,51 @@ export interface Webhook {
 // ============================================================================
 
 export class WebhooksService extends ServiceModule {
-  protected basePath = '/v1/webhooks'
+  protected basePath = '/v1/webhooks';
 
-  async create(data: { url: string; events: string[]; secret?: string }, options?: RequestOptions): Promise<ApiResponse<Webhook>> {
-    return this.post<Webhook>('', data, options)
+  async create(
+    data: { url: string; events: string[]; secret?: string },
+    options?: RequestOptions
+  ): Promise<ApiResponse<Webhook>> {
+    return this.post<Webhook>('', data, options);
   }
 
   async list(options?: RequestOptions): Promise<ApiResponse<Webhook[]>> {
-    return this._get<Webhook[]>('', options)
+    return this._get<Webhook[]>('', options);
   }
 
   async get(id: string, options?: RequestOptions): Promise<ApiResponse<Webhook>> {
-    return this._get<Webhook>(`/${id}`, options)
+    return this._get<Webhook>(`/${id}`, options);
   }
 
-  async update(id: string, data: { url?: string; events?: string[]; is_active?: boolean }, options?: RequestOptions): Promise<ApiResponse<Webhook>> {
-    return this.patch<Webhook>(`/${id}`, data, options)
+  async update(
+    id: string,
+    data: { url?: string; events?: string[]; is_active?: boolean },
+    options?: RequestOptions
+  ): Promise<ApiResponse<Webhook>> {
+    return this.patch<Webhook>(`/${id}`, data, options);
   }
 
   async delete(id: string, options?: RequestOptions): Promise<ApiResponse<{ deleted: boolean }>> {
-    return this.del<{ deleted: boolean }>(`/${id}`, options)
+    return this.del<{ deleted: boolean }>(`/${id}`, options);
   }
 
   async listEvents(options?: RequestOptions): Promise<ApiResponse<string[]>> {
-    return this._get<string[]>('/events', options)
+    return this._get<string[]>('/events', options);
   }
 
   /** @deprecated Use create() instead */
   async createWebhook(data: { url: string; events: string[]; secret?: string }) {
-    return this.create(data)
+    return this.create(data);
   }
 
   /** @deprecated Use list() instead */
   async listWebhooks() {
-    return this.list()
+    return this.list();
   }
 
   /** @deprecated Use delete() instead */
   async deleteWebhook(id: string) {
-    return this.delete(id)
+    return this.delete(id);
   }
 }

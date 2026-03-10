@@ -9,21 +9,21 @@
  *   DELETE /api-keys/{id}  → revoke API key
  */
 
-import { ServiceModule } from '../service'
-import type { ApiResponse, RequestOptions } from '../types'
+import { ServiceModule } from '../service';
+import type { ApiResponse, RequestOptions } from '../types';
 
 // ============================================================================
 // Types
 // ============================================================================
 
 export interface ApiKey {
-  id: string
-  name: string
-  key?: string
-  prefix: string
-  expires_at?: string
-  last_used_at?: string
-  created_at: string
+  id: string;
+  name: string;
+  key?: string;
+  prefix: string;
+  expires_at?: string;
+  last_used_at?: string;
+  created_at: string;
 }
 
 // ============================================================================
@@ -31,17 +31,20 @@ export interface ApiKey {
 // ============================================================================
 
 export class IdentityService extends ServiceModule {
-  protected basePath = '/v1/identity'
+  protected basePath = '/v1/identity';
 
-  async createApiKey(data: { name: string; expires_at?: string }, options?: RequestOptions): Promise<ApiResponse<ApiKey>> {
-    return this.post<ApiKey>('/api-keys', data, options)
+  async createApiKey(
+    data: { name: string; expires_at?: string },
+    options?: RequestOptions
+  ): Promise<ApiResponse<ApiKey>> {
+    return this.post<ApiKey>('/api-keys', data, options);
   }
 
   async listApiKeys(options?: RequestOptions): Promise<ApiResponse<ApiKey[]>> {
-    return this._get<ApiKey[]>('/api-keys', options)
+    return this._get<ApiKey[]>('/api-keys', options);
   }
 
   async revokeApiKey(id: string, options?: RequestOptions): Promise<ApiResponse<{ revoked: boolean }>> {
-    return this.del<{ revoked: boolean }>(`/api-keys/${id}`, options)
+    return this.del<{ revoked: boolean }>(`/api-keys/${id}`, options);
   }
 }

@@ -20,9 +20,9 @@
  * No exceptions thrown for expected API errors (4xx).
  */
 export type ApiResponse<T> = {
-  data: T | null
-  error: ApiError | null
-}
+  data: T | null;
+  error: ApiError | null;
+};
 
 /**
  * Standardized API error with machine-readable code.
@@ -33,14 +33,14 @@ export type ApiResponse<T> = {
  */
 export type ApiError = {
   /** Machine-readable error code (e.g., 'not_found', 'rate_limited') */
-  code: string
+  code: string;
   /** Human-readable error message */
-  message: string
+  message: string;
   /** HTTP status code */
-  status: number
+  status: number;
   /** Additional context (field errors, retryAfter, etc.) */
-  details?: Record<string, unknown>
-}
+  details?: Record<string, unknown>;
+};
 
 // ============================================================================
 // Pagination
@@ -51,31 +51,31 @@ export type ApiError = {
  * Used by all methods that return lists.
  */
 export type PaginatedResponse<T> = {
-  data: T[]
-  metadata: PaginationMetadata
-  error: ApiError | null
-}
+  data: T[];
+  metadata: PaginationMetadata;
+  error: ApiError | null;
+};
 
 /**
  * Pagination metadata returned with every list response.
  */
 export type PaginationMetadata = {
-  total: number
-  totalPages: number
-  page: number
-  perPage: number
+  total: number;
+  totalPages: number;
+  page: number;
+  perPage: number;
   /** Reserved for future cursor-based pagination */
-  nextCursor?: string
-}
+  nextCursor?: string;
+};
 
 /**
  * Pagination request parameters.
  * Accepted by any paginated method.
  */
 export type PaginationParams = {
-  page?: number
-  perPage?: number
-}
+  page?: number;
+  perPage?: number;
+};
 
 // ============================================================================
 // Error Codes
@@ -117,10 +117,10 @@ export const ErrorCodes = {
   FILE_QUARANTINED: 'file_quarantined',
 
   // Upload
-  UPLOAD_ERROR: 'upload_error',
-} as const
+  UPLOAD_ERROR: 'upload_error'
+} as const;
 
-export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes]
+export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
 
 // ============================================================================
 // Client Configuration
@@ -131,9 +131,9 @@ export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes]
  * Supports both sync (localStorage) and async (AsyncStorage) implementations.
  */
 export interface StorageAdapter {
-  getItem(key: string): string | null | Promise<string | null>
-  setItem(key: string, value: string): void | Promise<void>
-  removeItem(key: string): void | Promise<void>
+  getItem(key: string): string | null | Promise<string | null>;
+  setItem(key: string, value: string): void | Promise<void>;
+  removeItem(key: string): void | Promise<void>;
 }
 
 /**
@@ -141,28 +141,28 @@ export interface StorageAdapter {
  */
 export interface ScaleMuleConfig {
   /** API key (publishable key for browser, secret key for server) */
-  apiKey: string
+  apiKey: string;
   /** Base URL for API requests. Overrides environment preset. */
-  baseUrl?: string
+  baseUrl?: string;
   /** Environment preset ('dev' or 'prod'). Defaults to 'prod'. */
-  environment?: 'dev' | 'prod'
+  environment?: 'dev' | 'prod';
   /** Retry configuration for transient failures */
   retry?: {
     /** Max retry attempts (default: 2) */
-    maxRetries?: number
+    maxRetries?: number;
     /** Base delay between retries in ms (default: 300) */
-    backoffMs?: number
-  }
+    backoffMs?: number;
+  };
   /** Request timeout in ms (default: 30000) */
-  timeout?: number
+  timeout?: number;
   /** Enable debug logging to console */
-  debug?: boolean
+  debug?: boolean;
   /** Custom storage adapter for session persistence */
-  storage?: StorageAdapter
+  storage?: StorageAdapter;
   /** Enable rate limit queue — auto-queues requests when rate limited */
-  enableRateLimitQueue?: boolean
+  enableRateLimitQueue?: boolean;
   /** Enable offline queue — queues requests when offline, syncs on reconnect */
-  enableOfflineQueue?: boolean
+  enableOfflineQueue?: boolean;
 }
 
 // ============================================================================
@@ -174,19 +174,19 @@ export interface ScaleMuleConfig {
  */
 export interface RequestOptions {
   /** Skip adding auth headers (for public endpoints) */
-  skipAuth?: boolean
+  skipAuth?: boolean;
   /** Custom timeout in ms for this request */
-  timeout?: number
+  timeout?: number;
   /** Number of retry attempts for this request */
-  retries?: number
+  retries?: number;
   /** Skip retries entirely for this request */
-  skipRetry?: boolean
+  skipRetry?: boolean;
   /** User-provided AbortSignal for cancellation */
-  signal?: AbortSignal
+  signal?: AbortSignal;
   /** Additional headers for this request */
-  headers?: Record<string, string>
+  headers?: Record<string, string>;
   /** Client context to forward end-user info (IP, UA, etc.) in server-to-server calls */
-  clientContext?: ClientContext
+  clientContext?: ClientContext;
 }
 
 // ============================================================================
@@ -204,11 +204,11 @@ export interface RequestOptions {
  */
 export interface ClientContext {
   /** End-user IP address */
-  ip?: string
+  ip?: string;
   /** End-user browser User-Agent */
-  userAgent?: string
+  userAgent?: string;
   /** End-user device fingerprint */
-  deviceFingerprint?: string
+  deviceFingerprint?: string;
   /** HTTP Referer header from the end-user's request */
-  referrer?: string
+  referrer?: string;
 }

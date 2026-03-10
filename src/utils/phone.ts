@@ -14,6 +14,6 @@ export {
   findPhoneCountryByCode,
   findPhoneCountryByDialCode,
   detectCountryFromE164,
-  countryFlag,
-} from '@scalemule/ui/phone'
-export type { PhoneCountry, PhoneNormalizationResult } from '@scalemule/ui/phone'
+  countryFlag
+} from '@scalemule/ui/phone';
+export type { PhoneCountry, PhoneNormalizationResult } from '@scalemule/ui/phone';

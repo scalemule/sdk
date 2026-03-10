@@ -9,9 +9,9 @@
  * Payload excludes filename/body/PII; only operational metadata is emitted.
  */
 
-import type { ScaleMuleClient } from '../client'
-import { LoggerService } from './logger'
-import type { Severity, LogInput } from './logger'
+import type { ScaleMuleClient } from '../client';
+import { LoggerService } from './logger';
+import type { Severity, LogInput } from './logger';
 
 // ============================================================================
 // Types
@@ -34,26 +34,26 @@ export type UploadTelemetryEvent =
   | 'upload.multipart.part_failed'
   | 'upload.multipart.url_refreshed'
   | 'upload.multipart.completed'
-  | 'upload.multipart.aborted'
+  | 'upload.multipart.aborted';
 
 export interface TelemetryPayload {
   /** Upload session correlation ID */
-  upload_session_id: string
+  upload_session_id: string;
   /** Event name */
-  event: UploadTelemetryEvent
+  event: UploadTelemetryEvent;
   /** Timestamp in ISO 8601 */
-  timestamp: string
+  timestamp: string;
   /** Operational metadata (no PII) */
-  metadata: Record<string, unknown>
+  metadata: Record<string, unknown>;
 }
 
 export interface UploadTelemetryConfig {
   /** Enable/disable telemetry (default: true) */
-  enabled: boolean
+  enabled: boolean;
   /** Flush interval in ms (default: 2000) */
-  flushIntervalMs: number
+  flushIntervalMs: number;
   /** Max buffer size before forced flush (default: 50) */
-  maxBufferSize: number
+  maxBufferSize: number;
 }
 
 // ============================================================================
@@ -77,56 +77,52 @@ const EVENT_SEVERITY: Record<UploadTelemetryEvent, Severity> = {
   'upload.compression.completed': 'info',
   'upload.progress': 'debug',
   'upload.multipart.part_completed': 'debug',
-  'upload.compression.started': 'debug',
-}
+  'upload.compression.started': 'debug'
+};
 
 // ============================================================================
 // UploadTelemetry
 // ============================================================================
 
 export class UploadTelemetry {
-  private buffer: TelemetryPayload[] = []
-  private debugLogBuffer: LogInput[] = []
-  private flushTimer: ReturnType<typeof setInterval> | null = null
-  private client: ScaleMuleClient
-  private logger: LoggerService
-  private config: UploadTelemetryConfig
-  private flushing = false
+  private buffer: TelemetryPayload[] = [];
+  private debugLogBuffer: LogInput[] = [];
+  private flushTimer: ReturnType<typeof setInterval> | null = null;
+  private client: ScaleMuleClient;
+  private logger: LoggerService;
+  private config: UploadTelemetryConfig;
+  private flushing = false;
 
   constructor(client: ScaleMuleClient, config?: Partial<UploadTelemetryConfig>) {
-    this.client = client
-    this.logger = new LoggerService(client)
+    this.client = client;
+    this.logger = new LoggerService(client);
     this.config = {
       enabled: config?.enabled ?? true,
       flushIntervalMs: config?.flushIntervalMs ?? 2000,
-      maxBufferSize: config?.maxBufferSize ?? 50,
-    }
+      maxBufferSize: config?.maxBufferSize ?? 50
+    };
 
     if (this.config.enabled) {
-      this.startFlushTimer()
+      this.startFlushTimer();
     }
   }
 
   /** Emit a telemetry event. Never throws. */
-  emit(
-    sessionId: string,
-    event: UploadTelemetryEvent,
-    metadata: Record<string, unknown> = {},
-  ): void {
-    if (!this.config.enabled) return
+  emit(sessionId: string, event: UploadTelemetryEvent, metadata: Record<string, unknown> = {}): void {
+    if (!this.config.enabled) return;
 
     const payload: TelemetryPayload = {
       upload_session_id: sessionId,
       event,
       timestamp: new Date().toISOString(),
-      metadata,
-    }
+      metadata
+    };
 
-    const severity = EVENT_SEVERITY[event] || 'info'
+    const severity = EVENT_SEVERITY[event] || 'info';
 
     // Error/warn/info events: send to logger immediately (fire-and-forget)
     if (severity !== 'debug') {
-      this.sendToLogger(payload, severity)
+      this.sendToLogger(payload, severity);
     } else {
       // Debug events: buffer for batch send on flush
       this.debugLogBuffer.push({
@@ -134,25 +130,25 @@ export class UploadTelemetry {
         severity,
         message: `Upload ${event}: session=${sessionId}`,
         metadata: { upload_session_id: sessionId, event, ...metadata },
-        trace_id: sessionId,
-      })
+        trace_id: sessionId
+      });
     }
 
     // All events go to analytics batch buffer (unchanged)
-    this.buffer.push(payload)
+    this.buffer.push(payload);
 
     if (this.buffer.length >= this.config.maxBufferSize) {
-      this.flush()
+      this.flush();
     }
   }
 
   /** Flush buffered events immediately. Never throws. */
   async flush(): Promise<void> {
-    if (!this.config.enabled || (this.buffer.length === 0 && this.debugLogBuffer.length === 0) || this.flushing) return
+    if (!this.config.enabled || (this.buffer.length === 0 && this.debugLogBuffer.length === 0) || this.flushing) return;
 
-    this.flushing = true
-    const batch = this.buffer.splice(0)
-    const debugLogs = this.debugLogBuffer.splice(0)
+    this.flushing = true;
+    const batch = this.buffer.splice(0);
+    const debugLogs = this.debugLogBuffer.splice(0);
 
     try {
       // Send analytics batch
@@ -161,73 +157,75 @@ export class UploadTelemetry {
           event: p.event,
           properties: {
             upload_session_id: p.upload_session_id,
-            ...p.metadata,
+            ...p.metadata
           },
-          timestamp: p.timestamp,
-        }))
+          timestamp: p.timestamp
+        }));
 
         // Fire-and-forget via analytics batch endpoint
         await this.client.post('/v1/analytics/v2/events/batch', { events }).catch(() => {
           // Telemetry failures are silently dropped
-        })
+        });
       }
 
       // Send buffered debug logs via logBatch
       if (debugLogs.length > 0) {
         await this.logger.logBatch(debugLogs).catch(() => {
           // Logger failures are silently dropped
-        })
+        });
       }
     } catch {
       // Never block on telemetry failure
     } finally {
-      this.flushing = false
+      this.flushing = false;
     }
   }
 
   /** Stop the flush timer and drain remaining events. */
   async destroy(): Promise<void> {
     if (this.flushTimer !== null) {
-      clearInterval(this.flushTimer)
-      this.flushTimer = null
+      clearInterval(this.flushTimer);
+      this.flushTimer = null;
     }
-    await this.flush()
+    await this.flush();
   }
 
   private startFlushTimer(): void {
     if (typeof setInterval !== 'undefined') {
       this.flushTimer = setInterval(() => {
-        this.flush()
-      }, this.config.flushIntervalMs)
+        this.flush();
+      }, this.config.flushIntervalMs);
 
       // Unref timer if available (Node.js) so it doesn't prevent process exit
       if (this.flushTimer && typeof this.flushTimer === 'object' && 'unref' in this.flushTimer) {
-        (this.flushTimer as { unref: () => void }).unref()
+        (this.flushTimer as { unref: () => void }).unref();
       }
     }
   }
 
   /** Send a log entry to the logger service (fire-and-forget) */
   private sendToLogger(payload: TelemetryPayload, severity: Severity): void {
-    this.logger.log({
-      service: 'storage.upload',
-      severity,
-      message: `Upload ${payload.event}: session=${payload.upload_session_id}`,
-      metadata: {
-        upload_session_id: payload.upload_session_id,
-        event: payload.event,
-        ...payload.metadata,
-      },
-      trace_id: payload.upload_session_id,
-    }).catch(() => {
-      // Silently drop logger failures
-    })
+    this.logger
+      .log({
+        service: 'storage.upload',
+        severity,
+        message: `Upload ${payload.event}: session=${payload.upload_session_id}`,
+        metadata: {
+          upload_session_id: payload.upload_session_id,
+          event: payload.event,
+          ...payload.metadata
+        },
+        trace_id: payload.upload_session_id
+      })
+      .catch(() => {
+        // Silently drop logger failures
+      });
   }
 }
 
 /** Generate a unique upload session ID */
 export function generateUploadSessionId(): string {
-  const timestamp = Date.now().toString(36)
-  const random = Math.random().toString(36).slice(2, 10)
-  return `us_${timestamp}_${random}`
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).slice(2, 10);
+  return `us_${timestamp}_${random}`;
 }

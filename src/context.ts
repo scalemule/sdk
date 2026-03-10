@@ -12,7 +12,7 @@
  * these utilities plus Next.js-typed wrappers.
  */
 
-import type { ClientContext } from './types'
+import type { ClientContext } from './types';
 
 // ============================================================================
 // Request abstraction
@@ -26,8 +26,8 @@ import type { ClientContext } from './types'
  * can be `string`, `string[]`, or `undefined` (Node.js convention).
  */
 export interface IncomingRequestLike {
-  headers: Record<string, string | string[] | undefined>
-  socket?: { remoteAddress?: string }
+  headers: Record<string, string | string[] | undefined>;
+  socket?: { remoteAddress?: string };
 }
 
 // ============================================================================
@@ -39,21 +39,22 @@ export interface IncomingRequestLike {
  * Returns the trimmed IP if valid, `undefined` otherwise.
  */
 export function validateIP(ip: string | undefined | null): string | undefined {
-  if (!ip) return undefined
-  const trimmed = ip.trim()
-  if (!trimmed) return undefined
+  if (!ip) return undefined;
+  const trimmed = ip.trim();
+  if (!trimmed) return undefined;
 
   // IPv4
-  const ipv4 = /^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$/
+  const ipv4 = /^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
   // IPv6 (simplified)
-  const ipv6 = /^(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$|^::(?:[0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}$|^(?:[0-9a-fA-F]{1,4}:){1,7}:$|^(?:[0-9a-fA-F]{1,4}:){0,6}::(?:[0-9a-fA-F]{1,4}:){0,5}[0-9a-fA-F]{1,4}$/
+  const ipv6 =
+    /^(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$|^::(?:[0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}$|^(?:[0-9a-fA-F]{1,4}:){1,7}:$|^(?:[0-9a-fA-F]{1,4}:){0,6}::(?:[0-9a-fA-F]{1,4}:){0,5}[0-9a-fA-F]{1,4}$/;
   // IPv4-mapped IPv6  (::ffff:192.0.2.1)
-  const mapped = /^::ffff:(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$/i
+  const mapped = /^::ffff:(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$/i;
 
   if (ipv4.test(trimmed) || ipv6.test(trimmed) || mapped.test(trimmed)) {
-    return trimmed
+    return trimmed;
   }
-  return undefined
+  return undefined;
 }
 
 // ============================================================================
@@ -83,54 +84,54 @@ export function validateIP(ip: string | undefined | null): string | undefined {
  * ```
  */
 export function extractClientContext(request: IncomingRequestLike): ClientContext {
-  const h = request.headers
+  const h = request.headers;
 
   const getHeader = (name: string): string | undefined => {
-    const v = h[name] ?? h[name.toLowerCase()]
-    return Array.isArray(v) ? v[0] : v
-  }
+    const v = h[name] ?? h[name.toLowerCase()];
+    return Array.isArray(v) ? v[0] : v;
+  };
 
   // IP fallback chain
-  let ip: string | undefined
+  let ip: string | undefined;
 
-  const cfIp = getHeader('cf-connecting-ip')
-  if (cfIp) ip = validateIP(cfIp)
+  const cfIp = getHeader('cf-connecting-ip');
+  if (cfIp) ip = validateIP(cfIp);
 
   if (!ip) {
-    const doIp = getHeader('do-connecting-ip')
-    if (doIp) ip = validateIP(doIp)
+    const doIp = getHeader('do-connecting-ip');
+    if (doIp) ip = validateIP(doIp);
   }
 
   if (!ip) {
-    const realIp = getHeader('x-real-ip')
-    if (realIp) ip = validateIP(realIp)
+    const realIp = getHeader('x-real-ip');
+    if (realIp) ip = validateIP(realIp);
   }
 
   if (!ip) {
-    const xff = getHeader('x-forwarded-for')
-    if (xff) ip = validateIP(xff.split(',')[0]?.trim())
+    const xff = getHeader('x-forwarded-for');
+    if (xff) ip = validateIP(xff.split(',')[0]?.trim());
   }
 
   if (!ip) {
-    const vercel = getHeader('x-vercel-forwarded-for')
-    if (vercel) ip = validateIP(vercel.split(',')[0]?.trim())
+    const vercel = getHeader('x-vercel-forwarded-for');
+    if (vercel) ip = validateIP(vercel.split(',')[0]?.trim());
   }
 
   if (!ip) {
-    const akamai = getHeader('true-client-ip')
-    if (akamai) ip = validateIP(akamai)
+    const akamai = getHeader('true-client-ip');
+    if (akamai) ip = validateIP(akamai);
   }
 
   if (!ip && request.socket?.remoteAddress) {
-    ip = validateIP(request.socket.remoteAddress)
+    ip = validateIP(request.socket.remoteAddress);
   }
 
   return {
     ip,
     userAgent: getHeader('user-agent') || undefined,
     deviceFingerprint: getHeader('x-device-fingerprint') || undefined,
-    referrer: getHeader('referer') || undefined,
-  }
+    referrer: getHeader('referer') || undefined
+  };
 }
 
 // ============================================================================
@@ -149,17 +150,15 @@ export function extractClientContext(request: IncomingRequestLike): ClientContex
  * Used internally by `ServiceModule.resolveOptions()`. You normally don't
  * need to call this directly — just pass `clientContext` in `RequestOptions`.
  */
-export function buildClientContextHeaders(
-  context: ClientContext | undefined,
-): Record<string, string> {
-  if (!context) return {}
-  const headers: Record<string, string> = {}
+export function buildClientContextHeaders(context: ClientContext | undefined): Record<string, string> {
+  if (!context) return {};
+  const headers: Record<string, string> = {};
   if (context.ip) {
-    headers['x-sm-forwarded-client-ip'] = context.ip
-    headers['X-Client-IP'] = context.ip
+    headers['x-sm-forwarded-client-ip'] = context.ip;
+    headers['X-Client-IP'] = context.ip;
   }
-  if (context.userAgent) headers['X-Client-User-Agent'] = context.userAgent
-  if (context.deviceFingerprint) headers['X-Client-Device-Fingerprint'] = context.deviceFingerprint
-  if (context.referrer) headers['X-Client-Referrer'] = context.referrer
-  return headers
+  if (context.userAgent) headers['X-Client-User-Agent'] = context.userAgent;
+  if (context.deviceFingerprint) headers['X-Client-Device-Fingerprint'] = context.deviceFingerprint;
+  if (context.referrer) headers['X-Client-Referrer'] = context.referrer;
+  return headers;
 }

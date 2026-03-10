@@ -14,32 +14,32 @@
  *   GET    /messages/{id}                  → get message status
  */
 
-import { ServiceModule } from '../service'
-import type { ApiResponse, RequestOptions } from '../types'
+import { ServiceModule } from '../service';
+import type { ApiResponse, RequestOptions } from '../types';
 
 // ============================================================================
 // Types
 // ============================================================================
 
 export interface MessageStatus {
-  id: string
-  channel: string
-  recipient: string
-  status: string
-  provider: string
-  provider_message_id?: string
-  sent_at?: string
-  delivered_at?: string
-  opened_at?: string
-  clicked_at?: string
-  failed_at?: string
-  error_message?: string
+  id: string;
+  channel: string;
+  recipient: string;
+  status: string;
+  provider: string;
+  provider_message_id?: string;
+  sent_at?: string;
+  delivered_at?: string;
+  opened_at?: string;
+  clicked_at?: string;
+  failed_at?: string;
+  error_message?: string;
 }
 
 export interface PushToken {
-  token: string
-  platform: string
-  created_at: string
+  token: string;
+  platform: string;
+  created_at: string;
 }
 
 // ============================================================================
@@ -47,18 +47,25 @@ export interface PushToken {
 // ============================================================================
 
 export class CommunicationService extends ServiceModule {
-  protected basePath = '/v1/communication'
+  protected basePath = '/v1/communication';
 
   // --------------------------------------------------------------------------
   // Email
   // --------------------------------------------------------------------------
 
-  async sendEmail(data: { to: string; subject: string; body: string; template_id?: string }, options?: RequestOptions): Promise<ApiResponse<MessageStatus>> {
-    return this.post<MessageStatus>('/email/send', data, options)
+  async sendEmail(
+    data: { to: string; subject: string; body: string; template_id?: string },
+    options?: RequestOptions
+  ): Promise<ApiResponse<MessageStatus>> {
+    return this.post<MessageStatus>('/email/send', data, options);
   }
 
-  async sendEmailTemplate(template: string, data: { to: string; variables?: Record<string, unknown> }, options?: RequestOptions): Promise<ApiResponse<MessageStatus>> {
-    return this.post<MessageStatus>(`/email/templates/${template}/send`, data, options)
+  async sendEmailTemplate(
+    template: string,
+    data: { to: string; variables?: Record<string, unknown> },
+    options?: RequestOptions
+  ): Promise<ApiResponse<MessageStatus>> {
+    return this.post<MessageStatus>(`/email/templates/${template}/send`, data, options);
   }
 
   // --------------------------------------------------------------------------
@@ -66,27 +73,37 @@ export class CommunicationService extends ServiceModule {
   // --------------------------------------------------------------------------
 
   async sendSms(data: { to: string; message: string }, options?: RequestOptions): Promise<ApiResponse<MessageStatus>> {
-    return this.post<MessageStatus>('/sms/send', data, options)
+    return this.post<MessageStatus>('/sms/send', data, options);
   }
 
-  async sendSmsTemplate(template: string, data: { to: string; variables?: Record<string, unknown> }, options?: RequestOptions): Promise<ApiResponse<MessageStatus>> {
-    return this.post<MessageStatus>(`/sms/templates/${template}/send`, data, options)
+  async sendSmsTemplate(
+    template: string,
+    data: { to: string; variables?: Record<string, unknown> },
+    options?: RequestOptions
+  ): Promise<ApiResponse<MessageStatus>> {
+    return this.post<MessageStatus>(`/sms/templates/${template}/send`, data, options);
   }
 
   // --------------------------------------------------------------------------
   // Push Notifications
   // --------------------------------------------------------------------------
 
-  async sendPush(data: { user_id: string; title: string; body: string; data?: Record<string, unknown> }, options?: RequestOptions): Promise<ApiResponse<MessageStatus>> {
-    return this.post<MessageStatus>('/push/send', data, options)
+  async sendPush(
+    data: { user_id: string; title: string; body: string; data?: Record<string, unknown> },
+    options?: RequestOptions
+  ): Promise<ApiResponse<MessageStatus>> {
+    return this.post<MessageStatus>('/push/send', data, options);
   }
 
-  async registerPushToken(data: { token: string; platform: string }, options?: RequestOptions): Promise<ApiResponse<PushToken>> {
-    return this.post<PushToken>('/push/register', data, options)
+  async registerPushToken(
+    data: { token: string; platform: string },
+    options?: RequestOptions
+  ): Promise<ApiResponse<PushToken>> {
+    return this.post<PushToken>('/push/register', data, options);
   }
 
   async unregisterPushToken(token: string, options?: RequestOptions): Promise<ApiResponse<{ unregistered: boolean }>> {
-    return this.del<{ unregistered: boolean }>(`/push/tokens/${token}`, options)
+    return this.del<{ unregistered: boolean }>(`/push/tokens/${token}`, options);
   }
 
   // --------------------------------------------------------------------------
@@ -94,7 +111,7 @@ export class CommunicationService extends ServiceModule {
   // --------------------------------------------------------------------------
 
   async getMessageStatus(id: string, options?: RequestOptions): Promise<ApiResponse<MessageStatus>> {
-    return this._get<MessageStatus>(`/messages/${id}`, options)
+    return this._get<MessageStatus>(`/messages/${id}`, options);
   }
 
   // --------------------------------------------------------------------------
@@ -103,11 +120,11 @@ export class CommunicationService extends ServiceModule {
 
   /** @deprecated Use sendSms() instead */
   async sendSMS(data: { to: string; message: string }) {
-    return this.sendSms(data)
+    return this.sendSms(data);
   }
 
   /** @deprecated Use sendPush() instead */
   async sendPushNotification(data: { user_id: string; title: string; body: string; data?: Record<string, unknown> }) {
-    return this.sendPush(data)
+    return this.sendPush(data);
   }
 }
