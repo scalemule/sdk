@@ -465,10 +465,7 @@ export class AgentProjectsService extends ServiceModule {
     return this.post<ProjectGrant>('/project-grants', data, options);
   }
 
-  async listGrants(
-    projectId: string,
-    options?: RequestOptions
-  ): Promise<ApiResponse<ProjectGrant[]>> {
+  async listGrants(projectId: string, options?: RequestOptions): Promise<ApiResponse<ProjectGrant[]>> {
     const result = await this._get<{ grants: ProjectGrant[] }>(
       this.withQuery('/project-grants', { project_id: projectId }),
       options
