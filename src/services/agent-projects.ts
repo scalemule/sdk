@@ -111,7 +111,6 @@ export interface ProjectGrant {
   project_id: string;
   role: string;
   user_email: string;
-  team_invitation_id?: string;
   status: 'pending' | 'redeemed' | 'revoked' | 'expired';
   created_by: string;
   created_at: string;
@@ -480,15 +479,6 @@ export class AgentProjectsService extends ServiceModule {
   /** Public endpoint — no auth required. Returns masked email + project name. */
   async getGrantInfo(id: string, options?: RequestOptions): Promise<ApiResponse<GrantInfo>> {
     return this._get<GrantInfo>(`/project-grants/${id}/info`, { skipAuth: true, ...options });
-  }
-
-  /** Internal-only — link grant to team invitation. Requires x-sm-internal-token header. */
-  async updateGrant(
-    id: string,
-    data: { team_id: string; team_invitation_id: string; team_invitation_token_hash: string; expires_at?: string },
-    options?: RequestOptions
-  ): Promise<ApiResponse<ProjectGrant>> {
-    return this.patch<ProjectGrant>(`/project-grants/${id}`, data, options);
   }
 
   async revokeGrant(id: string, options?: RequestOptions): Promise<ApiResponse<void>> {
