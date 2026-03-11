@@ -355,7 +355,9 @@ export class ScaleMule {
   public readonly permissions: PermissionsService;
   public readonly workspaces: WorkspacesService;
   /** @deprecated Use `workspaces` instead */
-  get teams(): WorkspacesService { return this.workspaces; }
+  get teams(): WorkspacesService {
+    return this.workspaces;
+  }
 
   // Core services
   public readonly accounts: AccountsService;

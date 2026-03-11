@@ -97,7 +97,10 @@ export class WorkspacesService extends ServiceModule {
   // Workspace CRUD
   // --------------------------------------------------------------------------
 
-  async create(data: { name: string; description?: string }, options?: RequestOptions): Promise<ApiResponse<Workspace>> {
+  async create(
+    data: { name: string; description?: string },
+    options?: RequestOptions
+  ): Promise<ApiResponse<Workspace>> {
     return this.post<Workspace>('', data, options);
   }
 
