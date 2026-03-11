@@ -152,8 +152,10 @@ export type { SchedulerJob, JobExecution, JobStats } from './services/scheduler'
 export { PermissionsService } from './services/permissions';
 export type { Role, PermissionCheck, Policy, PermissionMatrix, IdentityType } from './services/permissions';
 export { canPerform, hasMinRoleLevel } from './services/permissions';
+export { WorkspacesService } from './services/workspaces';
+export type { Workspace, WorkspaceMember, WorkspaceInvitation, SsoConfig } from './services/workspaces';
 export { TeamsService } from './services/teams';
-export type { Team, TeamMember, TeamInvitation, SsoConfig } from './services/teams';
+export type { Team, TeamMember, TeamInvitation } from './services/teams';
 
 // Re-export additional service modules
 export { GraphService } from './services/graph';
@@ -209,7 +211,7 @@ export type {
   RegisterAgentResponse,
   RuntimeTemplate,
   RuntimeTemplateVersion,
-  Workspace
+  Workspace as AgentWorkspace
 } from './services/agents';
 export { AgentProjectsService } from './services/agent-projects';
 export type {
@@ -269,6 +271,7 @@ import { AnalyticsService } from './services/analytics';
 import { CommunicationService } from './services/communication';
 import { SchedulerService } from './services/scheduler';
 import { PermissionsService } from './services/permissions';
+import { WorkspacesService } from './services/workspaces';
 import { TeamsService } from './services/teams';
 
 // Additional service imports
@@ -350,6 +353,7 @@ export class ScaleMule {
   public readonly communication: CommunicationService;
   public readonly scheduler: SchedulerService;
   public readonly permissions: PermissionsService;
+  public readonly workspaces: WorkspacesService;
   public readonly teams: TeamsService;
 
   // Core services
@@ -407,6 +411,7 @@ export class ScaleMule {
     this.communication = new CommunicationService(this._client);
     this.scheduler = new SchedulerService(this._client);
     this.permissions = new PermissionsService(this._client);
+    this.workspaces = new WorkspacesService(this._client);
     this.teams = new TeamsService(this._client);
 
     // Other services

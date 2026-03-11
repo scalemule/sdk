@@ -2505,16 +2505,18 @@ declare class PermissionsService extends ServiceModule {
 }
 
 /**
- * Teams Service Module
+ * Workspaces Service Module
  *
- * Team CRUD, members, invitations, SSO.
+ * Workspace CRUD, members, invitations, SSO.
+ * Workspaces are resource containers (own projects, goals, settings, people, agents).
  *
- * Routes:
- *   POST   /                              → create team
- *   GET    /                               → list teams
- *   GET    /{id}                           → get team
- *   PATCH  /{id}                           → update team
- *   DELETE /{id}                           → delete team
+ * Routes (via /v1/workspaces):
+ *   POST   /                              → create workspace
+ *   GET    /                               → list workspaces
+ *   GET    /mine                           → list my workspaces
+ *   GET    /{id}                           → get workspace
+ *   PATCH  /{id}                           → update workspace
+ *   DELETE /{id}                           → delete workspace
  *   GET    /{id}/members                   → list members
  *   POST   /{id}/members                   → add member
  *   PATCH  /{id}/members/{userId}          → update member role
@@ -2527,25 +2529,29 @@ declare class PermissionsService extends ServiceModule {
  *   GET    /{id}/sso                        → get SSO config
  */
 
-interface Team {
+interface Workspace$1 {
     id: string;
-    team_name: string;
+    kind: 'workspace';
+    name: string;
     description?: string;
     owner_user_id: string;
     plan_type?: string;
     member_limit?: number;
     created_at: string;
 }
-interface TeamMember {
+interface WorkspaceMember {
     id: string;
-    team_id: string;
+    container_id: string;
     sm_user_id: string;
     role: string;
     joined_at: string;
+    full_name?: string;
+    email?: string;
+    avatar_url?: string;
 }
-interface TeamInvitation {
+interface WorkspaceInvitation {
     id: string;
-    team_id: string;
+    container_id: string;
     email: string;
     invited_by: string;
     role: string;
@@ -2556,7 +2562,7 @@ interface TeamInvitation {
 }
 interface SsoConfig {
     id: string;
-    team_id: string;
+    container_id: string;
     provider_type: string;
     provider_name?: string;
     saml_idp_entity_id?: string;
@@ -2575,6 +2581,105 @@ interface SsoConfig {
     created_at: string;
     updated_at: string;
 }
+declare class WorkspacesService extends ServiceModule {
+    protected basePath: string;
+    create(data: {
+        name: string;
+        description?: string;
+    }, options?: RequestOptions): Promise<ApiResponse<Workspace$1>>;
+    list(params?: PaginationParams, requestOptions?: RequestOptions): Promise<PaginatedResponse<Workspace$1>>;
+    mine(params?: PaginationParams, options?: RequestOptions): Promise<PaginatedResponse<Workspace$1>>;
+    get(id: string, options?: RequestOptions): Promise<ApiResponse<Workspace$1>>;
+    update(id: string, data: Partial<{
+        name: string;
+        description: string;
+    }>, options?: RequestOptions): Promise<ApiResponse<Workspace$1>>;
+    delete(id: string, options?: RequestOptions): Promise<ApiResponse<{
+        deleted: boolean;
+    }>>;
+    listMembers(workspaceId: string, params?: PaginationParams, requestOptions?: RequestOptions): Promise<PaginatedResponse<WorkspaceMember>>;
+    addMember(workspaceId: string, data: {
+        user_id: string;
+        role: string;
+    }, options?: RequestOptions): Promise<ApiResponse<WorkspaceMember>>;
+    updateMember(workspaceId: string, userId: string, data: {
+        role: string;
+    }, options?: RequestOptions): Promise<ApiResponse<WorkspaceMember>>;
+    removeMember(workspaceId: string, userId: string, options?: RequestOptions): Promise<ApiResponse<{
+        removed: boolean;
+    }>>;
+    invite(workspaceId: string, data: {
+        email: string;
+        role: string;
+    }, options?: RequestOptions): Promise<ApiResponse<WorkspaceInvitation>>;
+    listInvitations(workspaceId: string, options?: RequestOptions): Promise<ApiResponse<WorkspaceInvitation[]>>;
+    acceptInvitation(token: string, options?: RequestOptions): Promise<ApiResponse<WorkspaceInvitation>>;
+    cancelInvitation(id: string, options?: RequestOptions): Promise<ApiResponse<{
+        cancelled: boolean;
+    }>>;
+    configureSso(workspaceId: string, data: {
+        provider: string;
+        domain: string;
+        metadata_url?: string;
+    }, options?: RequestOptions): Promise<ApiResponse<SsoConfig>>;
+    getSso(workspaceId: string, options?: RequestOptions): Promise<ApiResponse<SsoConfig>>;
+}
+
+/**
+ * Teams Service Module
+ *
+ * Team CRUD, members, invitations.
+ * Teams are membership/coordination groups (group people and agents; do not own resources).
+ * SSO is NOT available for teams — use workspaces for SSO.
+ *
+ * Routes (via /v1/teams):
+ *   POST   /                              → create team
+ *   GET    /                               → list teams
+ *   GET    /mine                           → list my teams
+ *   GET    /{id}                           → get team
+ *   PATCH  /{id}                           → update team
+ *   DELETE /{id}                           → delete team
+ *   GET    /{id}/members                   → list members
+ *   POST   /{id}/members                   → add member
+ *   PATCH  /{id}/members/{userId}          → update member role
+ *   DELETE /{id}/members/{userId}          → remove member
+ *   POST   /{id}/invitations               → invite
+ *   GET    /{id}/invitations               → list invitations
+ *   POST   /invitations/{token}/accept     → accept invitation
+ *   DELETE /invitations/{id}               → cancel invitation
+ */
+
+interface Team {
+    id: string;
+    kind: 'team';
+    name: string;
+    description?: string;
+    owner_user_id: string;
+    plan_type?: string;
+    member_limit?: number;
+    created_at: string;
+}
+interface TeamMember {
+    id: string;
+    container_id: string;
+    sm_user_id: string;
+    role: string;
+    joined_at: string;
+    full_name?: string;
+    email?: string;
+    avatar_url?: string;
+}
+interface TeamInvitation {
+    id: string;
+    container_id: string;
+    email: string;
+    invited_by: string;
+    role: string;
+    token?: string;
+    status: string;
+    expires_at: string;
+    created_at: string;
+}
 declare class TeamsService extends ServiceModule {
     protected basePath: string;
     create(data: {
@@ -2582,6 +2687,7 @@ declare class TeamsService extends ServiceModule {
         description?: string;
     }, options?: RequestOptions): Promise<ApiResponse<Team>>;
     list(params?: PaginationParams, requestOptions?: RequestOptions): Promise<PaginatedResponse<Team>>;
+    mine(params?: PaginationParams, options?: RequestOptions): Promise<PaginatedResponse<Team>>;
     get(id: string, options?: RequestOptions): Promise<ApiResponse<Team>>;
     update(id: string, data: Partial<{
         name: string;
@@ -2610,19 +2716,6 @@ declare class TeamsService extends ServiceModule {
     cancelInvitation(id: string, options?: RequestOptions): Promise<ApiResponse<{
         cancelled: boolean;
     }>>;
-    configureSso(teamId: string, data: {
-        provider: string;
-        domain: string;
-        metadata_url?: string;
-    }, options?: RequestOptions): Promise<ApiResponse<SsoConfig>>;
-    getSso(teamId: string, options?: RequestOptions): Promise<ApiResponse<SsoConfig>>;
-    /** @deprecated Use create() instead */
-    createTeam(data: {
-        name: string;
-        description?: string;
-    }): Promise<ApiResponse<Team>>;
-    /** @deprecated Use invite() instead */
-    inviteMember(teamId: string, email: string, role: string): Promise<ApiResponse<TeamInvitation>>;
 }
 
 /**
@@ -4180,6 +4273,8 @@ interface Project {
     name: string;
     description?: string;
     status: string;
+    owner_user_id?: string;
+    metadata?: Record<string, unknown>;
     created_at: string;
     updated_at: string;
 }
@@ -4277,6 +4372,9 @@ interface ProjectGrant {
     expires_at: string;
     redeemed_at?: string;
     email_sent?: boolean;
+    container_invitation_id?: string;
+    /** @deprecated Use container_invitation_id */
+    team_invitation_id?: string;
 }
 interface GrantInfo {
     id: string;
@@ -4297,15 +4395,18 @@ declare class AgentProjectsService extends ServiceModule {
     createProject(data: {
         name: string;
         description?: string;
+        metadata?: Record<string, unknown>;
     }, applicationId?: string, options?: RequestOptions): Promise<ApiResponse<Project>>;
     listProjects(params?: PaginationParams & {
         application_id?: string;
+        team_id?: string;
     }, options?: RequestOptions): Promise<PaginatedResponse<Project>>;
     getProject(id: string, applicationId?: string, options?: RequestOptions): Promise<ApiResponse<Project>>;
     updateProject(id: string, data: Partial<{
         name: string;
         description: string;
         status: string;
+        metadata: Record<string, unknown>;
     }>, applicationId?: string, options?: RequestOptions): Promise<ApiResponse<Project>>;
     addMember(projectId: string, data: {
         user_id: string;
@@ -4390,6 +4491,12 @@ declare class AgentProjectsService extends ServiceModule {
         user_email: string;
         expires_at: string;
         invite_url?: string;
+        container_invitation_id?: string;
+        container_id?: string;
+        /** @deprecated Use container_invitation_id */
+        team_invitation_id?: string;
+        /** @deprecated Use container_id */
+        team_id?: string;
     }, options?: RequestOptions): Promise<ApiResponse<ProjectGrant>>;
     listGrants(projectId: string, options?: RequestOptions): Promise<ApiResponse<ProjectGrant[]>>;
     getGrant(id: string, options?: RequestOptions): Promise<ApiResponse<ProjectGrant>>;
@@ -4795,6 +4902,7 @@ declare class ScaleMule {
     readonly communication: CommunicationService;
     readonly scheduler: SchedulerService;
     readonly permissions: PermissionsService;
+    readonly workspaces: WorkspacesService;
     readonly teams: TeamsService;
     readonly accounts: AccountsService;
     readonly identity: IdentityService;
@@ -4848,4 +4956,4 @@ declare class ScaleMule {
     getClient(): ScaleMuleClient;
 }
 
-export { type AccountBalance, AccountsService, type ActiveUsers, type ActivityItem, AgentAuthService, AgentModelsService, type AgentProfile, AgentProjectsService, type AgentResponse, type AgentSecurityPolicy, AgentSessionsService, type AgentSigningKey, type AgentToken, type AgentToolEntitlement, AgentToolsService, AgentsService, type AggregateOptions, type AggregateResult, type AnalyticsEvent, AnalyticsService, type ApiError, type ApiKey, type ApiResponse, type Appeal, type Application, type Attachment, type Attendee, type AuditLog, type AuthRegisterAgentRequest, type AuthRegisterAgentResponse, AuthService, type AuthSession, type AuthUser, type BackupCodes, BillingService, type CacheEntry, CacheService, type CalendarEvent, type CatalogEntry, CatalogService, type ChatMessage, type ChatReaction, ChatService, type ClaimResult, type Client, type ClientContext, type Collection, type Comment, CommunicationService, type CompletedPart, ComplianceService, type CompressionConfig, type ConnectedAccount, type ConnectedAccountSubscription, type ConnectedSetupIntentResponse, type ConnectedSubscriptionListParams, type ConnectionStatus, type ContentFlag, type Conversation, type CostReportDay, type CreateSessionResponse, type Credential, type CredentialScope, type Customer, type DataAccessPolicy, type DataExport, DataService, type DataSource, type DeadLetterJob, type DeviceInfo, type Document, type ErrorCode, ErrorCodes, type EventAggregation, EventsService, type FileInfo, type FlagCheck, FlagContentService, type FollowStatus, type FunctionExecution, type FunctionMetrics, FunctionsService, type Funnel, type FunnelConversion, type GdprRequest, type GrantInfo, type GraphEdge, type GraphNode, GraphService, IdentityService, type IdentityType, type IncomingRequestLike, type Invoice, type JobExecution, type JobStats, type Leaderboard, type LeaderboardEntry, LeaderboardService, type Like, type Listing, ListingsService, type LogEntry, type LogInput, type LogQueryParams, type LogQueryResponse, type LogRecord, LoggerService, type LoginActivitySummary, type LoginDeviceInfo, type LoginHistoryEntry, type LoginRiskInfo, type MessageCallback, type MessageStatus, type MetricDataPoint, type MfaStatus, type Model, type ModelEntitlement, type ModelPricing, type ModelProvider, type UsageSummary as ModelUsageSummary, type MultipartCompleteResponse, type MultipartPartUrlsResponse, type MultipartStartResponse, type NetworkClass, type OAuthProvider, type OAuthUrl, OrchestratorService, PHOTO_BREAKPOINTS, type PaginatedResponse, type PaginationMetadata, type PaginationParams, type PartUrl, type Participant, type Payment, type PaymentListParams, type PaymentMethod, type PaymentStatusResponse, type Payout, type PayoutSchedule, type PermissionCheck, type PermissionMatrix, PermissionsService, type PhotoInfo, PhotoService, type Pipeline, type PipelineVersion, type Policy, type PresenceCallback, type PresenceEvent, type PresignedUploadResponse, type Price, type Product, type Project, type ProjectDocument, type ProjectGrant, type ProjectMember, type PushToken, type QueryFilter, type QueryOptions, type QuerySort, type QueueJob, QueueService, type ReadStatus, RealtimeService, type RedeemResult, type Refund, type RegisterAgentRequest, type RegisterAgentResponse, type RequestOptions, type ResumeSession, type Role, type RuntimeTemplate, type RuntimeTemplateVersion, ScaleMule, ScaleMuleClient, type ScaleMuleConfig, type SchedulerJob, SchedulerService, type SearchResult, SearchService, type SecurityLayers, type ServerlessFunction, type ServiceHealth, ServiceModule, type Session, type SessionArtifact, type SessionInfo, type SessionLog, type Severity, type ShortestPathResult, type SignedUrlResponse, type SocialPost, SocialService, type SocialUser, type SsoConfig, type StatusCallback, type StorageAdapter, StorageService, type StrategyResult, type SubmitResult, type Subscription, type Task, type TaskAttempt, type TaskTransition, type Team, type TeamInvitation, type TeamMember, TeamsService, type TelemetryPayload, type Tool, type ToolCapability, type ToolIntegration, type TopEvent, type TotpSetup, type Transaction, type TransactionListParams, type TransactionSummary, type TransactionSummaryParams, type Transfer, type TransformOptions, type TransformResult, type TraversalResult, type UploadCompleteResponse, type UploadEngineConfig, type UploadOptions, type UploadPlan, UploadResumeStore, type UploadStrategy, UploadTelemetry, type UploadTelemetryConfig, type UploadTelemetryEvent, type UsageRecord, type UsageSummary$1 as UsageSummary, type UserRank, type VideoInfo, VideoService, type VideoUploadOptions, type Webhook, WebhooksService, type Workflow, type WorkflowExecution, type Workspace, buildClientContextHeaders, calculateTotalParts, canPerform, createUploadPlan, ScaleMule as default, detectNetworkClass, extractClientContext, generateUploadSessionId, getMeasuredBandwidthMbps, getPartRange, hasMinRoleLevel, resolveStrategy, validateIP };
+export { type AccountBalance, AccountsService, type ActiveUsers, type ActivityItem, AgentAuthService, AgentModelsService, type AgentProfile, AgentProjectsService, type AgentResponse, type AgentSecurityPolicy, AgentSessionsService, type AgentSigningKey, type AgentToken, type AgentToolEntitlement, AgentToolsService, type Workspace as AgentWorkspace, AgentsService, type AggregateOptions, type AggregateResult, type AnalyticsEvent, AnalyticsService, type ApiError, type ApiKey, type ApiResponse, type Appeal, type Application, type Attachment, type Attendee, type AuditLog, type AuthRegisterAgentRequest, type AuthRegisterAgentResponse, AuthService, type AuthSession, type AuthUser, type BackupCodes, BillingService, type CacheEntry, CacheService, type CalendarEvent, type CatalogEntry, CatalogService, type ChatMessage, type ChatReaction, ChatService, type ClaimResult, type Client, type ClientContext, type Collection, type Comment, CommunicationService, type CompletedPart, ComplianceService, type CompressionConfig, type ConnectedAccount, type ConnectedAccountSubscription, type ConnectedSetupIntentResponse, type ConnectedSubscriptionListParams, type ConnectionStatus, type ContentFlag, type Conversation, type CostReportDay, type CreateSessionResponse, type Credential, type CredentialScope, type Customer, type DataAccessPolicy, type DataExport, DataService, type DataSource, type DeadLetterJob, type DeviceInfo, type Document, type ErrorCode, ErrorCodes, type EventAggregation, EventsService, type FileInfo, type FlagCheck, FlagContentService, type FollowStatus, type FunctionExecution, type FunctionMetrics, FunctionsService, type Funnel, type FunnelConversion, type GdprRequest, type GrantInfo, type GraphEdge, type GraphNode, GraphService, IdentityService, type IdentityType, type IncomingRequestLike, type Invoice, type JobExecution, type JobStats, type Leaderboard, type LeaderboardEntry, LeaderboardService, type Like, type Listing, ListingsService, type LogEntry, type LogInput, type LogQueryParams, type LogQueryResponse, type LogRecord, LoggerService, type LoginActivitySummary, type LoginDeviceInfo, type LoginHistoryEntry, type LoginRiskInfo, type MessageCallback, type MessageStatus, type MetricDataPoint, type MfaStatus, type Model, type ModelEntitlement, type ModelPricing, type ModelProvider, type UsageSummary as ModelUsageSummary, type MultipartCompleteResponse, type MultipartPartUrlsResponse, type MultipartStartResponse, type NetworkClass, type OAuthProvider, type OAuthUrl, OrchestratorService, PHOTO_BREAKPOINTS, type PaginatedResponse, type PaginationMetadata, type PaginationParams, type PartUrl, type Participant, type Payment, type PaymentListParams, type PaymentMethod, type PaymentStatusResponse, type Payout, type PayoutSchedule, type PermissionCheck, type PermissionMatrix, PermissionsService, type PhotoInfo, PhotoService, type Pipeline, type PipelineVersion, type Policy, type PresenceCallback, type PresenceEvent, type PresignedUploadResponse, type Price, type Product, type Project, type ProjectDocument, type ProjectGrant, type ProjectMember, type PushToken, type QueryFilter, type QueryOptions, type QuerySort, type QueueJob, QueueService, type ReadStatus, RealtimeService, type RedeemResult, type Refund, type RegisterAgentRequest, type RegisterAgentResponse, type RequestOptions, type ResumeSession, type Role, type RuntimeTemplate, type RuntimeTemplateVersion, ScaleMule, ScaleMuleClient, type ScaleMuleConfig, type SchedulerJob, SchedulerService, type SearchResult, SearchService, type SecurityLayers, type ServerlessFunction, type ServiceHealth, ServiceModule, type Session, type SessionArtifact, type SessionInfo, type SessionLog, type Severity, type ShortestPathResult, type SignedUrlResponse, type SocialPost, SocialService, type SocialUser, type SsoConfig, type StatusCallback, type StorageAdapter, StorageService, type StrategyResult, type SubmitResult, type Subscription, type Task, type TaskAttempt, type TaskTransition, type Team, type TeamInvitation, type TeamMember, TeamsService, type TelemetryPayload, type Tool, type ToolCapability, type ToolIntegration, type TopEvent, type TotpSetup, type Transaction, type TransactionListParams, type TransactionSummary, type TransactionSummaryParams, type Transfer, type TransformOptions, type TransformResult, type TraversalResult, type UploadCompleteResponse, type UploadEngineConfig, type UploadOptions, type UploadPlan, UploadResumeStore, type UploadStrategy, UploadTelemetry, type UploadTelemetryConfig, type UploadTelemetryEvent, type UsageRecord, type UsageSummary$1 as UsageSummary, type UserRank, type VideoInfo, VideoService, type VideoUploadOptions, type Webhook, WebhooksService, type Workflow, type WorkflowExecution, type Workspace$1 as Workspace, type WorkspaceInvitation, type WorkspaceMember, WorkspacesService, buildClientContextHeaders, calculateTotalParts, canPerform, createUploadPlan, ScaleMule as default, detectNetworkClass, extractClientContext, generateUploadSessionId, getMeasuredBandwidthMbps, getPartRange, hasMinRoleLevel, resolveStrategy, validateIP };

@@ -1,11 +1,14 @@
 /**
  * Teams Service Module
  *
- * Team CRUD, members, invitations, SSO.
+ * Team CRUD, members, invitations.
+ * Teams are membership/coordination groups (group people and agents; do not own resources).
+ * SSO is NOT available for teams — use workspaces for SSO.
  *
- * Routes:
+ * Routes (via /v1/teams):
  *   POST   /                              → create team
  *   GET    /                               → list teams
+ *   GET    /mine                           → list my teams
  *   GET    /{id}                           → get team
  *   PATCH  /{id}                           → update team
  *   DELETE /{id}                           → delete team
@@ -17,8 +20,6 @@
  *   GET    /{id}/invitations               → list invitations
  *   POST   /invitations/{token}/accept     → accept invitation
  *   DELETE /invitations/{id}               → cancel invitation
- *   POST   /{id}/sso/configure             → configure SSO
- *   GET    /{id}/sso                        → get SSO config
  */
 
 import { ServiceModule } from '../service';
@@ -30,7 +31,8 @@ import type { ApiResponse, PaginatedResponse, PaginationParams, RequestOptions }
 
 export interface Team {
   id: string;
-  team_name: string;
+  kind: 'team';
+  name: string;
   description?: string;
   owner_user_id: string;
   plan_type?: string;
@@ -40,15 +42,18 @@ export interface Team {
 
 export interface TeamMember {
   id: string;
-  team_id: string;
+  container_id: string;
   sm_user_id: string;
   role: string;
   joined_at: string;
+  full_name?: string;
+  email?: string;
+  avatar_url?: string;
 }
 
 export interface TeamInvitation {
   id: string;
-  team_id: string;
+  container_id: string;
   email: string;
   invited_by: string;
   role: string;
@@ -56,28 +61,6 @@ export interface TeamInvitation {
   status: string;
   expires_at: string;
   created_at: string;
-}
-
-export interface SsoConfig {
-  id: string;
-  team_id: string;
-  provider_type: string;
-  provider_name?: string;
-  saml_idp_entity_id?: string;
-  saml_idp_sso_url?: string;
-  oauth_client_id?: string;
-  oauth_authorize_url?: string;
-  oauth_token_url?: string;
-  oauth_userinfo_url?: string;
-  allowed_domains?: string[];
-  attribute_mapping?: Record<string, unknown>;
-  is_enabled: boolean;
-  is_enforced: boolean;
-  jit_provisioning_enabled: boolean;
-  default_role: string;
-  metadata?: Record<string, unknown>;
-  created_at: string;
-  updated_at: string;
 }
 
 // ============================================================================
@@ -97,6 +80,10 @@ export class TeamsService extends ServiceModule {
 
   async list(params?: PaginationParams, requestOptions?: RequestOptions): Promise<PaginatedResponse<Team>> {
     return this._list<Team>('', params, requestOptions);
+  }
+
+  async mine(params?: PaginationParams, options?: RequestOptions): Promise<PaginatedResponse<Team>> {
+    return this._list<Team>('/mine', params, options);
   }
 
   async get(id: string, options?: RequestOptions): Promise<ApiResponse<Team>> {
@@ -174,35 +161,5 @@ export class TeamsService extends ServiceModule {
 
   async cancelInvitation(id: string, options?: RequestOptions): Promise<ApiResponse<{ cancelled: boolean }>> {
     return this.del<{ cancelled: boolean }>(`/invitations/${id}`, options);
-  }
-
-  // --------------------------------------------------------------------------
-  // SSO
-  // --------------------------------------------------------------------------
-
-  async configureSso(
-    teamId: string,
-    data: { provider: string; domain: string; metadata_url?: string },
-    options?: RequestOptions
-  ): Promise<ApiResponse<SsoConfig>> {
-    return this.post<SsoConfig>(`/${teamId}/sso/configure`, data, options);
-  }
-
-  async getSso(teamId: string, options?: RequestOptions): Promise<ApiResponse<SsoConfig>> {
-    return this._get<SsoConfig>(`/${teamId}/sso`, options);
-  }
-
-  // --------------------------------------------------------------------------
-  // Legacy methods (backward compat)
-  // --------------------------------------------------------------------------
-
-  /** @deprecated Use create() instead */
-  async createTeam(data: { name: string; description?: string }) {
-    return this.create(data);
-  }
-
-  /** @deprecated Use invite() instead */
-  async inviteMember(teamId: string, email: string, role: string) {
-    return this.invite(teamId, { email, role });
   }
 }

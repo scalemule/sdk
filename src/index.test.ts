@@ -113,7 +113,7 @@ describe('Client Initialization', () => {
     expect(sm.communication).toBeDefined()
     expect(sm.scheduler).toBeDefined()
     expect(sm.permissions).toBeDefined()
-    expect(sm.teams).toBeDefined()
+    expect(sm.workspaces).toBeDefined()
     expect(sm.accounts).toBeDefined()
     expect(sm.identity).toBeDefined()
     expect(sm.cache).toBeDefined()
@@ -1809,107 +1809,111 @@ describe('PermissionsService', () => {
 })
 
 // ============================================================================
-// TeamsService
+// WorkspacesService
 // ============================================================================
 
-describe('TeamsService', () => {
+describe('WorkspacesService', () => {
   it('should POST / for create', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: { id: 't1', name: 'Engineering' } }))
-    await sm.teams.create({ name: 'Engineering' })
+    await sm.workspaces.create({ name: 'Engineering' })
     const [url, init] = mockFetch.mock.calls[0]
-    expect(url).toBe('https://api.scalemule.com/v1/teams')
+    expect(url).toBe('https://api.scalemule.com/v1/workspaces')
     expect(init.method).toBe('POST')
   })
 
   it('should GET / for list', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: { data: [], metadata: { total: 0 } } }))
-    await sm.teams.list()
-    expect(mockFetch.mock.calls[0][0]).toContain('/v1/teams')
+    await sm.workspaces.list()
+    expect(mockFetch.mock.calls[0][0]).toContain('/v1/workspaces')
     expect(mockFetch.mock.calls[0][1].method).toBe('GET')
   })
 
   it('should GET /{id}', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: { id: 't1' } }))
-    await sm.teams.get('t1')
-    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/teams/t1')
+    await sm.workspaces.get('t1')
+    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/workspaces/t1')
   })
 
   it('should PATCH /{id} for update', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: { id: 't1' } }))
-    await sm.teams.update('t1', { name: 'Eng v2' })
+    await sm.workspaces.update('t1', { name: 'Eng v2' })
     expect(mockFetch.mock.calls[0][1].method).toBe('PATCH')
   })
 
   it('should DELETE /{id}', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: {} }))
-    await sm.teams.delete('t1')
+    await sm.workspaces.delete('t1')
     expect(mockFetch.mock.calls[0][1].method).toBe('DELETE')
   })
 
   it('should GET /{id}/members', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: { data: [], metadata: { total: 0 } } }))
-    await sm.teams.listMembers('t1')
-    expect(mockFetch.mock.calls[0][0]).toContain('/v1/teams/t1/members')
+    await sm.workspaces.listMembers('t1')
+    expect(mockFetch.mock.calls[0][0]).toContain('/v1/workspaces/t1/members')
   })
 
   it('should POST /{id}/members for addMember', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: {} }))
-    await sm.teams.addMember('t1', { user_id: 'u1', role: 'member' })
+    await sm.workspaces.addMember('t1', { user_id: 'u1', role: 'member' })
     const [url, init] = mockFetch.mock.calls[0]
-    expect(url).toBe('https://api.scalemule.com/v1/teams/t1/members')
+    expect(url).toBe('https://api.scalemule.com/v1/workspaces/t1/members')
     expect(JSON.parse(init.body).user_id).toBe('u1')
   })
 
   it('should PATCH /{id}/members/{userId} for updateMember', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: {} }))
-    await sm.teams.updateMember('t1', 'u1', { role: 'admin' })
+    await sm.workspaces.updateMember('t1', 'u1', { role: 'admin' })
     const [url, init] = mockFetch.mock.calls[0]
-    expect(url).toBe('https://api.scalemule.com/v1/teams/t1/members/u1')
+    expect(url).toBe('https://api.scalemule.com/v1/workspaces/t1/members/u1')
     expect(init.method).toBe('PATCH')
   })
 
   it('should DELETE /{id}/members/{userId} for removeMember', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: {} }))
-    await sm.teams.removeMember('t1', 'u1')
-    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/teams/t1/members/u1')
+    await sm.workspaces.removeMember('t1', 'u1')
+    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/workspaces/t1/members/u1')
     expect(mockFetch.mock.calls[0][1].method).toBe('DELETE')
   })
 
   it('should POST /{id}/invitations for invite', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: { id: 'inv1' } }))
-    await sm.teams.invite('t1', { email: 'dev@co.com', role: 'member' })
-    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/teams/t1/invitations')
+    await sm.workspaces.invite('t1', { email: 'dev@co.com', role: 'member' })
+    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/workspaces/t1/invitations')
   })
 
   it('should GET /{id}/invitations', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: [] }))
-    await sm.teams.listInvitations('t1')
-    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/teams/t1/invitations')
+    await sm.workspaces.listInvitations('t1')
+    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/workspaces/t1/invitations')
   })
 
   it('should POST /invitations/{token}/accept', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: {} }))
-    await sm.teams.acceptInvitation('tok123')
-    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/teams/invitations/tok123/accept')
+    await sm.workspaces.acceptInvitation('tok123')
+    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/workspaces/invitations/tok123/accept')
   })
 
   it('should DELETE /invitations/{id} for cancelInvitation', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: {} }))
-    await sm.teams.cancelInvitation('inv1')
-    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/teams/invitations/inv1')
+    await sm.workspaces.cancelInvitation('inv1')
+    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/workspaces/invitations/inv1')
     expect(mockFetch.mock.calls[0][1].method).toBe('DELETE')
   })
 
   it('should POST /{id}/sso/configure', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: {} }))
-    await sm.teams.configureSso('t1', { provider: 'okta', domain: 'co.com' })
-    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/teams/t1/sso/configure')
+    await sm.workspaces.configureSso('t1', { provider: 'okta', domain: 'co.com' })
+    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/workspaces/t1/sso/configure')
   })
 
   it('should GET /{id}/sso', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: { provider: 'okta' } }))
-    await sm.teams.getSso('t1')
-    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/teams/t1/sso')
+    await sm.workspaces.getSso('t1')
+    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/workspaces/t1/sso')
+  })
+
+  it('should support deprecated teams alias', () => {
+    expect(sm.teams).toBe(sm.workspaces)
   })
 })
 

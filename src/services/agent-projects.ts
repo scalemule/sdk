@@ -6,6 +6,8 @@ export interface Project {
   name: string;
   description?: string;
   status: string;
+  owner_user_id?: string;
+  metadata?: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
@@ -117,6 +119,9 @@ export interface ProjectGrant {
   expires_at: string;
   redeemed_at?: string;
   email_sent?: boolean;
+  container_invitation_id?: string;
+  /** @deprecated Use container_invitation_id */
+  team_invitation_id?: string;
 }
 
 export interface GrantInfo {
@@ -143,7 +148,7 @@ export class AgentProjectsService extends ServiceModule {
 
   // Projects
   async createProject(
-    data: { name: string; description?: string },
+    data: { name: string; description?: string; metadata?: Record<string, unknown> },
     applicationId?: string,
     options?: RequestOptions
   ): Promise<ApiResponse<Project>> {
@@ -151,7 +156,7 @@ export class AgentProjectsService extends ServiceModule {
   }
 
   async listProjects(
-    params?: PaginationParams & { application_id?: string },
+    params?: PaginationParams & { application_id?: string; team_id?: string },
     options?: RequestOptions
   ): Promise<PaginatedResponse<Project>> {
     return this._list<Project>('/projects', params, options);
@@ -163,7 +168,7 @@ export class AgentProjectsService extends ServiceModule {
 
   async updateProject(
     id: string,
-    data: Partial<{ name: string; description: string; status: string }>,
+    data: Partial<{ name: string; description: string; status: string; metadata: Record<string, unknown> }>,
     applicationId?: string,
     options?: RequestOptions
   ): Promise<ApiResponse<Project>> {
@@ -459,7 +464,19 @@ export class AgentProjectsService extends ServiceModule {
   // --------------------------------------------------------------------------
 
   async createGrant(
-    data: { project_id: string; role: string; user_email: string; expires_at: string; invite_url?: string },
+    data: {
+      project_id: string;
+      role: string;
+      user_email: string;
+      expires_at: string;
+      invite_url?: string;
+      container_invitation_id?: string;
+      container_id?: string;
+      /** @deprecated Use container_invitation_id */
+      team_invitation_id?: string;
+      /** @deprecated Use container_id */
+      team_id?: string;
+    },
     options?: RequestOptions
   ): Promise<ApiResponse<ProjectGrant>> {
     return this.post<ProjectGrant>('/project-grants', data, options);

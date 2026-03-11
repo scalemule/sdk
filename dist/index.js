@@ -337,6 +337,7 @@ __export(index_exports, {
   UploadTelemetry: () => UploadTelemetry,
   VideoService: () => VideoService,
   WebhooksService: () => WebhooksService,
+  WorkspacesService: () => WorkspacesService,
   buildClientContextHeaders: () => buildClientContextHeaders,
   calculateTotalParts: () => calculateTotalParts,
   canPerform: () => canPerform,
@@ -3904,6 +3905,74 @@ var PermissionsService = class extends ServiceModule {
   }
 };
 
+// src/services/workspaces.ts
+var WorkspacesService = class extends ServiceModule {
+  constructor() {
+    super(...arguments);
+    this.basePath = "/v1/workspaces";
+  }
+  // --------------------------------------------------------------------------
+  // Workspace CRUD
+  // --------------------------------------------------------------------------
+  async create(data, options) {
+    return this.post("", data, options);
+  }
+  async list(params, requestOptions) {
+    return this._list("", params, requestOptions);
+  }
+  async mine(params, options) {
+    return this._list("/mine", params, options);
+  }
+  async get(id, options) {
+    return this._get(`/${id}`, options);
+  }
+  async update(id, data, options) {
+    return this.patch(`/${id}`, data, options);
+  }
+  async delete(id, options) {
+    return this.del(`/${id}`, options);
+  }
+  // --------------------------------------------------------------------------
+  // Members
+  // --------------------------------------------------------------------------
+  async listMembers(workspaceId, params, requestOptions) {
+    return this._list(`/${workspaceId}/members`, params, requestOptions);
+  }
+  async addMember(workspaceId, data, options) {
+    return this.post(`/${workspaceId}/members`, data, options);
+  }
+  async updateMember(workspaceId, userId, data, options) {
+    return this.patch(`/${workspaceId}/members/${userId}`, data, options);
+  }
+  async removeMember(workspaceId, userId, options) {
+    return this.del(`/${workspaceId}/members/${userId}`, options);
+  }
+  // --------------------------------------------------------------------------
+  // Invitations
+  // --------------------------------------------------------------------------
+  async invite(workspaceId, data, options) {
+    return this.post(`/${workspaceId}/invitations`, data, options);
+  }
+  async listInvitations(workspaceId, options) {
+    return this._get(`/${workspaceId}/invitations`, options);
+  }
+  async acceptInvitation(token, options) {
+    return this.post(`/invitations/${token}/accept`, void 0, options);
+  }
+  async cancelInvitation(id, options) {
+    return this.del(`/invitations/${id}`, options);
+  }
+  // --------------------------------------------------------------------------
+  // SSO (workspace-only)
+  // --------------------------------------------------------------------------
+  async configureSso(workspaceId, data, options) {
+    return this.post(`/${workspaceId}/sso/configure`, data, options);
+  }
+  async getSso(workspaceId, options) {
+    return this._get(`/${workspaceId}/sso`, options);
+  }
+};
+
 // src/services/teams.ts
 var TeamsService = class extends ServiceModule {
   constructor() {
@@ -3918,6 +3987,9 @@ var TeamsService = class extends ServiceModule {
   }
   async list(params, requestOptions) {
     return this._list("", params, requestOptions);
+  }
+  async mine(params, options) {
+    return this._list("/mine", params, options);
   }
   async get(id, options) {
     return this._get(`/${id}`, options);
@@ -3957,26 +4029,6 @@ var TeamsService = class extends ServiceModule {
   }
   async cancelInvitation(id, options) {
     return this.del(`/invitations/${id}`, options);
-  }
-  // --------------------------------------------------------------------------
-  // SSO
-  // --------------------------------------------------------------------------
-  async configureSso(teamId, data, options) {
-    return this.post(`/${teamId}/sso/configure`, data, options);
-  }
-  async getSso(teamId, options) {
-    return this._get(`/${teamId}/sso`, options);
-  }
-  // --------------------------------------------------------------------------
-  // Legacy methods (backward compat)
-  // --------------------------------------------------------------------------
-  /** @deprecated Use create() instead */
-  async createTeam(data) {
-    return this.create(data);
-  }
-  /** @deprecated Use invite() instead */
-  async inviteMember(teamId, email, role) {
-    return this.invite(teamId, { email, role });
   }
 };
 
@@ -5113,6 +5165,7 @@ var ScaleMule = class {
     this.communication = new CommunicationService(this._client);
     this.scheduler = new SchedulerService(this._client);
     this.permissions = new PermissionsService(this._client);
+    this.workspaces = new WorkspacesService(this._client);
     this.teams = new TeamsService(this._client);
     this.accounts = new AccountsService(this._client);
     this.identity = new IdentityService(this._client);
@@ -5232,6 +5285,7 @@ var index_default = ScaleMule;
   UploadTelemetry,
   VideoService,
   WebhooksService,
+  WorkspacesService,
   buildClientContextHeaders,
   calculateTotalParts,
   canPerform,
