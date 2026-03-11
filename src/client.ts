@@ -36,6 +36,7 @@ const MAX_BACKOFF_MS = 30000;
 const SESSION_STORAGE_KEY = 'scalemule_session';
 const USER_ID_STORAGE_KEY = 'scalemule_user_id';
 const OFFLINE_QUEUE_KEY = 'scalemule_offline_queue';
+const WORKSPACE_STORAGE_KEY = 'scalemule_workspace_id';
 
 const GATEWAY_URLS = {
   dev: 'https://api-dev.scalemule.com',
@@ -310,6 +311,7 @@ export class ScaleMuleClient {
   private userId: string | null = null;
   private rateLimitQueue: RateLimitQueue | null = null;
   private offlineQueue: OfflineQueue | null = null;
+  private workspaceId: string | null = null;
 
   constructor(config: ScaleMuleConfig) {
     this.apiKey = config.apiKey;
@@ -338,6 +340,8 @@ export class ScaleMuleClient {
     const userId = await this.storage.getItem(USER_ID_STORAGE_KEY);
     if (token) this.sessionToken = token;
     if (userId) this.userId = userId;
+    const wsId = await this.storage.getItem(WORKSPACE_STORAGE_KEY);
+    if (wsId) this.workspaceId = wsId;
     if (this.debug) console.log('[ScaleMule] Initialized, session:', !!token);
   }
 
@@ -351,8 +355,10 @@ export class ScaleMuleClient {
   async clearSession(): Promise<void> {
     this.sessionToken = null;
     this.userId = null;
+    this.workspaceId = null;
     await this.storage.removeItem(SESSION_STORAGE_KEY);
     await this.storage.removeItem(USER_ID_STORAGE_KEY);
+    await this.storage.removeItem(WORKSPACE_STORAGE_KEY);
   }
 
   setAccessToken(token: string): void {
@@ -392,6 +398,19 @@ export class ScaleMuleClient {
     return this.rateLimitQueue?.isRateLimited || false;
   }
 
+  setWorkspaceContext(id: string | null): void {
+    this.workspaceId = id;
+    if (id) {
+      this.storage.setItem(WORKSPACE_STORAGE_KEY, id);
+    } else {
+      this.storage.removeItem(WORKSPACE_STORAGE_KEY);
+    }
+  }
+
+  getWorkspaceId(): string | null {
+    return this.workspaceId;
+  }
+
   // --------------------------------------------------------------------------
   // Core Request Method
   // --------------------------------------------------------------------------
@@ -422,6 +441,9 @@ export class ScaleMuleClient {
     };
     if (!init.skipAuth && this.sessionToken) {
       headers['Authorization'] = `Bearer ${this.sessionToken}`;
+    }
+    if (this.workspaceId) {
+      headers['x-sm-workspace-id'] = this.workspaceId;
     }
 
     // Serialize body
@@ -630,6 +652,7 @@ export class ScaleMuleClient {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       const headers: Record<string, string> = { 'x-api-key': this.apiKey };
       if (this.sessionToken) headers['Authorization'] = `Bearer ${this.sessionToken}`;
+      if (this.workspaceId) headers['x-sm-workspace-id'] = this.workspaceId;
 
       try {
         const response = await fetch(url, {
@@ -744,6 +767,9 @@ export class ScaleMuleClient {
         xhr.setRequestHeader('x-api-key', this.apiKey);
         if (this.sessionToken) {
           xhr.setRequestHeader('Authorization', `Bearer ${this.sessionToken}`);
+        }
+        if (this.workspaceId) {
+          xhr.setRequestHeader('x-sm-workspace-id', this.workspaceId);
         }
         xhr.send(buildFormData());
       });

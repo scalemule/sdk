@@ -261,6 +261,7 @@ declare class ScaleMuleClient {
     private userId;
     private rateLimitQueue;
     private offlineQueue;
+    private workspaceId;
     constructor(config: ScaleMuleConfig);
     initialize(): Promise<void>;
     setSession(token: string, userId: string): Promise<void>;
@@ -276,6 +277,8 @@ declare class ScaleMuleClient {
     getOfflineQueueLength(): number;
     getRateLimitQueueLength(): number;
     isRateLimited(): boolean;
+    setWorkspaceContext(id: string | null): void;
+    getWorkspaceId(): string | null;
     request<T>(path: string, init?: {
         method?: string;
         body?: unknown;
@@ -4952,6 +4955,10 @@ declare class ScaleMule {
     isAuthenticated(): boolean;
     /** The base URL being used for API requests. */
     getBaseUrl(): string;
+    /** Set the active workspace context. All subsequent requests include this as x-sm-workspace-id. */
+    setWorkspaceContext(id: string | null): void;
+    /** Get the current workspace ID, or null. */
+    getWorkspaceId(): string | null;
     /** Access the underlying ScaleMuleClient for advanced usage. */
     getClient(): ScaleMuleClient;
 }

@@ -493,6 +493,16 @@ export class ScaleMule {
     return this._client.getBaseUrl();
   }
 
+  /** Set the active workspace context. All subsequent requests include this as x-sm-workspace-id. */
+  setWorkspaceContext(id: string | null): void {
+    this._client.setWorkspaceContext(id);
+  }
+
+  /** Get the current workspace ID, or null. */
+  getWorkspaceId(): string | null {
+    return this._client.getWorkspaceId();
+  }
+
   /** Access the underlying ScaleMuleClient for advanced usage. */
   getClient(): ScaleMuleClient {
     return this._client;

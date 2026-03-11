@@ -103,6 +103,7 @@ var MAX_BACKOFF_MS = 3e4;
 var SESSION_STORAGE_KEY = "scalemule_session";
 var USER_ID_STORAGE_KEY = "scalemule_user_id";
 var OFFLINE_QUEUE_KEY = "scalemule_offline_queue";
+var WORKSPACE_STORAGE_KEY = "scalemule_workspace_id";
 var GATEWAY_URLS = {
   dev: "https://api-dev.scalemule.com",
   prod: "https://api.scalemule.com"
@@ -294,6 +295,7 @@ var ScaleMuleClient = class {
     this.userId = null;
     this.rateLimitQueue = null;
     this.offlineQueue = null;
+    this.workspaceId = null;
     this.apiKey = config.apiKey;
     this.baseUrl = config.baseUrl || GATEWAY_URLS[config.environment || "prod"];
     this.debug = config.debug || false;
@@ -317,6 +319,8 @@ var ScaleMuleClient = class {
     const userId = await this.storage.getItem(USER_ID_STORAGE_KEY);
     if (token) this.sessionToken = token;
     if (userId) this.userId = userId;
+    const wsId = await this.storage.getItem(WORKSPACE_STORAGE_KEY);
+    if (wsId) this.workspaceId = wsId;
     if (this.debug) console.log("[ScaleMule] Initialized, session:", !!token);
   }
   async setSession(token, userId) {
@@ -328,8 +332,10 @@ var ScaleMuleClient = class {
   async clearSession() {
     this.sessionToken = null;
     this.userId = null;
+    this.workspaceId = null;
     await this.storage.removeItem(SESSION_STORAGE_KEY);
     await this.storage.removeItem(USER_ID_STORAGE_KEY);
+    await this.storage.removeItem(WORKSPACE_STORAGE_KEY);
   }
   setAccessToken(token) {
     this.sessionToken = token;
@@ -365,6 +371,17 @@ var ScaleMuleClient = class {
   isRateLimited() {
     return this.rateLimitQueue?.isRateLimited || false;
   }
+  setWorkspaceContext(id) {
+    this.workspaceId = id;
+    if (id) {
+      this.storage.setItem(WORKSPACE_STORAGE_KEY, id);
+    } else {
+      this.storage.removeItem(WORKSPACE_STORAGE_KEY);
+    }
+  }
+  getWorkspaceId() {
+    return this.workspaceId;
+  }
   // --------------------------------------------------------------------------
   // Core Request Method
   // --------------------------------------------------------------------------
@@ -380,6 +397,9 @@ var ScaleMuleClient = class {
     };
     if (!init.skipAuth && this.sessionToken) {
       headers["Authorization"] = `Bearer ${this.sessionToken}`;
+    }
+    if (this.workspaceId) {
+      headers["x-sm-workspace-id"] = this.workspaceId;
     }
     let bodyStr;
     if (init.body !== void 0 && init.body !== null) {
@@ -532,6 +552,7 @@ var ScaleMuleClient = class {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       const headers = { "x-api-key": this.apiKey };
       if (this.sessionToken) headers["Authorization"] = `Bearer ${this.sessionToken}`;
+      if (this.workspaceId) headers["x-sm-workspace-id"] = this.workspaceId;
       try {
         const response = await fetch(url, {
           method: "POST",
@@ -625,6 +646,9 @@ var ScaleMuleClient = class {
         xhr.setRequestHeader("x-api-key", this.apiKey);
         if (this.sessionToken) {
           xhr.setRequestHeader("Authorization", `Bearer ${this.sessionToken}`);
+        }
+        if (this.workspaceId) {
+          xhr.setRequestHeader("x-sm-workspace-id", this.workspaceId);
         }
         xhr.send(buildFormData());
       });
@@ -4879,6 +4903,14 @@ var ScaleMule = class {
   /** The base URL being used for API requests. */
   getBaseUrl() {
     return this._client.getBaseUrl();
+  }
+  /** Set the active workspace context. All subsequent requests include this as x-sm-workspace-id. */
+  setWorkspaceContext(id) {
+    this._client.setWorkspaceContext(id);
+  }
+  /** Get the current workspace ID, or null. */
+  getWorkspaceId() {
+    return this._client.getWorkspaceId();
   }
   /** Access the underlying ScaleMuleClient for advanced usage. */
   getClient() {
