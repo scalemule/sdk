@@ -4906,7 +4906,8 @@ declare class ScaleMule {
     readonly scheduler: SchedulerService;
     readonly permissions: PermissionsService;
     readonly workspaces: WorkspacesService;
-    readonly teams: TeamsService;
+    /** @deprecated Use `workspaces` instead */
+    get teams(): WorkspacesService;
     readonly accounts: AccountsService;
     readonly identity: IdentityService;
     readonly catalog: CatalogService;

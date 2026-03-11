@@ -272,7 +272,7 @@ import { CommunicationService } from './services/communication';
 import { SchedulerService } from './services/scheduler';
 import { PermissionsService } from './services/permissions';
 import { WorkspacesService } from './services/workspaces';
-import { TeamsService } from './services/teams';
+// TeamsService still exported for backward compat but not used internally
 
 // Additional service imports
 import { GraphService } from './services/graph';
@@ -354,7 +354,8 @@ export class ScaleMule {
   public readonly scheduler: SchedulerService;
   public readonly permissions: PermissionsService;
   public readonly workspaces: WorkspacesService;
-  public readonly teams: TeamsService;
+  /** @deprecated Use `workspaces` instead */
+  get teams(): WorkspacesService { return this.workspaces; }
 
   // Core services
   public readonly accounts: AccountsService;
@@ -412,7 +413,6 @@ export class ScaleMule {
     this.scheduler = new SchedulerService(this._client);
     this.permissions = new PermissionsService(this._client);
     this.workspaces = new WorkspacesService(this._client);
-    this.teams = new TeamsService(this._client);
 
     // Other services
     this.accounts = new AccountsService(this._client);

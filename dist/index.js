@@ -5175,6 +5175,10 @@ var AgentSessionsService = class extends ServiceModule {
 
 // src/index.ts
 var ScaleMule = class {
+  /** @deprecated Use `workspaces` instead */
+  get teams() {
+    return this.workspaces;
+  }
   constructor(config) {
     this._client = new ScaleMuleClient(config);
     this.auth = new AuthService(this._client);
@@ -5190,7 +5194,6 @@ var ScaleMule = class {
     this.scheduler = new SchedulerService(this._client);
     this.permissions = new PermissionsService(this._client);
     this.workspaces = new WorkspacesService(this._client);
-    this.teams = new TeamsService(this._client);
     this.accounts = new AccountsService(this._client);
     this.identity = new IdentityService(this._client);
     this.catalog = new CatalogService(this._client);
