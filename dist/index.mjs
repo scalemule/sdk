@@ -1497,6 +1497,22 @@ var StorageService = class extends ServiceModule {
         file_id,
         reason: uploadResult.error.code
       });
+      await this.reportUploadFailureBestEffort(
+        {
+          fileId: file_id,
+          completionToken: completion_token,
+          step: "s3_put",
+          errorCode: uploadResult.error.code,
+          errorMessage: uploadResult.error.message,
+          httpStatus: uploadResult.error.status || void 0,
+          attempt: asNumber2(uploadResult.error.details?.attempt),
+          diagnostics: {
+            ...getUploadEnvironmentDiagnostics(),
+            ...uploadResult.error.details || {}
+          }
+        },
+        requestOpts
+      );
       return { data: null, error: uploadResult.error };
     }
     const completeResult = await this.post(
@@ -1514,6 +1530,21 @@ var StorageService = class extends ServiceModule {
         file_id,
         duration_ms: Date.now() - directStart
       });
+      await this.reportUploadFailureBestEffort(
+        {
+          fileId: file_id,
+          completionToken: completion_token,
+          step: "complete",
+          errorCode: completeResult.error.code,
+          errorMessage: completeResult.error.message,
+          httpStatus: completeResult.error.status || void 0,
+          diagnostics: {
+            ...getUploadEnvironmentDiagnostics(),
+            duration_ms: Date.now() - directStart
+          }
+        },
+        requestOpts
+      );
     } else {
       telemetry?.emit(sessionId, "upload.completed", {
         file_id,
@@ -1676,6 +1707,17 @@ var StorageService = class extends ServiceModule {
       if (options?.signal?.aborted) {
         await this.abortMultipart(upload_session_id, completionToken, requestOpts);
         telemetry?.emit(sessionId, "upload.aborted", { file_id });
+        await this.reportUploadFailureBestEffort(
+          {
+            fileId: file_id,
+            completionToken,
+            step: "multipart_abort",
+            errorCode: "aborted",
+            errorMessage: "Upload aborted",
+            diagnostics: getUploadEnvironmentDiagnostics()
+          },
+          requestOpts
+        );
         return { data: null, error: { code: "aborted", message: "Upload aborted", status: 0 } };
       }
       const remainingUrlCount = pendingParts.slice(partIndex).filter((p) => availableUrls.has(p)).length;
@@ -1777,6 +1819,20 @@ var StorageService = class extends ServiceModule {
           const errorMsg = result.error || "Part upload returned no ETag";
           await this.abortMultipart(upload_session_id, completionToken, requestOpts);
           telemetry?.emit(sessionId, "upload.multipart.aborted", { file_id, error: errorMsg });
+          await this.reportUploadFailureBestEffort(
+            {
+              fileId: file_id,
+              completionToken,
+              step: "multipart_part",
+              errorCode: "upload_error",
+              errorMessage: errorMsg,
+              diagnostics: {
+                ...getUploadEnvironmentDiagnostics(),
+                part_number: result.partNum
+              }
+            },
+            requestOpts
+          );
           return {
             data: null,
             error: { code: "upload_error", message: `Part ${result.partNum} failed: ${errorMsg}`, status: 0 }
@@ -1816,6 +1872,21 @@ var StorageService = class extends ServiceModule {
         error: completeResult.error.message,
         duration_ms: Date.now() - multipartStart
       });
+      await this.reportUploadFailureBestEffort(
+        {
+          fileId: file_id,
+          completionToken,
+          step: "multipart_complete",
+          errorCode: completeResult.error.code,
+          errorMessage: completeResult.error.message,
+          httpStatus: completeResult.error.status || void 0,
+          diagnostics: {
+            ...getUploadEnvironmentDiagnostics(),
+            duration_ms: Date.now() - multipartStart
+          }
+        },
+        requestOpts
+      );
       return { data: null, error: completeResult.error };
     }
     telemetry?.emit(sessionId, "upload.multipart.completed", {
@@ -1876,6 +1947,7 @@ var StorageService = class extends ServiceModule {
         content_type: contentType,
         is_public: options?.isPublic ?? true,
         expires_in: options?.expiresIn ?? 3600,
+        size_bytes: options?.sizeBytes,
         metadata: options?.metadata
       },
       requestOptions
@@ -1893,6 +1965,26 @@ var StorageService = class extends ServiceModule {
         completion_token: completionToken,
         size_bytes: options?.sizeBytes,
         checksum: options?.checksum
+      },
+      requestOptions
+    );
+  }
+  /**
+   * Persist a structured client-side upload failure against a file record.
+   * Best used by split-upload clients that call getUploadUrl() manually.
+   */
+  async reportUploadFailure(params, requestOptions) {
+    return this.post(
+      "/signed-url/report-failure",
+      {
+        file_id: params.fileId,
+        completion_token: params.completionToken,
+        step: params.step,
+        error_code: params.errorCode,
+        error_message: params.errorMessage,
+        http_status: params.httpStatus,
+        attempt: params.attempt,
+        diagnostics: params.diagnostics
       },
       requestOptions
     );
@@ -2022,6 +2114,13 @@ var StorageService = class extends ServiceModule {
         telemetry?.emit(sessionId || "", "upload.retried", { attempt });
       }
       const result = await this.uploadToPresignedUrl(url, file, onProgress, signal);
+      if (result.error) {
+        result.error.details = {
+          ...result.error.details || {},
+          attempt: attempt + 1,
+          max_attempts: RETRY_DELAYS.length
+        };
+      }
       if (!result.error) return result;
       if (result.error.code === "aborted") return result;
       if (result.error.status && NON_RETRYABLE_STATUS_CODES.has(result.error.status)) {
@@ -2073,7 +2172,12 @@ var StorageService = class extends ServiceModule {
           error: {
             code: "upload_error",
             message: `S3 upload failed: ${response.status} ${response.statusText}`,
-            status: response.status
+            status: response.status,
+            details: {
+              transport: "fetch",
+              total_bytes: file.size,
+              online: getOnlineStatus()
+            }
           }
         };
       }
@@ -2091,7 +2195,12 @@ var StorageService = class extends ServiceModule {
         error: {
           code: isStall ? "upload_stalled" : "upload_error",
           message: isStall ? `Upload stalled (no progress for ${stallTimeout / 1e3}s)` : err instanceof Error ? err.message : "S3 upload failed",
-          status: 0
+          status: 0,
+          details: {
+            transport: "fetch",
+            total_bytes: file.size,
+            online: getOnlineStatus()
+          }
         }
       };
     }
@@ -2101,6 +2210,8 @@ var StorageService = class extends ServiceModule {
       const xhr = new XMLHttpRequest();
       const stallTimeout = getStallTimeout();
       let stallTimer = null;
+      let lastLoaded = 0;
+      let totalBytes = file.size;
       const resetStallTimer = () => {
         if (stallTimer !== null) clearTimeout(stallTimer);
         stallTimer = setTimeout(() => {
@@ -2110,7 +2221,14 @@ var StorageService = class extends ServiceModule {
             error: {
               code: "upload_stalled",
               message: `Upload stalled (no progress for ${stallTimeout / 1e3}s)`,
-              status: 0
+              status: 0,
+              details: {
+                transport: "xhr",
+                bytes_sent: lastLoaded,
+                total_bytes: totalBytes,
+                progress_percent: totalBytes > 0 ? Math.round(lastLoaded / totalBytes * 100) : void 0,
+                online: getOnlineStatus()
+              }
             }
           });
         }, stallTimeout);
@@ -2137,6 +2255,8 @@ var StorageService = class extends ServiceModule {
       }
       xhr.upload.addEventListener("progress", (event) => {
         resetStallTimer();
+        lastLoaded = event.loaded;
+        totalBytes = event.total || totalBytes;
         if (event.lengthComputable && onProgress) {
           onProgress(Math.round(event.loaded / event.total * 100));
         }
@@ -2152,7 +2272,14 @@ var StorageService = class extends ServiceModule {
             error: {
               code: "upload_error",
               message: `S3 upload failed: ${xhr.status}`,
-              status: xhr.status
+              status: xhr.status,
+              details: {
+                transport: "xhr",
+                bytes_sent: lastLoaded,
+                total_bytes: totalBytes,
+                progress_percent: totalBytes > 0 ? Math.round(lastLoaded / totalBytes * 100) : void 0,
+                online: getOnlineStatus()
+              }
             }
           });
         }
@@ -2161,7 +2288,18 @@ var StorageService = class extends ServiceModule {
         clearStallTimer();
         resolve({
           data: null,
-          error: { code: "upload_error", message: "S3 upload failed", status: 0 }
+          error: {
+            code: "upload_error",
+            message: "S3 upload failed",
+            status: 0,
+            details: {
+              transport: "xhr",
+              bytes_sent: lastLoaded,
+              total_bytes: totalBytes,
+              progress_percent: totalBytes > 0 ? Math.round(lastLoaded / totalBytes * 100) : void 0,
+              online: getOnlineStatus()
+            }
+          }
         });
       });
       xhr.addEventListener("abort", () => {
@@ -2270,6 +2408,12 @@ var StorageService = class extends ServiceModule {
       return null;
     }
   }
+  async reportUploadFailureBestEffort(params, requestOptions) {
+    try {
+      await this.reportUploadFailure(params, requestOptions);
+    } catch {
+    }
+  }
   getOrCreateTelemetry() {
     if (!this.telemetry) {
       this.telemetry = new UploadTelemetry(this.client);
@@ -2308,6 +2452,38 @@ function getNetworkEffectiveType() {
     return conn?.effectiveType || "4g";
   }
   return "4g";
+}
+function getOnlineStatus() {
+  if (typeof navigator === "undefined") return void 0;
+  return navigator.onLine;
+}
+function getUploadEnvironmentDiagnostics() {
+  const diagnostics = {
+    network_type: getNetworkEffectiveType(),
+    online: getOnlineStatus()
+  };
+  if (typeof navigator !== "undefined") {
+    const nav = navigator;
+    if (typeof nav.hardwareConcurrency === "number") {
+      diagnostics.hardware_concurrency = nav.hardwareConcurrency;
+    }
+    if (typeof nav.deviceMemory === "number") {
+      diagnostics.device_memory_gb = nav.deviceMemory;
+    }
+    if (nav.connection?.downlink != null) {
+      diagnostics.downlink_mbps = nav.connection.downlink;
+    }
+    if (nav.connection?.rtt != null) {
+      diagnostics.rtt_ms = nav.connection.rtt;
+    }
+  }
+  if (typeof document !== "undefined") {
+    diagnostics.visibility_state = document.visibilityState;
+  }
+  return diagnostics;
+}
+function asNumber2(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : void 0;
 }
 
 // src/services/upload-strategy.ts
@@ -2402,6 +2578,199 @@ function getPartRange(partNumber, chunkSize, totalSize) {
   const start = (partNumber - 1) * chunkSize;
   const end = Math.min(start + chunkSize, totalSize);
   return { start, end, size: end - start };
+}
+
+// src/services/upload-to-s3.ts
+var DEFAULT_RETRY_DELAYS = [0, 1e3, 3e3];
+var DEFAULT_STALL_TIMEOUT_MS3 = 45e3;
+var DEFAULT_CONCURRENCY = 3;
+async function uploadSingleToS3(url, file, options) {
+  const maxRetries = options?.maxRetries ?? 3;
+  const retryDelays = DEFAULT_RETRY_DELAYS.slice(0, maxRetries);
+  const stallTimeout = options?.stallTimeoutMs ?? DEFAULT_STALL_TIMEOUT_MS3;
+  for (let attempt = 0; attempt < retryDelays.length; attempt++) {
+    if (attempt > 0) {
+      await sleep3(retryDelays[attempt] || 1e3);
+    }
+    if (options?.signal?.aborted) {
+      return { success: false, error: "Upload aborted" };
+    }
+    const result = await doSinglePut(url, file, options?.onProgress, options?.signal, stallTimeout);
+    if (result === "success") return { success: true };
+    if (result === "abort") return { success: false, error: "Upload aborted" };
+    if (result === "stall") return { success: false, error: "Upload stalled \u2014 no progress" };
+  }
+  return { success: false, error: "Upload failed after retries" };
+}
+function doSinglePut(url, file, onProgress, signal, stallTimeoutMs) {
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    let stallTimer = null;
+    const resetStallTimer = () => {
+      if (stallTimer) clearTimeout(stallTimer);
+      if (stallTimeoutMs) {
+        stallTimer = setTimeout(() => {
+          xhr.abort();
+          resolve("stall");
+        }, stallTimeoutMs);
+      }
+    };
+    xhr.upload.addEventListener("progress", (e) => {
+      resetStallTimer();
+      if (e.lengthComputable && onProgress) {
+        onProgress({
+          loaded: e.loaded,
+          total: e.total,
+          percentage: Math.round(e.loaded / e.total * 100)
+        });
+      }
+    });
+    xhr.addEventListener("load", () => {
+      if (stallTimer) clearTimeout(stallTimer);
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve("success");
+      } else if (xhr.status >= 500) {
+        resolve("retry");
+      } else {
+        resolve("retry");
+      }
+    });
+    xhr.addEventListener("error", () => {
+      if (stallTimer) clearTimeout(stallTimer);
+      resolve("retry");
+    });
+    xhr.addEventListener("abort", () => {
+      if (stallTimer) clearTimeout(stallTimer);
+    });
+    if (signal) {
+      signal.addEventListener(
+        "abort",
+        () => {
+          xhr.abort();
+          if (stallTimer) clearTimeout(stallTimer);
+          resolve("abort");
+        },
+        { once: true }
+      );
+    }
+    xhr.open("PUT", url);
+    xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+    resetStallTimer();
+    xhr.send(file);
+  });
+}
+async function uploadMultipartToS3(file, config, options) {
+  const { partSizeBytes, totalParts, partUrls: initialPartUrls, fetchMoreUrls } = config;
+  const concurrency = options?.concurrency ?? DEFAULT_CONCURRENCY;
+  const maxRetries = options?.maxRetries ?? 3;
+  const completedParts = [];
+  const availableUrls = /* @__PURE__ */ new Map();
+  for (const pu of initialPartUrls) {
+    availableUrls.set(pu.partNumber, pu.url);
+  }
+  let totalUploaded = 0;
+  for (let i = 0; i < totalParts; i += concurrency) {
+    if (options?.signal?.aborted) {
+      return { success: false, error: "Upload aborted" };
+    }
+    const batchPartNumbers = [];
+    for (let j = i; j < Math.min(i + concurrency, totalParts); j++) {
+      batchPartNumbers.push(j + 1);
+    }
+    const missingUrls = batchPartNumbers.filter((p) => !availableUrls.has(p));
+    if (missingUrls.length > 0 && fetchMoreUrls) {
+      const fetched = await fetchMoreUrls(missingUrls);
+      if (fetched) {
+        for (const pu of fetched) availableUrls.set(pu.partNumber, pu.url);
+      }
+    }
+    const results = await Promise.all(
+      batchPartNumbers.map(async (partNum) => {
+        const url = availableUrls.get(partNum);
+        if (!url) return { partNum, error: "No URL available" };
+        const start = (partNum - 1) * partSizeBytes;
+        const end = Math.min(start + partSizeBytes, file.size);
+        const blob = file.slice(start, end);
+        let result = await uploadPartWithRetry(url, blob, partNum, maxRetries, options?.signal);
+        if (!result && fetchMoreUrls) {
+          const freshUrls = await fetchMoreUrls([partNum]);
+          if (freshUrls?.[0]) {
+            availableUrls.set(partNum, freshUrls[0].url);
+            result = await uploadPartWithRetry(freshUrls[0].url, blob, partNum, maxRetries, options?.signal);
+          }
+        }
+        if (result) {
+          totalUploaded += end - start;
+          options?.onProgress?.({
+            loaded: totalUploaded,
+            total: file.size,
+            percentage: Math.round(totalUploaded / file.size * 100)
+          });
+          return { partNum, etag: result.etag };
+        }
+        return { partNum, error: "Part upload failed after retries" };
+      })
+    );
+    for (const result of results) {
+      if ("error" in result) {
+        return { success: false, error: `Part ${result.partNum}: ${result.error}` };
+      }
+      completedParts.push({ partNumber: result.partNum, etag: result.etag });
+    }
+  }
+  return {
+    success: true,
+    parts: completedParts.sort((a, b) => a.partNumber - b.partNumber)
+  };
+}
+async function uploadPartWithRetry(url, blob, _partNumber, maxRetries, signal) {
+  const retryDelays = DEFAULT_RETRY_DELAYS.slice(0, maxRetries);
+  for (let attempt = 0; attempt < retryDelays.length; attempt++) {
+    if (attempt > 0) await sleep3(retryDelays[attempt] || 1e3);
+    if (signal?.aborted) return null;
+    const result = await doPartPut(url, blob, signal);
+    if (result === "abort") return null;
+    if (typeof result === "object") return result;
+  }
+  return null;
+}
+function doPartPut(url, blob, signal) {
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    xhr.addEventListener("load", () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        const etag = xhr.getResponseHeader("etag");
+        if (etag) {
+          resolve({ etag });
+        } else {
+          resolve("retry");
+        }
+      } else if (xhr.status === 403) {
+        resolve("retry");
+      } else if (xhr.status >= 500) {
+        resolve("retry");
+      } else {
+        resolve("retry");
+      }
+    });
+    xhr.addEventListener("error", () => resolve("retry"));
+    xhr.addEventListener("abort", () => resolve("abort"));
+    if (signal) {
+      signal.addEventListener(
+        "abort",
+        () => {
+          xhr.abort();
+          resolve("abort");
+        },
+        { once: true }
+      );
+    }
+    xhr.open("PUT", url);
+    xhr.send(blob);
+  });
+}
+function sleep3(ms) {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 // src/services/realtime.ts
@@ -4065,8 +4434,8 @@ var SearchService = class extends ServiceModule {
   async query(queryStr, queryOptions, requestOptions) {
     return this.post("", { query: queryStr, ...queryOptions }, requestOptions);
   }
-  async index(indexName, document, options) {
-    return this.post("/documents", { index: indexName, ...document }, options);
+  async index(indexName, document2, options) {
+    return this.post("/documents", { index: indexName, ...document2 }, options);
   }
   async removeDocument(indexName, docId, options) {
     return this.del(`/documents/${indexName}/${docId}`, options);
@@ -5095,5 +5464,7 @@ export {
   normalizeAndValidatePhone,
   normalizePhoneNumber,
   resolveStrategy,
+  uploadMultipartToS3,
+  uploadSingleToS3,
   validateIP
 };

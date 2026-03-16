@@ -94,7 +94,7 @@ export type {
   MultipartConfig,
   S3MultipartOptions,
   PartResult,
-  S3MultipartResult,
+  S3MultipartResult
 } from './services/upload-to-s3';
 export { RealtimeService } from './services/realtime';
 export type {

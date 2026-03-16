@@ -138,7 +138,7 @@ function doSinglePut(
         onProgress({
           loaded: e.loaded,
           total: e.total,
-          percentage: Math.round((e.loaded / e.total) * 100),
+          percentage: Math.round((e.loaded / e.total) * 100)
         });
       }
     });
@@ -165,11 +165,15 @@ function doSinglePut(
     });
 
     if (signal) {
-      signal.addEventListener('abort', () => {
-        xhr.abort();
-        if (stallTimer) clearTimeout(stallTimer);
-        resolve('abort');
-      }, { once: true });
+      signal.addEventListener(
+        'abort',
+        () => {
+          xhr.abort();
+          if (stallTimer) clearTimeout(stallTimer);
+          resolve('abort');
+        },
+        { once: true }
+      );
     }
 
     xhr.open('PUT', url);
@@ -219,7 +223,7 @@ export async function uploadMultipartToS3(
     }
 
     // Pre-fetch URLs for parts that don't have one
-    const missingUrls = batchPartNumbers.filter(p => !availableUrls.has(p));
+    const missingUrls = batchPartNumbers.filter((p) => !availableUrls.has(p));
     if (missingUrls.length > 0 && fetchMoreUrls) {
       const fetched = await fetchMoreUrls(missingUrls);
       if (fetched) {
@@ -253,7 +257,7 @@ export async function uploadMultipartToS3(
           options?.onProgress?.({
             loaded: totalUploaded,
             total: file.size,
-            percentage: Math.round((totalUploaded / file.size) * 100),
+            percentage: Math.round((totalUploaded / file.size) * 100)
           });
           return { partNum, etag: result.etag } as const;
         }
@@ -272,7 +276,7 @@ export async function uploadMultipartToS3(
 
   return {
     success: true,
-    parts: completedParts.sort((a, b) => a.partNumber - b.partNumber),
+    parts: completedParts.sort((a, b) => a.partNumber - b.partNumber)
   };
 }
 
@@ -305,11 +309,7 @@ async function uploadPartWithRetry(
 
 type PartPutResult = { etag: string } | 'retry' | 'abort';
 
-function doPartPut(
-  url: string,
-  blob: Blob,
-  signal?: AbortSignal
-): Promise<PartPutResult> {
+function doPartPut(url: string, blob: Blob, signal?: AbortSignal): Promise<PartPutResult> {
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
 
@@ -335,10 +335,14 @@ function doPartPut(
     xhr.addEventListener('abort', () => resolve('abort'));
 
     if (signal) {
-      signal.addEventListener('abort', () => {
-        xhr.abort();
-        resolve('abort');
-      }, { once: true });
+      signal.addEventListener(
+        'abort',
+        () => {
+          xhr.abort();
+          resolve('abort');
+        },
+        { once: true }
+      );
     }
 
     xhr.open('PUT', url);
@@ -351,5 +355,5 @@ function doPartPut(
 // ============================================================================
 
 function sleep(ms: number): Promise<void> {
-  return new Promise(r => setTimeout(r, ms));
+  return new Promise((r) => setTimeout(r, ms));
 }
