@@ -85,6 +85,17 @@ export { resolveStrategy, detectNetworkClass, getMeasuredBandwidthMbps } from '.
 export type { UploadStrategy, NetworkClass, StrategyResult } from './services/upload-strategy';
 export { createUploadPlan, calculateTotalParts, getPartRange } from './services/upload-engine';
 export type { UploadEngineConfig, UploadPlan } from './services/upload-engine';
+export { uploadSingleToS3, uploadMultipartToS3 } from './services/upload-to-s3';
+export type {
+  S3UploadProgress,
+  S3SingleUploadOptions,
+  S3SingleUploadResult,
+  MultipartPartUrl,
+  MultipartConfig,
+  S3MultipartOptions,
+  PartResult,
+  S3MultipartResult,
+} from './services/upload-to-s3';
 export { RealtimeService } from './services/realtime';
 export type {
   ConnectionStatus,
