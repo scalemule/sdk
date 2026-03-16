@@ -100,7 +100,7 @@ describe('Client Initialization', () => {
     expect(client.getBaseUrl()).toBe('https://custom.api.com')
   })
 
-  it('should initialize all 30 services', () => {
+  it('should initialize all 31 services', () => {
     expect(sm.auth).toBeDefined()
     expect(sm.storage).toBeDefined()
     expect(sm.data).toBeDefined()
@@ -110,6 +110,7 @@ describe('Client Initialization', () => {
     expect(sm.social).toBeDefined()
     expect(sm.billing).toBeDefined()
     expect(sm.analytics).toBeDefined()
+    expect(sm.flags).toBeDefined()
     expect(sm.communication).toBeDefined()
     expect(sm.scheduler).toBeDefined()
     expect(sm.permissions).toBeDefined()
@@ -1501,7 +1502,8 @@ describe('AnalyticsService', () => {
     expect(url).toBe('https://api.scalemule.com/v1/analytics/v2/events')
     expect(init.method).toBe('POST')
     const body = JSON.parse(init.body)
-    expect(body.event).toBe('button_clicked')
+    expect(body.event_name).toBe('button_clicked')
+    expect(body.event).toBeUndefined()
     expect(body.properties.buttonId).toBe('signup')
   })
 
@@ -1513,7 +1515,12 @@ describe('AnalyticsService', () => {
     ])
     const [url, init] = mockFetch.mock.calls[0]
     expect(url).toBe('https://api.scalemule.com/v1/analytics/v2/events/batch')
-    expect(JSON.parse(init.body).events).toHaveLength(2)
+    const body = JSON.parse(init.body)
+    expect(body.events).toHaveLength(2)
+    expect(body.events[0].event_name).toBe('page_view')
+    expect(body.events[0].event).toBeUndefined()
+    expect(body.events[1].event_name).toBe('click')
+    expect(body.events[1].event).toBeUndefined()
   })
 
   it('should POST /page-view for trackPageView', async () => {
@@ -1594,6 +1601,32 @@ describe('AnalyticsService', () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: {} }))
     await sm.analytics.queryMetrics({ name: 'response_time' })
     expect(mockFetch.mock.calls[0][0]).toContain('/v1/analytics/metrics/query')
+  })
+})
+
+describe('FlagsService', () => {
+  it('should POST /evaluate for evaluate', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ data: {} }))
+    await sm.flags.evaluate('analytics.tracking_enabled', { user_id: 'user-1' }, 'prod')
+    const [url, init] = mockFetch.mock.calls[0]
+    expect(url).toBe('https://api.scalemule.com/v1/flags/evaluate')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body)).toEqual({
+      flag_key: 'analytics.tracking_enabled',
+      environment: 'prod',
+      context: { user_id: 'user-1' },
+    })
+  })
+
+  it('should POST /evaluate/all for evaluateAll', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ data: {} }))
+    await sm.flags.evaluateAll({ user_id: 'user-1', plan: 'enterprise' }, 'staging')
+    const [url, init] = mockFetch.mock.calls[0]
+    expect(url).toBe('https://api.scalemule.com/v1/flags/evaluate/all')
+    expect(JSON.parse(init.body)).toEqual({
+      environment: 'staging',
+      context: { user_id: 'user-1', plan: 'enterprise' },
+    })
   })
 })
 

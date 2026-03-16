@@ -312,6 +312,7 @@ __export(index_exports, {
   ErrorCodes: () => ErrorCodes,
   EventsService: () => EventsService,
   FlagContentService: () => FlagContentService,
+  FlagsService: () => FlagsService,
   FunctionsService: () => FunctionsService,
   GraphService: () => GraphService,
   IdentityService: () => IdentityService,
@@ -3731,6 +3732,105 @@ var AnalyticsService = class extends ServiceModule {
   }
 };
 
+// src/services/flags.ts
+var FlagsService = class extends ServiceModule {
+  constructor() {
+    super(...arguments);
+    this.basePath = "/v1/flags";
+  }
+  async evaluate(flagKey, context = {}, environment = "prod", options) {
+    return this.post("/evaluate", { flag_key: flagKey, environment, context }, options);
+  }
+  async evaluateBatch(flagKeys, context = {}, environment = "prod", options) {
+    return this.post(
+      "/evaluate/batch",
+      { flag_keys: flagKeys, environment, context },
+      options
+    );
+  }
+  async evaluateAll(context = {}, environment = "prod", options) {
+    return this.post("/evaluate/all", { environment, context }, options);
+  }
+  async list(params, options) {
+    return this._get(
+      this.withQuery("", {
+        application_id: params?.applicationId,
+        status: params?.status,
+        search: params?.search
+      }),
+      options
+    );
+  }
+  async get(id, options) {
+    return this._get(`/${id}`, options);
+  }
+  async create(data, params, options) {
+    const path = this.withQuery("", { application_id: params?.applicationId });
+    return this.post(path, data, options);
+  }
+  async update(id, data, options) {
+    return this.patch(`/${id}`, data, options);
+  }
+  async archive(id, options) {
+    return this.del(`/${id}`, options);
+  }
+  async activate(id, options) {
+    return this.post(`/${id}/activate`, void 0, options);
+  }
+  async deactivate(id, options) {
+    return this.post(`/${id}/deactivate`, void 0, options);
+  }
+  async listRules(id, options) {
+    return this._get(`/${id}/rules`, options);
+  }
+  async createRule(id, data, options) {
+    return this.post(`/${id}/rules`, data, options);
+  }
+  async updateRule(id, data, options) {
+    return this.patch(`/rules/${id}`, data, options);
+  }
+  async deleteRule(id, options) {
+    return this.del(`/rules/${id}`, options);
+  }
+  async listVariants(id, options) {
+    return this._get(`/${id}/variants`, options);
+  }
+  async createVariant(id, data, options) {
+    return this.post(`/${id}/variants`, data, options);
+  }
+  async updateVariant(id, data, options) {
+    return this.patch(`/variants/${id}`, data, options);
+  }
+  async deleteVariant(id, options) {
+    return this.del(`/variants/${id}`, options);
+  }
+  async listSegments(params, options) {
+    return this._get(this.withQuery("/segments", { application_id: params?.applicationId }), options);
+  }
+  async createSegment(data, params, options) {
+    return this.post(
+      this.withQuery("/segments", { application_id: params?.applicationId }),
+      data,
+      options
+    );
+  }
+  async updateSegment(id, data, options) {
+    return this.patch(`/segments/${id}`, data, options);
+  }
+  async deleteSegment(id, options) {
+    return this.del(`/segments/${id}`, options);
+  }
+  async listEnvironments(id, options) {
+    return this._get(`/${id}/environments`, options);
+  }
+  async upsertEnvironment(id, environment, data, options) {
+    return this.put(`/${id}/environments/${encodeURIComponent(environment)}`, data, options);
+  }
+  async listAudit(id, limit, options) {
+    return this._get(this.withQuery(`/${id}/audit`, { limit }), options);
+  }
+};
+
 // src/services/communication.ts
 var CommunicationService = class extends ServiceModule {
   constructor() {
@@ -5190,6 +5290,7 @@ var ScaleMule = class {
     this.social = new SocialService(this._client);
     this.billing = new BillingService(this._client);
     this.analytics = new AnalyticsService(this._client);
+    this.flags = new FlagsService(this._client);
     this.communication = new CommunicationService(this._client);
     this.scheduler = new SchedulerService(this._client);
     this.permissions = new PermissionsService(this._client);
@@ -5295,6 +5396,7 @@ var index_default = ScaleMule;
   ErrorCodes,
   EventsService,
   FlagContentService,
+  FlagsService,
   FunctionsService,
   GraphService,
   IdentityService,

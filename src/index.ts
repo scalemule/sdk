@@ -145,6 +145,27 @@ export type {
   TopEvent,
   MetricDataPoint
 } from './services/analytics';
+export { FlagsService } from './services/flags';
+export type {
+  CreateFlagRequest,
+  CreateRuleRequest,
+  CreateSegmentRequest,
+  CreateVariantRequest,
+  FlagAuditEntry,
+  FlagCondition,
+  FlagDefinition,
+  FlagDetail,
+  FlagEnvironment,
+  FlagEvaluation,
+  FlagSegment,
+  FlagVariant,
+  TargetingRule,
+  UpdateFlagRequest,
+  UpdateRuleRequest,
+  UpdateSegmentRequest,
+  UpdateVariantRequest,
+  UpsertEnvironmentRequest
+} from './services/flags';
 export { CommunicationService } from './services/communication';
 export type { MessageStatus, PushToken } from './services/communication';
 export { SchedulerService } from './services/scheduler';
@@ -268,6 +289,7 @@ import { ChatService } from './services/chat';
 import { SocialService } from './services/social';
 import { BillingService } from './services/billing';
 import { AnalyticsService } from './services/analytics';
+import { FlagsService } from './services/flags';
 import { CommunicationService } from './services/communication';
 import { SchedulerService } from './services/scheduler';
 import { PermissionsService } from './services/permissions';
@@ -350,6 +372,7 @@ export class ScaleMule {
   public readonly social: SocialService;
   public readonly billing: BillingService;
   public readonly analytics: AnalyticsService;
+  public readonly flags: FlagsService;
   public readonly communication: CommunicationService;
   public readonly scheduler: SchedulerService;
   public readonly permissions: PermissionsService;
@@ -411,6 +434,7 @@ export class ScaleMule {
     this.social = new SocialService(this._client);
     this.billing = new BillingService(this._client);
     this.analytics = new AnalyticsService(this._client);
+    this.flags = new FlagsService(this._client);
     this.communication = new CommunicationService(this._client);
     this.scheduler = new SchedulerService(this._client);
     this.permissions = new PermissionsService(this._client);

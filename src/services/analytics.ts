@@ -91,14 +91,15 @@ export class AnalyticsService extends ServiceModule {
     userId?: string,
     options?: RequestOptions
   ): Promise<ApiResponse<{ tracked: boolean }>> {
-    return this.post<{ tracked: boolean }>('/v2/events', { event, properties, user_id: userId }, options);
+    return this.post<{ tracked: boolean }>('/v2/events', { event_name: event, properties, user_id: userId }, options);
   }
 
   async trackBatch(
     events: Array<{ event: string; properties?: Record<string, unknown>; user_id?: string; timestamp?: string }>,
     options?: RequestOptions
   ): Promise<ApiResponse<{ count: number }>> {
-    return this.post<{ count: number }>('/v2/events/batch', { events }, options);
+    const mapped = events.map(({ event, ...rest }) => ({ event_name: event, ...rest }));
+    return this.post<{ count: number }>('/v2/events/batch', { events: mapped }, options);
   }
 
   async trackPageView(

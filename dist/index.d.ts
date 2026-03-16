@@ -2231,6 +2231,193 @@ declare class AnalyticsService extends ServiceModule {
     query(filters?: Record<string, unknown>): Promise<ApiResponse<AnalyticsEvent[]>>;
 }
 
+interface FlagDefinition {
+    id: string;
+    application_id: string;
+    flag_key: string;
+    name: string;
+    description?: string | null;
+    flag_type: 'boolean' | 'string' | 'number' | 'json';
+    default_value: unknown;
+    status: 'active' | 'inactive' | 'archived';
+    tags: string[];
+    created_by?: string | null;
+    created_at: string;
+    updated_at: string;
+}
+interface FlagEnvironment {
+    id: string;
+    application_id: string;
+    flag_id: string;
+    environment: string;
+    enabled: boolean;
+    default_value?: unknown;
+}
+interface FlagCondition {
+    attribute: string;
+    operator: 'eq' | 'neq' | 'in' | 'not_in' | 'contains' | 'starts_with' | 'ends_with' | 'gt' | 'gte' | 'lt' | 'lte' | 'regex' | 'semver_eq' | 'semver_neq' | 'semver_gt' | 'semver_gte' | 'semver_lt' | 'semver_lte' | 'exists' | 'not_exists' | string;
+    value?: unknown;
+    values?: unknown[];
+}
+interface TargetingRule {
+    id: string;
+    application_id: string;
+    flag_id: string;
+    environment: string;
+    name: string;
+    priority: number;
+    serve_value: unknown;
+    rollout_percentage?: number | null;
+    conditions: FlagCondition[];
+    enabled: boolean;
+    created_at: string;
+    updated_at: string;
+}
+interface FlagVariant {
+    id: string;
+    application_id: string;
+    flag_id: string;
+    variant_key: string;
+    value: unknown;
+    weight: number;
+    created_at: string;
+    updated_at: string;
+}
+interface FlagSegment {
+    id: string;
+    application_id: string;
+    segment_key: string;
+    name: string;
+    description?: string | null;
+    conditions: FlagCondition[];
+    included_users: string[];
+    excluded_users: string[];
+    created_at: string;
+    updated_at: string;
+}
+interface FlagAuditEntry {
+    id: string;
+    application_id: string;
+    flag_id?: string | null;
+    actor_type: string;
+    actor_id: string;
+    actor_email?: string | null;
+    action: string;
+    before_value?: unknown;
+    after_value?: unknown;
+    metadata?: unknown;
+    created_at: string;
+}
+interface FlagDetail {
+    flag: FlagDefinition;
+    environments: FlagEnvironment[];
+    rules: TargetingRule[];
+    variants: FlagVariant[];
+}
+interface FlagEvaluation<T = unknown> {
+    flag_id: string;
+    flag_key: string;
+    environment: string;
+    value: T;
+    reason: 'disabled' | 'rule_match' | 'variant' | 'default' | string;
+    matched_rule_id?: string | null;
+    variant_key?: string | null;
+    bucket?: number | null;
+}
+interface CreateFlagRequest {
+    flag_key: string;
+    name: string;
+    description?: string;
+    flag_type?: 'boolean' | 'string' | 'number' | 'json';
+    default_value?: unknown;
+    tags?: string[];
+}
+interface UpdateFlagRequest {
+    flag_key?: string;
+    name?: string;
+    description?: string | null;
+    flag_type?: 'boolean' | 'string' | 'number' | 'json';
+    default_value?: unknown;
+    tags?: string[];
+    status?: 'active' | 'inactive' | 'archived';
+}
+interface CreateRuleRequest {
+    environment: string;
+    name: string;
+    priority?: number;
+    serve_value: unknown;
+    rollout_percentage?: number | null;
+    conditions?: FlagCondition[];
+    enabled?: boolean;
+}
+interface UpdateRuleRequest extends Partial<CreateRuleRequest> {
+}
+interface CreateVariantRequest {
+    variant_key: string;
+    value: unknown;
+    weight: number;
+}
+interface UpdateVariantRequest extends Partial<CreateVariantRequest> {
+}
+interface CreateSegmentRequest {
+    segment_key: string;
+    name: string;
+    description?: string;
+    conditions?: FlagCondition[];
+    included_users?: string[];
+    excluded_users?: string[];
+}
+interface UpdateSegmentRequest extends Partial<CreateSegmentRequest> {
+}
+interface UpsertEnvironmentRequest {
+    enabled: boolean;
+    default_value?: unknown;
+}
+declare class FlagsService extends ServiceModule {
+    protected basePath: string;
+    evaluate<T = unknown>(flagKey: string, context?: Record<string, unknown>, environment?: string, options?: RequestOptions): Promise<ApiResponse<FlagEvaluation<T>>>;
+    evaluateBatch(flagKeys: string[], context?: Record<string, unknown>, environment?: string, options?: RequestOptions): Promise<ApiResponse<Record<string, FlagEvaluation>>>;
+    evaluateAll(context?: Record<string, unknown>, environment?: string, options?: RequestOptions): Promise<ApiResponse<Record<string, FlagEvaluation>>>;
+    list(params?: {
+        applicationId?: string;
+        status?: string;
+        search?: string;
+    }, options?: RequestOptions): Promise<ApiResponse<FlagDefinition[]>>;
+    get(id: string, options?: RequestOptions): Promise<ApiResponse<FlagDetail>>;
+    create(data: CreateFlagRequest, params?: {
+        applicationId?: string;
+    }, options?: RequestOptions): Promise<ApiResponse<FlagDetail>>;
+    update(id: string, data: UpdateFlagRequest, options?: RequestOptions): Promise<ApiResponse<FlagDetail>>;
+    archive(id: string, options?: RequestOptions): Promise<ApiResponse<FlagDetail>>;
+    activate(id: string, options?: RequestOptions): Promise<ApiResponse<FlagDetail>>;
+    deactivate(id: string, options?: RequestOptions): Promise<ApiResponse<FlagDetail>>;
+    listRules(id: string, options?: RequestOptions): Promise<ApiResponse<TargetingRule[]>>;
+    createRule(id: string, data: CreateRuleRequest, options?: RequestOptions): Promise<ApiResponse<TargetingRule>>;
+    updateRule(id: string, data: UpdateRuleRequest, options?: RequestOptions): Promise<ApiResponse<TargetingRule>>;
+    deleteRule(id: string, options?: RequestOptions): Promise<ApiResponse<{
+        deleted: boolean;
+    }>>;
+    listVariants(id: string, options?: RequestOptions): Promise<ApiResponse<FlagVariant[]>>;
+    createVariant(id: string, data: CreateVariantRequest, options?: RequestOptions): Promise<ApiResponse<FlagVariant>>;
+    updateVariant(id: string, data: UpdateVariantRequest, options?: RequestOptions): Promise<ApiResponse<FlagVariant>>;
+    deleteVariant(id: string, options?: RequestOptions): Promise<ApiResponse<{
+        deleted: boolean;
+    }>>;
+    listSegments(params?: {
+        applicationId?: string;
+    }, options?: RequestOptions): Promise<ApiResponse<FlagSegment[]>>;
+    createSegment(data: CreateSegmentRequest, params?: {
+        applicationId?: string;
+    }, options?: RequestOptions): Promise<ApiResponse<FlagSegment>>;
+    updateSegment(id: string, data: UpdateSegmentRequest, options?: RequestOptions): Promise<ApiResponse<FlagSegment>>;
+    deleteSegment(id: string, options?: RequestOptions): Promise<ApiResponse<{
+        deleted: boolean;
+    }>>;
+    listEnvironments(id: string, options?: RequestOptions): Promise<ApiResponse<FlagEnvironment[]>>;
+    upsertEnvironment(id: string, environment: string, data: UpsertEnvironmentRequest, options?: RequestOptions): Promise<ApiResponse<FlagEnvironment>>;
+    listAudit(id: string, limit?: number, options?: RequestOptions): Promise<ApiResponse<FlagAuditEntry[]>>;
+}
+
 /**
  * Communication Service Module
  *
@@ -4902,6 +5089,7 @@ declare class ScaleMule {
     readonly social: SocialService;
     readonly billing: BillingService;
     readonly analytics: AnalyticsService;
+    readonly flags: FlagsService;
     readonly communication: CommunicationService;
     readonly scheduler: SchedulerService;
     readonly permissions: PermissionsService;
@@ -4964,4 +5152,4 @@ declare class ScaleMule {
     getClient(): ScaleMuleClient;
 }
 
-export { type AccountBalance, AccountsService, type ActiveUsers, type ActivityItem, AgentAuthService, AgentModelsService, type AgentProfile, AgentProjectsService, type AgentResponse, type AgentSecurityPolicy, AgentSessionsService, type AgentSigningKey, type AgentToken, type AgentToolEntitlement, AgentToolsService, type Workspace as AgentWorkspace, AgentsService, type AggregateOptions, type AggregateResult, type AnalyticsEvent, AnalyticsService, type ApiError, type ApiKey, type ApiResponse, type Appeal, type Application, type Attachment, type Attendee, type AuditLog, type AuthRegisterAgentRequest, type AuthRegisterAgentResponse, AuthService, type AuthSession, type AuthUser, type BackupCodes, BillingService, type CacheEntry, CacheService, type CalendarEvent, type CatalogEntry, CatalogService, type ChatMessage, type ChatReaction, ChatService, type ClaimResult, type Client, type ClientContext, type Collection, type Comment, CommunicationService, type CompletedPart, ComplianceService, type CompressionConfig, type ConnectedAccount, type ConnectedAccountSubscription, type ConnectedSetupIntentResponse, type ConnectedSubscriptionListParams, type ConnectionStatus, type ContentFlag, type Conversation, type CostReportDay, type CreateSessionResponse, type Credential, type CredentialScope, type Customer, type DataAccessPolicy, type DataExport, DataService, type DataSource, type DeadLetterJob, type DeviceInfo, type Document, type ErrorCode, ErrorCodes, type EventAggregation, EventsService, type FileInfo, type FlagCheck, FlagContentService, type FollowStatus, type FunctionExecution, type FunctionMetrics, FunctionsService, type Funnel, type FunnelConversion, type GdprRequest, type GrantInfo, type GraphEdge, type GraphNode, GraphService, IdentityService, type IdentityType, type IncomingRequestLike, type Invoice, type JobExecution, type JobStats, type Leaderboard, type LeaderboardEntry, LeaderboardService, type Like, type Listing, ListingsService, type LogEntry, type LogInput, type LogQueryParams, type LogQueryResponse, type LogRecord, LoggerService, type LoginActivitySummary, type LoginDeviceInfo, type LoginHistoryEntry, type LoginRiskInfo, type MessageCallback, type MessageStatus, type MetricDataPoint, type MfaStatus, type Model, type ModelEntitlement, type ModelPricing, type ModelProvider, type UsageSummary as ModelUsageSummary, type MultipartCompleteResponse, type MultipartPartUrlsResponse, type MultipartStartResponse, type NetworkClass, type OAuthProvider, type OAuthUrl, OrchestratorService, PHOTO_BREAKPOINTS, type PaginatedResponse, type PaginationMetadata, type PaginationParams, type PartUrl, type Participant, type Payment, type PaymentListParams, type PaymentMethod, type PaymentStatusResponse, type Payout, type PayoutSchedule, type PermissionCheck, type PermissionMatrix, PermissionsService, type PhotoInfo, PhotoService, type Pipeline, type PipelineVersion, type Policy, type PresenceCallback, type PresenceEvent, type PresignedUploadResponse, type Price, type Product, type Project, type ProjectDocument, type ProjectGrant, type ProjectMember, type PushToken, type QueryFilter, type QueryOptions, type QuerySort, type QueueJob, QueueService, type ReadStatus, RealtimeService, type RedeemResult, type Refund, type RegisterAgentRequest, type RegisterAgentResponse, type RequestOptions, type ResumeSession, type Role, type RuntimeTemplate, type RuntimeTemplateVersion, ScaleMule, ScaleMuleClient, type ScaleMuleConfig, type SchedulerJob, SchedulerService, type SearchResult, SearchService, type SecurityLayers, type ServerlessFunction, type ServiceHealth, ServiceModule, type Session, type SessionArtifact, type SessionInfo, type SessionLog, type Severity, type ShortestPathResult, type SignedUrlResponse, type SocialPost, SocialService, type SocialUser, type SsoConfig, type StatusCallback, type StorageAdapter, StorageService, type StrategyResult, type SubmitResult, type Subscription, type Task, type TaskAttempt, type TaskTransition, type Team, type TeamInvitation, type TeamMember, TeamsService, type TelemetryPayload, type Tool, type ToolCapability, type ToolIntegration, type TopEvent, type TotpSetup, type Transaction, type TransactionListParams, type TransactionSummary, type TransactionSummaryParams, type Transfer, type TransformOptions, type TransformResult, type TraversalResult, type UploadCompleteResponse, type UploadEngineConfig, type UploadOptions, type UploadPlan, UploadResumeStore, type UploadStrategy, UploadTelemetry, type UploadTelemetryConfig, type UploadTelemetryEvent, type UsageRecord, type UsageSummary$1 as UsageSummary, type UserRank, type VideoInfo, VideoService, type VideoUploadOptions, type Webhook, WebhooksService, type Workflow, type WorkflowExecution, type Workspace$1 as Workspace, type WorkspaceInvitation, type WorkspaceMember, WorkspacesService, buildClientContextHeaders, calculateTotalParts, canPerform, createUploadPlan, ScaleMule as default, detectNetworkClass, extractClientContext, generateUploadSessionId, getMeasuredBandwidthMbps, getPartRange, hasMinRoleLevel, resolveStrategy, validateIP };
+export { type AccountBalance, AccountsService, type ActiveUsers, type ActivityItem, AgentAuthService, AgentModelsService, type AgentProfile, AgentProjectsService, type AgentResponse, type AgentSecurityPolicy, AgentSessionsService, type AgentSigningKey, type AgentToken, type AgentToolEntitlement, AgentToolsService, type Workspace as AgentWorkspace, AgentsService, type AggregateOptions, type AggregateResult, type AnalyticsEvent, AnalyticsService, type ApiError, type ApiKey, type ApiResponse, type Appeal, type Application, type Attachment, type Attendee, type AuditLog, type AuthRegisterAgentRequest, type AuthRegisterAgentResponse, AuthService, type AuthSession, type AuthUser, type BackupCodes, BillingService, type CacheEntry, CacheService, type CalendarEvent, type CatalogEntry, CatalogService, type ChatMessage, type ChatReaction, ChatService, type ClaimResult, type Client, type ClientContext, type Collection, type Comment, CommunicationService, type CompletedPart, ComplianceService, type CompressionConfig, type ConnectedAccount, type ConnectedAccountSubscription, type ConnectedSetupIntentResponse, type ConnectedSubscriptionListParams, type ConnectionStatus, type ContentFlag, type Conversation, type CostReportDay, type CreateFlagRequest, type CreateRuleRequest, type CreateSegmentRequest, type CreateSessionResponse, type CreateVariantRequest, type Credential, type CredentialScope, type Customer, type DataAccessPolicy, type DataExport, DataService, type DataSource, type DeadLetterJob, type DeviceInfo, type Document, type ErrorCode, ErrorCodes, type EventAggregation, EventsService, type FileInfo, type FlagAuditEntry, type FlagCheck, type FlagCondition, FlagContentService, type FlagDefinition, type FlagDetail, type FlagEnvironment, type FlagEvaluation, type FlagSegment, type FlagVariant, FlagsService, type FollowStatus, type FunctionExecution, type FunctionMetrics, FunctionsService, type Funnel, type FunnelConversion, type GdprRequest, type GrantInfo, type GraphEdge, type GraphNode, GraphService, IdentityService, type IdentityType, type IncomingRequestLike, type Invoice, type JobExecution, type JobStats, type Leaderboard, type LeaderboardEntry, LeaderboardService, type Like, type Listing, ListingsService, type LogEntry, type LogInput, type LogQueryParams, type LogQueryResponse, type LogRecord, LoggerService, type LoginActivitySummary, type LoginDeviceInfo, type LoginHistoryEntry, type LoginRiskInfo, type MessageCallback, type MessageStatus, type MetricDataPoint, type MfaStatus, type Model, type ModelEntitlement, type ModelPricing, type ModelProvider, type UsageSummary as ModelUsageSummary, type MultipartCompleteResponse, type MultipartPartUrlsResponse, type MultipartStartResponse, type NetworkClass, type OAuthProvider, type OAuthUrl, OrchestratorService, PHOTO_BREAKPOINTS, type PaginatedResponse, type PaginationMetadata, type PaginationParams, type PartUrl, type Participant, type Payment, type PaymentListParams, type PaymentMethod, type PaymentStatusResponse, type Payout, type PayoutSchedule, type PermissionCheck, type PermissionMatrix, PermissionsService, type PhotoInfo, PhotoService, type Pipeline, type PipelineVersion, type Policy, type PresenceCallback, type PresenceEvent, type PresignedUploadResponse, type Price, type Product, type Project, type ProjectDocument, type ProjectGrant, type ProjectMember, type PushToken, type QueryFilter, type QueryOptions, type QuerySort, type QueueJob, QueueService, type ReadStatus, RealtimeService, type RedeemResult, type Refund, type RegisterAgentRequest, type RegisterAgentResponse, type RequestOptions, type ResumeSession, type Role, type RuntimeTemplate, type RuntimeTemplateVersion, ScaleMule, ScaleMuleClient, type ScaleMuleConfig, type SchedulerJob, SchedulerService, type SearchResult, SearchService, type SecurityLayers, type ServerlessFunction, type ServiceHealth, ServiceModule, type Session, type SessionArtifact, type SessionInfo, type SessionLog, type Severity, type ShortestPathResult, type SignedUrlResponse, type SocialPost, SocialService, type SocialUser, type SsoConfig, type StatusCallback, type StorageAdapter, StorageService, type StrategyResult, type SubmitResult, type Subscription, type TargetingRule, type Task, type TaskAttempt, type TaskTransition, type Team, type TeamInvitation, type TeamMember, TeamsService, type TelemetryPayload, type Tool, type ToolCapability, type ToolIntegration, type TopEvent, type TotpSetup, type Transaction, type TransactionListParams, type TransactionSummary, type TransactionSummaryParams, type Transfer, type TransformOptions, type TransformResult, type TraversalResult, type UpdateFlagRequest, type UpdateRuleRequest, type UpdateSegmentRequest, type UpdateVariantRequest, type UploadCompleteResponse, type UploadEngineConfig, type UploadOptions, type UploadPlan, UploadResumeStore, type UploadStrategy, UploadTelemetry, type UploadTelemetryConfig, type UploadTelemetryEvent, type UpsertEnvironmentRequest, type UsageRecord, type UsageSummary$1 as UsageSummary, type UserRank, type VideoInfo, VideoService, type VideoUploadOptions, type Webhook, WebhooksService, type Workflow, type WorkflowExecution, type Workspace$1 as Workspace, type WorkspaceInvitation, type WorkspaceMember, WorkspacesService, buildClientContextHeaders, calculateTotalParts, canPerform, createUploadPlan, ScaleMule as default, detectNetworkClass, extractClientContext, generateUploadSessionId, getMeasuredBandwidthMbps, getPartRange, hasMinRoleLevel, resolveStrategy, validateIP };
