@@ -3267,8 +3267,14 @@ var DataService = class extends ServiceModule {
   // Documents — Query & Aggregate
   // --------------------------------------------------------------------------
   async query(collection, options, requestOptions) {
+    const filters = (options?.filters ?? []).map((f) => {
+      if (f.operator === "in" && !f.values && f.value != null) {
+        return { operator: f.operator, field: f.field, values: Array.isArray(f.value) ? f.value : [f.value] };
+      }
+      return f;
+    });
     const body = {
-      filters: options?.filters ?? [],
+      filters,
       sort: options?.sort ?? [],
       page: options?.page ?? 1,
       per_page: options?.perPage ?? 20
@@ -3666,10 +3672,11 @@ var AnalyticsService = class extends ServiceModule {
   // Event Tracking (v2 — JetStream buffered)
   // --------------------------------------------------------------------------
   async track(event, properties, userId, options) {
-    return this.post("/v2/events", { event, properties, user_id: userId }, options);
+    return this.post("/v2/events", { event_name: event, properties, user_id: userId }, options);
   }
   async trackBatch(events, options) {
-    return this.post("/v2/events/batch", { events }, options);
+    const mapped = events.map(({ event, ...rest }) => ({ event_name: event, ...rest }));
+    return this.post("/v2/events/batch", { events: mapped }, options);
   }
   async trackPageView(data, options) {
     return this.post("/page-view", data, options);

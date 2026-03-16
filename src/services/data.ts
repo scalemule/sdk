@@ -127,8 +127,17 @@ export class DataService extends ServiceModule {
     options?: QueryOptions,
     requestOptions?: RequestOptions
   ): Promise<PaginatedResponse<Document>> {
+    // Normalize 'in' filters: the data service expects 'values' (plural array),
+    // but callers often pass 'value' (singular). Auto-convert to prevent 400s.
+    const filters = (options?.filters ?? []).map(f => {
+      if (f.operator === 'in' && !f.values && f.value != null) {
+        return { operator: f.operator, field: f.field, values: Array.isArray(f.value) ? f.value : [f.value] };
+      }
+      return f;
+    });
+
     const body = {
-      filters: options?.filters ?? [],
+      filters,
       sort: options?.sort ?? [],
       page: options?.page ?? 1,
       per_page: options?.perPage ?? 20
