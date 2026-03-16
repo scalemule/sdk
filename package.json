@@ -1,6 +1,6 @@
 {
   "name": "@scalemule/sdk",
-  "version": "0.0.13",
+  "version": "0.0.16",
   "description": "Official TypeScript/JavaScript SDK for ScaleMule Backend-as-a-Service",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -10,6 +10,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
+    },
+    "./flags/server": {
+      "types": "./dist/flags/server.d.ts",
+      "import": "./dist/flags/server.mjs",
+      "require": "./dist/flags/server.js"
     }
   },
   "files": [
@@ -18,7 +23,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm --dts --clean --external @scalemule/ui --external browser-image-compression",
+    "build": "tsup src/index.ts src/flags/server.ts --format cjs,esm --dts --clean --external @scalemule/ui --external browser-image-compression",
     "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -56,7 +61,9 @@
   "engines": {
     "node": ">=18.0.0"
   },
-  "dependencies": {},
+  "dependencies": {
+    "semver": "^7.7.4"
+  },
   "peerDependencies": {
     "@scalemule/ui": "^0.0.1",
     "browser-image-compression": ">=2.0.0"
