@@ -108,6 +108,23 @@ export interface UploadCompleteResponse {
   scan_queued: boolean;
 }
 
+export interface UploadFailureReport {
+  fileId: string;
+  completionToken: string;
+  step: string;
+  errorCode: string;
+  errorMessage?: string;
+  httpStatus?: number;
+  attempt?: number;
+  diagnostics?: Record<string, unknown>;
+}
+
+export interface UploadFailureReportResponse {
+  file_id: string;
+  recorded: boolean;
+  upload_status: string;
+}
+
 export interface MultipartStartResponse {
   upload_session_id: string;
   file_id: string;
@@ -272,6 +289,22 @@ export class StorageService extends ServiceModule {
         file_id,
         reason: uploadResult.error.code
       });
+      await this.reportUploadFailureBestEffort(
+        {
+          fileId: file_id,
+          completionToken: completion_token,
+          step: 's3_put',
+          errorCode: uploadResult.error.code,
+          errorMessage: uploadResult.error.message,
+          httpStatus: uploadResult.error.status || undefined,
+          attempt: asNumber(uploadResult.error.details?.attempt),
+          diagnostics: {
+            ...getUploadEnvironmentDiagnostics(),
+            ...(uploadResult.error.details || {})
+          }
+        },
+        requestOpts
+      );
       return { data: null, error: uploadResult.error } as ApiResponse<FileInfo>;
     }
 
@@ -292,6 +325,21 @@ export class StorageService extends ServiceModule {
         file_id,
         duration_ms: Date.now() - directStart
       });
+      await this.reportUploadFailureBestEffort(
+        {
+          fileId: file_id,
+          completionToken: completion_token,
+          step: 'complete',
+          errorCode: completeResult.error.code,
+          errorMessage: completeResult.error.message,
+          httpStatus: completeResult.error.status || undefined,
+          diagnostics: {
+            ...getUploadEnvironmentDiagnostics(),
+            duration_ms: Date.now() - directStart
+          }
+        },
+        requestOpts
+      );
     } else {
       telemetry?.emit(sessionId, 'upload.completed', {
         file_id,
@@ -487,6 +535,17 @@ export class StorageService extends ServiceModule {
       if (options?.signal?.aborted) {
         await this.abortMultipart(upload_session_id, completionToken, requestOpts);
         telemetry?.emit(sessionId, 'upload.aborted', { file_id });
+        await this.reportUploadFailureBestEffort(
+          {
+            fileId: file_id,
+            completionToken,
+            step: 'multipart_abort',
+            errorCode: 'aborted',
+            errorMessage: 'Upload aborted',
+            diagnostics: getUploadEnvironmentDiagnostics()
+          },
+          requestOpts
+        );
         return { data: null, error: { code: 'aborted', message: 'Upload aborted', status: 0 } };
       }
 
@@ -602,6 +661,20 @@ export class StorageService extends ServiceModule {
           const errorMsg = result.error || 'Part upload returned no ETag';
           await this.abortMultipart(upload_session_id, completionToken, requestOpts);
           telemetry?.emit(sessionId, 'upload.multipart.aborted', { file_id, error: errorMsg });
+          await this.reportUploadFailureBestEffort(
+            {
+              fileId: file_id,
+              completionToken,
+              step: 'multipart_part',
+              errorCode: 'upload_error',
+              errorMessage: errorMsg,
+              diagnostics: {
+                ...getUploadEnvironmentDiagnostics(),
+                part_number: result.partNum
+              }
+            },
+            requestOpts
+          );
           return {
             data: null,
             error: { code: 'upload_error', message: `Part ${result.partNum} failed: ${errorMsg}`, status: 0 }
@@ -650,6 +723,21 @@ export class StorageService extends ServiceModule {
         error: completeResult.error.message,
         duration_ms: Date.now() - multipartStart
       });
+      await this.reportUploadFailureBestEffort(
+        {
+          fileId: file_id,
+          completionToken,
+          step: 'multipart_complete',
+          errorCode: completeResult.error.code,
+          errorMessage: completeResult.error.message,
+          httpStatus: completeResult.error.status || undefined,
+          diagnostics: {
+            ...getUploadEnvironmentDiagnostics(),
+            duration_ms: Date.now() - multipartStart
+          }
+        },
+        requestOpts
+      );
       return { data: null, error: completeResult.error } as ApiResponse<FileInfo>;
     }
 
@@ -716,7 +804,12 @@ export class StorageService extends ServiceModule {
   async getUploadUrl(
     filename: string,
     contentType: string,
-    options?: { isPublic?: boolean; expiresIn?: number; metadata?: Record<string, unknown> },
+    options?: {
+      isPublic?: boolean;
+      expiresIn?: number;
+      sizeBytes?: number;
+      metadata?: Record<string, unknown>;
+    },
     requestOptions?: RequestOptions
   ): Promise<ApiResponse<PresignedUploadResponse>> {
     return this.post<PresignedUploadResponse>(
@@ -726,6 +819,7 @@ export class StorageService extends ServiceModule {
         content_type: contentType,
         is_public: options?.isPublic ?? true,
         expires_in: options?.expiresIn ?? 3600,
+        size_bytes: options?.sizeBytes,
         metadata: options?.metadata
       },
       requestOptions
@@ -749,6 +843,30 @@ export class StorageService extends ServiceModule {
         completion_token: completionToken,
         size_bytes: options?.sizeBytes,
         checksum: options?.checksum
+      },
+      requestOptions
+    );
+  }
+
+  /**
+   * Persist a structured client-side upload failure against a file record.
+   * Best used by split-upload clients that call getUploadUrl() manually.
+   */
+  async reportUploadFailure(
+    params: UploadFailureReport,
+    requestOptions?: RequestOptions
+  ): Promise<ApiResponse<UploadFailureReportResponse>> {
+    return this.post<UploadFailureReportResponse>(
+      '/signed-url/report-failure',
+      {
+        file_id: params.fileId,
+        completion_token: params.completionToken,
+        step: params.step,
+        error_code: params.errorCode,
+        error_message: params.errorMessage,
+        http_status: params.httpStatus,
+        attempt: params.attempt,
+        diagnostics: params.diagnostics
       },
       requestOptions
     );
@@ -955,6 +1073,14 @@ export class StorageService extends ServiceModule {
 
       const result = await this.uploadToPresignedUrl(url, file, onProgress, signal);
 
+      if (result.error) {
+        result.error.details = {
+          ...(result.error.details || {}),
+          attempt: attempt + 1,
+          max_attempts: RETRY_DELAYS.length
+        };
+      }
+
       // Success
       if (!result.error) return result;
 
@@ -1034,7 +1160,12 @@ export class StorageService extends ServiceModule {
           error: {
             code: 'upload_error',
             message: `S3 upload failed: ${response.status} ${response.statusText}`,
-            status: response.status
+            status: response.status,
+            details: {
+              transport: 'fetch',
+              total_bytes: file.size,
+              online: getOnlineStatus()
+            }
           }
         };
       }
@@ -1058,7 +1189,12 @@ export class StorageService extends ServiceModule {
             : err instanceof Error
               ? err.message
               : 'S3 upload failed',
-          status: 0
+          status: 0,
+          details: {
+            transport: 'fetch',
+            total_bytes: file.size,
+            online: getOnlineStatus()
+          }
         }
       };
     }
@@ -1074,6 +1210,8 @@ export class StorageService extends ServiceModule {
       const xhr = new XMLHttpRequest();
       const stallTimeout = getStallTimeout();
       let stallTimer: ReturnType<typeof setTimeout> | null = null;
+      let lastLoaded = 0;
+      let totalBytes = file.size;
 
       const resetStallTimer = () => {
         if (stallTimer !== null) clearTimeout(stallTimer);
@@ -1084,7 +1222,14 @@ export class StorageService extends ServiceModule {
             error: {
               code: 'upload_stalled',
               message: `Upload stalled (no progress for ${stallTimeout / 1000}s)`,
-              status: 0
+              status: 0,
+              details: {
+                transport: 'xhr',
+                bytes_sent: lastLoaded,
+                total_bytes: totalBytes,
+                progress_percent: totalBytes > 0 ? Math.round((lastLoaded / totalBytes) * 100) : undefined,
+                online: getOnlineStatus()
+              }
             }
           });
         }, stallTimeout);
@@ -1114,6 +1259,8 @@ export class StorageService extends ServiceModule {
 
       xhr.upload.addEventListener('progress', (event) => {
         resetStallTimer();
+        lastLoaded = event.loaded;
+        totalBytes = event.total || totalBytes;
         if (event.lengthComputable && onProgress) {
           onProgress(Math.round((event.loaded / event.total) * 100));
         }
@@ -1130,7 +1277,14 @@ export class StorageService extends ServiceModule {
             error: {
               code: 'upload_error',
               message: `S3 upload failed: ${xhr.status}`,
-              status: xhr.status
+              status: xhr.status,
+              details: {
+                transport: 'xhr',
+                bytes_sent: lastLoaded,
+                total_bytes: totalBytes,
+                progress_percent: totalBytes > 0 ? Math.round((lastLoaded / totalBytes) * 100) : undefined,
+                online: getOnlineStatus()
+              }
             }
           });
         }
@@ -1140,7 +1294,18 @@ export class StorageService extends ServiceModule {
         clearStallTimer();
         resolve({
           data: null,
-          error: { code: 'upload_error', message: 'S3 upload failed', status: 0 }
+          error: {
+            code: 'upload_error',
+            message: 'S3 upload failed',
+            status: 0,
+            details: {
+              transport: 'xhr',
+              bytes_sent: lastLoaded,
+              total_bytes: totalBytes,
+              progress_percent: totalBytes > 0 ? Math.round((lastLoaded / totalBytes) * 100) : undefined,
+              online: getOnlineStatus()
+            }
+          }
         });
       });
 
@@ -1288,6 +1453,17 @@ export class StorageService extends ServiceModule {
     }
   }
 
+  private async reportUploadFailureBestEffort(
+    params: UploadFailureReport,
+    requestOptions?: RequestOptions
+  ): Promise<void> {
+    try {
+      await this.reportUploadFailure(params, requestOptions);
+    } catch {
+      // Failure reporting must never block the caller.
+    }
+  }
+
   private getOrCreateTelemetry(): UploadTelemetry {
     if (!this.telemetry) {
       this.telemetry = new UploadTelemetry(this.client);
@@ -1340,4 +1516,45 @@ function getNetworkEffectiveType(): string {
     return conn?.effectiveType || '4g';
   }
   return '4g';
+}
+
+function getOnlineStatus(): boolean | undefined {
+  if (typeof navigator === 'undefined') return undefined;
+  return navigator.onLine;
+}
+
+function getUploadEnvironmentDiagnostics(): Record<string, unknown> {
+  const diagnostics: Record<string, unknown> = {
+    network_type: getNetworkEffectiveType(),
+    online: getOnlineStatus()
+  };
+
+  if (typeof navigator !== 'undefined') {
+    const nav = navigator as Navigator & {
+      connection?: { effectiveType?: string; downlink?: number; rtt?: number };
+      deviceMemory?: number;
+    };
+    if (typeof nav.hardwareConcurrency === 'number') {
+      diagnostics.hardware_concurrency = nav.hardwareConcurrency;
+    }
+    if (typeof nav.deviceMemory === 'number') {
+      diagnostics.device_memory_gb = nav.deviceMemory;
+    }
+    if (nav.connection?.downlink != null) {
+      diagnostics.downlink_mbps = nav.connection.downlink;
+    }
+    if (nav.connection?.rtt != null) {
+      diagnostics.rtt_ms = nav.connection.rtt;
+    }
+  }
+
+  if (typeof document !== 'undefined') {
+    diagnostics.visibility_state = document.visibilityState;
+  }
+
+  return diagnostics;
+}
+
+function asNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }

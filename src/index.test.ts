@@ -582,7 +582,10 @@ describe('StorageService', () => {
         },
       }))
 
-      const result = await sm.storage.getUploadUrl('photo.jpg', 'image/jpeg', { isPublic: true })
+      const result = await sm.storage.getUploadUrl('photo.jpg', 'image/jpeg', {
+        isPublic: true,
+        sizeBytes: 12540534,
+      })
 
       const [url, init] = mockFetch.mock.calls[0]
       expect(url).toBe('https://api.scalemule.com/v1/storage/signed-url/upload')
@@ -591,6 +594,7 @@ describe('StorageService', () => {
       expect(body.filename).toBe('photo.jpg')
       expect(body.content_type).toBe('image/jpeg')
       expect(body.is_public).toBe(true)
+      expect(body.size_bytes).toBe(12540534)
       expect(result.data!.file_id).toBe('f1')
       expect(result.data!.upload_url).toBe('https://s3.amazonaws.com/presigned')
     })
@@ -617,6 +621,39 @@ describe('StorageService', () => {
       expect(body.file_id).toBe('f1')
       expect(body.completion_token).toBe('tok123')
       expect(result.data!.scan_queued).toBe(true)
+    })
+
+    it('should POST to /signed-url/report-failure for reportUploadFailure', async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse({
+        data: {
+          file_id: 'f1',
+          recorded: true,
+          upload_status: 'failed',
+        },
+      }))
+
+      const result = await sm.storage.reportUploadFailure({
+        fileId: 'f1',
+        completionToken: 'tok123',
+        step: 's3_put',
+        errorCode: 'upload_stalled',
+        errorMessage: 'Upload stalled',
+        httpStatus: 0,
+        attempt: 2,
+        diagnostics: { bytes_sent: 7340032, total_bytes: 12540534 },
+      })
+
+      const [url, init] = mockFetch.mock.calls[0]
+      expect(url).toBe('https://api.scalemule.com/v1/storage/signed-url/report-failure')
+      expect(init.method).toBe('POST')
+      const body = JSON.parse(init.body)
+      expect(body.file_id).toBe('f1')
+      expect(body.completion_token).toBe('tok123')
+      expect(body.step).toBe('s3_put')
+      expect(body.error_code).toBe('upload_stalled')
+      expect(body.attempt).toBe(2)
+      expect(body.diagnostics.bytes_sent).toBe(7340032)
+      expect(result.data!.recorded).toBe(true)
     })
   })
 

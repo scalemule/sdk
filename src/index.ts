@@ -68,6 +68,8 @@ export type {
   SignedUrlResponse,
   PresignedUploadResponse,
   UploadCompleteResponse,
+  UploadFailureReport,
+  UploadFailureReportResponse,
   CompressionConfig,
   MultipartStartResponse,
   PartUrl,
