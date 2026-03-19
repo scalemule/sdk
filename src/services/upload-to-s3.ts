@@ -251,7 +251,14 @@ export async function uploadMultipartToS3(
           const freshUrls = await fetchMoreUrls([partNum]);
           if (freshUrls?.[0]) {
             availableUrls.set(partNum, freshUrls[0].url);
-            result = await uploadPartWithRetry(freshUrls[0].url, blob, partNum, maxRetries, options?.signal, stallTimeoutMs);
+            result = await uploadPartWithRetry(
+              freshUrls[0].url,
+              blob,
+              partNum,
+              maxRetries,
+              options?.signal,
+              stallTimeoutMs
+            );
           }
         }
 
