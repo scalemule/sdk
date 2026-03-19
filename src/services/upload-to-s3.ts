@@ -53,6 +53,8 @@ export interface S3MultipartOptions {
   concurrency?: number;
   /** Max retries per part (default: 3) */
   maxRetries?: number;
+  /** Stall timeout in ms — retry part if no progress for this long (default: none) */
+  stallTimeoutMs?: number;
 }
 
 export interface PartResult {
@@ -200,6 +202,7 @@ export async function uploadMultipartToS3(
   const { partSizeBytes, totalParts, partUrls: initialPartUrls, fetchMoreUrls } = config;
   const concurrency: number = options?.concurrency ?? DEFAULT_CONCURRENCY;
   const maxRetries: number = options?.maxRetries ?? 3;
+  const stallTimeoutMs: number | undefined = options?.stallTimeoutMs;
 
   const completedParts: PartResult[] = [];
   const availableUrls = new Map<number, string>();
@@ -241,14 +244,14 @@ export async function uploadMultipartToS3(
         const end = Math.min(start + partSizeBytes, file.size);
         const blob = file.slice(start, end);
 
-        let result = await uploadPartWithRetry(url, blob, partNum, maxRetries, options?.signal);
+        let result = await uploadPartWithRetry(url, blob, partNum, maxRetries, options?.signal, stallTimeoutMs);
 
         // On failure, try refreshing URL (signature may have expired)
         if (!result && fetchMoreUrls) {
           const freshUrls = await fetchMoreUrls([partNum]);
           if (freshUrls?.[0]) {
             availableUrls.set(partNum, freshUrls[0].url);
-            result = await uploadPartWithRetry(freshUrls[0].url, blob, partNum, maxRetries, options?.signal);
+            result = await uploadPartWithRetry(freshUrls[0].url, blob, partNum, maxRetries, options?.signal, stallTimeoutMs);
           }
         }
 
@@ -289,7 +292,8 @@ async function uploadPartWithRetry(
   blob: Blob,
   _partNumber: number,
   maxRetries: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  stallTimeoutMs?: number
 ): Promise<{ etag: string } | null> {
   const retryDelays = DEFAULT_RETRY_DELAYS.slice(0, maxRetries);
 
@@ -297,11 +301,11 @@ async function uploadPartWithRetry(
     if (attempt > 0) await sleep(retryDelays[attempt] || 1000);
     if (signal?.aborted) return null;
 
-    const result = await doPartPut(url, blob, signal);
+    const result = await doPartPut(url, blob, signal, stallTimeoutMs);
 
     if (result === 'abort') return null;
     if (typeof result === 'object') return result; // { etag }
-    // 'retry' — continue
+    // 'retry' — continue (includes stall)
   }
 
   return null;
@@ -309,43 +313,70 @@ async function uploadPartWithRetry(
 
 type PartPutResult = { etag: string } | 'retry' | 'abort';
 
-function doPartPut(url: string, blob: Blob, signal?: AbortSignal): Promise<PartPutResult> {
+function doPartPut(url: string, blob: Blob, signal?: AbortSignal, stallTimeoutMs?: number): Promise<PartPutResult> {
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
+    let stallTimer: ReturnType<typeof setTimeout> | null = null;
+    let resolved = false;
+
+    const settle = (result: PartPutResult) => {
+      if (resolved) return;
+      resolved = true;
+      if (stallTimer) clearTimeout(stallTimer);
+      resolve(result);
+    };
+
+    const resetStallTimer = () => {
+      if (stallTimer) clearTimeout(stallTimer);
+      if (stallTimeoutMs) {
+        stallTimer = setTimeout(() => {
+          xhr.abort();
+          settle('retry'); // Stalled parts are retryable
+        }, stallTimeoutMs);
+      }
+    };
+
+    xhr.upload.addEventListener('progress', () => {
+      resetStallTimer();
+    });
 
     xhr.addEventListener('load', () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         const etag = xhr.getResponseHeader('etag');
         if (etag) {
-          resolve({ etag });
+          settle({ etag });
         } else {
-          resolve('retry'); // Missing ETag
+          settle('retry'); // Missing ETag
         }
       } else if (xhr.status === 403) {
         // Signature expired — caller should refresh URL
-        resolve('retry');
+        settle('retry');
       } else if (xhr.status >= 500) {
-        resolve('retry');
+        settle('retry');
       } else {
-        resolve('retry');
+        settle('retry');
       }
     });
 
-    xhr.addEventListener('error', () => resolve('retry'));
-    xhr.addEventListener('abort', () => resolve('abort'));
+    xhr.addEventListener('error', () => settle('retry'));
+    xhr.addEventListener('abort', () => {
+      // Only resolve abort if it wasn't a stall-triggered abort
+      if (!resolved) settle('abort');
+    });
 
     if (signal) {
       signal.addEventListener(
         'abort',
         () => {
           xhr.abort();
-          resolve('abort');
+          settle('abort');
         },
         { once: true }
       );
     }
 
     xhr.open('PUT', url);
+    resetStallTimer();
     xhr.send(blob);
   });
 }
