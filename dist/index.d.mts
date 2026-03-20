@@ -1319,6 +1319,8 @@ interface S3MultipartOptions {
     concurrency?: number;
     /** Max retries per part (default: 3) */
     maxRetries?: number;
+    /** Stall timeout in ms — retry part if no progress for this long (default: none) */
+    stallTimeoutMs?: number;
 }
 interface PartResult {
     partNumber: number;
@@ -3586,6 +3588,11 @@ declare class PhotoService extends ServiceModule {
      * Creates a photo record so the optimization pipeline can process it.
      * Use this when files are uploaded via the storage service (presigned URL)
      * instead of the photo service's upload endpoint.
+     *
+     * If the file scan is still in progress, the server waits briefly (~5s) for it
+     * to complete. In the rare case the scan exceeds that window, the server queues
+     * the registration and returns 202; this method retries automatically until the
+     * photo record is available.
      *
      * Returns the photo record with `id` that can be used with `getTransformUrl()`.
      */

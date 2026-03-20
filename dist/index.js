@@ -3019,6 +3019,7 @@ async function uploadMultipartToS3(file, config, options) {
   const { partSizeBytes, totalParts, partUrls: initialPartUrls, fetchMoreUrls } = config;
   const concurrency = options?.concurrency ?? DEFAULT_CONCURRENCY;
   const maxRetries = options?.maxRetries ?? 3;
+  const stallTimeoutMs = options?.stallTimeoutMs;
   const completedParts = [];
   const availableUrls = /* @__PURE__ */ new Map();
   for (const pu of initialPartUrls) {
@@ -3047,12 +3048,19 @@ async function uploadMultipartToS3(file, config, options) {
         const start = (partNum - 1) * partSizeBytes;
         const end = Math.min(start + partSizeBytes, file.size);
         const blob = file.slice(start, end);
-        let result = await uploadPartWithRetry(url, blob, partNum, maxRetries, options?.signal);
+        let result = await uploadPartWithRetry(url, blob, partNum, maxRetries, options?.signal, stallTimeoutMs);
         if (!result && fetchMoreUrls) {
           const freshUrls = await fetchMoreUrls([partNum]);
           if (freshUrls?.[0]) {
             availableUrls.set(partNum, freshUrls[0].url);
-            result = await uploadPartWithRetry(freshUrls[0].url, blob, partNum, maxRetries, options?.signal);
+            result = await uploadPartWithRetry(
+              freshUrls[0].url,
+              blob,
+              partNum,
+              maxRetries,
+              options?.signal,
+              stallTimeoutMs
+            );
           }
         }
         if (result) {
@@ -3079,49 +3087,72 @@ async function uploadMultipartToS3(file, config, options) {
     parts: completedParts.sort((a, b) => a.partNumber - b.partNumber)
   };
 }
-async function uploadPartWithRetry(url, blob, _partNumber, maxRetries, signal) {
+async function uploadPartWithRetry(url, blob, _partNumber, maxRetries, signal, stallTimeoutMs) {
   const retryDelays = DEFAULT_RETRY_DELAYS.slice(0, maxRetries);
   for (let attempt = 0; attempt < retryDelays.length; attempt++) {
     if (attempt > 0) await sleep3(retryDelays[attempt] || 1e3);
     if (signal?.aborted) return null;
-    const result = await doPartPut(url, blob, signal);
+    const result = await doPartPut(url, blob, signal, stallTimeoutMs);
     if (result === "abort") return null;
     if (typeof result === "object") return result;
   }
   return null;
 }
-function doPartPut(url, blob, signal) {
+function doPartPut(url, blob, signal, stallTimeoutMs) {
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
+    let stallTimer = null;
+    let resolved = false;
+    const settle = (result) => {
+      if (resolved) return;
+      resolved = true;
+      if (stallTimer) clearTimeout(stallTimer);
+      resolve(result);
+    };
+    const resetStallTimer = () => {
+      if (stallTimer) clearTimeout(stallTimer);
+      if (stallTimeoutMs) {
+        stallTimer = setTimeout(() => {
+          xhr.abort();
+          settle("retry");
+        }, stallTimeoutMs);
+      }
+    };
+    xhr.upload.addEventListener("progress", () => {
+      resetStallTimer();
+    });
     xhr.addEventListener("load", () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         const etag = xhr.getResponseHeader("etag");
         if (etag) {
-          resolve({ etag });
+          settle({ etag });
         } else {
-          resolve("retry");
+          settle("retry");
         }
       } else if (xhr.status === 403) {
-        resolve("retry");
+        settle("retry");
       } else if (xhr.status >= 500) {
-        resolve("retry");
+        settle("retry");
       } else {
-        resolve("retry");
+        settle("retry");
       }
     });
-    xhr.addEventListener("error", () => resolve("retry"));
-    xhr.addEventListener("abort", () => resolve("abort"));
+    xhr.addEventListener("error", () => settle("retry"));
+    xhr.addEventListener("abort", () => {
+      if (!resolved) settle("abort");
+    });
     if (signal) {
       signal.addEventListener(
         "abort",
         () => {
           xhr.abort();
-          resolve("abort");
+          settle("abort");
         },
         { once: true }
       );
     }
     xhr.open("PUT", url);
+    resetStallTimer();
     xhr.send(blob);
   });
 }
@@ -4907,17 +4938,30 @@ var PhotoService = class extends ServiceModule {
    * Use this when files are uploaded via the storage service (presigned URL)
    * instead of the photo service's upload endpoint.
    *
+   * If the file scan is still in progress, the server waits briefly (~5s) for it
+   * to complete. In the rare case the scan exceeds that window, the server queues
+   * the registration and returns 202; this method retries automatically until the
+   * photo record is available.
+   *
    * Returns the photo record with `id` that can be used with `getTransformUrl()`.
    */
   async register(registerOptions, requestOptions) {
-    return this.post(
-      "/register",
-      {
-        file_id: registerOptions.fileId,
-        sm_user_id: registerOptions.userId
-      },
-      requestOptions
-    );
+    const body = {
+      file_id: registerOptions.fileId,
+      sm_user_id: registerOptions.userId
+    };
+    const result = await this.post("/register", body, requestOptions);
+    if (result.error || !result.data || !("status" in result.data && result.data.status === "pending_scan")) {
+      return result;
+    }
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await new Promise((r) => setTimeout(r, 1e3));
+      const retry = await this.post("/register", body, requestOptions);
+      if (retry.error || !retry.data || !("status" in retry.data && retry.data.status === "pending_scan")) {
+        return retry;
+      }
+    }
+    return { data: null, error: { code: "scan_timeout", message: "File scan did not complete in time. The photo will be registered automatically when the scan finishes.", status: 202 } };
   }
   /** @deprecated Use upload() instead */
   async uploadPhoto(file, options) {

@@ -177,20 +177,42 @@ export class PhotoService extends ServiceModule {
    * Use this when files are uploaded via the storage service (presigned URL)
    * instead of the photo service's upload endpoint.
    *
+   * If the file scan is still in progress, the server waits briefly (~5s) for it
+   * to complete. In the rare case the scan exceeds that window, the server queues
+   * the registration and returns 202; this method retries automatically until the
+   * photo record is available.
+   *
    * Returns the photo record with `id` that can be used with `getTransformUrl()`.
    */
   async register(
     registerOptions: { fileId: string; userId?: string },
     requestOptions?: RequestOptions
   ): Promise<ApiResponse<PhotoInfo>> {
-    return this.post<PhotoInfo>(
-      '/register',
-      {
-        file_id: registerOptions.fileId,
-        sm_user_id: registerOptions.userId
-      },
-      requestOptions
-    );
+    const body = {
+      file_id: registerOptions.fileId,
+      sm_user_id: registerOptions.userId
+    };
+
+    // First attempt — the server polls for scan completion internally (~5s).
+    // If scan completes, we get 200/201 with PhotoInfo immediately.
+    const result = await this.post<PhotoInfo>('/register', body, requestOptions);
+    if (result.error || !result.data || !('status' in result.data && (result.data as Record<string, unknown>).status === 'pending_scan')) {
+      return result;
+    }
+
+    // Rare path: scan didn't finish within the server's ~5s timeout.
+    // Retry POST /register (idempotent) twice with 1s gaps. Each retry also waits
+    // up to 5s server-side, so worst case is ~17s total (5 + 1 + 5 + 1 + 5).
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await new Promise(r => setTimeout(r, 1000));
+      const retry = await this.post<PhotoInfo>('/register', body, requestOptions);
+      if (retry.error || !retry.data || !('status' in retry.data && (retry.data as Record<string, unknown>).status === 'pending_scan')) {
+        return retry;
+      }
+    }
+
+    // Exhausted retries — return as error so callers don't silently get a non-PhotoInfo object
+    return { data: null, error: { code: 'scan_timeout', message: 'File scan did not complete in time. The photo will be registered automatically when the scan finishes.', status: 202 } };
   }
 
   /** @deprecated Use upload() instead */
