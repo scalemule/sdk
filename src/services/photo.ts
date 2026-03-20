@@ -196,7 +196,10 @@ export class PhotoService extends ServiceModule {
     // First attempt — the server polls for scan completion internally (~5s).
     // If scan completes, we get 200/201 with PhotoInfo immediately.
     const result = await this.post<PhotoInfo>('/register', body, requestOptions);
-    if (result.error || !result.data || !('status' in result.data && (result.data as Record<string, unknown>).status === 'pending_scan')) {
+    const isPending = (r: ApiResponse<PhotoInfo>) =>
+      !r.error && r.data && 'status' in r.data && (r.data as Record<string, unknown>).status === 'pending_scan';
+
+    if (!isPending(result)) {
       return result;
     }
 
@@ -204,15 +207,23 @@ export class PhotoService extends ServiceModule {
     // Retry POST /register (idempotent) twice with 1s gaps. Each retry also waits
     // up to 5s server-side, so worst case is ~17s total (5 + 1 + 5 + 1 + 5).
     for (let attempt = 0; attempt < 2; attempt++) {
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise((r) => setTimeout(r, 1000));
       const retry = await this.post<PhotoInfo>('/register', body, requestOptions);
-      if (retry.error || !retry.data || !('status' in retry.data && (retry.data as Record<string, unknown>).status === 'pending_scan')) {
+      if (!isPending(retry)) {
         return retry;
       }
     }
 
     // Exhausted retries — return as error so callers don't silently get a non-PhotoInfo object
-    return { data: null, error: { code: 'scan_timeout', message: 'File scan did not complete in time. The photo will be registered automatically when the scan finishes.', status: 202 } };
+    return {
+      data: null,
+      error: {
+        code: 'scan_timeout',
+        message:
+          'File scan did not complete in time. The photo will be registered automatically when the scan finishes.',
+        status: 202
+      }
+    };
   }
 
   /** @deprecated Use upload() instead */
