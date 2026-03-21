@@ -28,8 +28,8 @@ export interface StrategyResult {
 
 /** Multipart threshold: files >= this size use multipart */
 const MULTIPART_THRESHOLD = 8 * 1024 * 1024; // 8MB
-/** Multipart threshold on slow networks */
-const MULTIPART_THRESHOLD_SLOW = 4 * 1024 * 1024; // 4MB
+/** Multipart threshold on slow networks (lowered from 4MB to gain per-part retry + IndexedDB resume) */
+const MULTIPART_THRESHOLD_SLOW = 1 * 1024 * 1024; // 1MB
 
 /** Default stall timeout */
 const DEFAULT_STALL_TIMEOUT_MS = 45_000;

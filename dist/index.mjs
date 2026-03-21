@@ -4595,17 +4595,25 @@ var PhotoService = class extends ServiceModule {
       sm_user_id: registerOptions.userId
     };
     const result = await this.post("/register", body, requestOptions);
-    if (result.error || !result.data || !("status" in result.data && result.data.status === "pending_scan")) {
+    const isPending = (r) => !r.error && r.data && "status" in r.data && r.data.status === "pending_scan";
+    if (!isPending(result)) {
       return result;
     }
     for (let attempt = 0; attempt < 2; attempt++) {
       await new Promise((r) => setTimeout(r, 1e3));
       const retry = await this.post("/register", body, requestOptions);
-      if (retry.error || !retry.data || !("status" in retry.data && retry.data.status === "pending_scan")) {
+      if (!isPending(retry)) {
         return retry;
       }
     }
-    return { data: null, error: { code: "scan_timeout", message: "File scan did not complete in time. The photo will be registered automatically when the scan finishes.", status: 202 } };
+    return {
+      data: null,
+      error: {
+        code: "scan_timeout",
+        message: "File scan did not complete in time. The photo will be registered automatically when the scan finishes.",
+        status: 202
+      }
+    };
   }
   /** @deprecated Use upload() instead */
   async uploadPhoto(file, options) {
