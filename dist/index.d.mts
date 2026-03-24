@@ -2534,14 +2534,24 @@ declare class FlagsService extends ServiceModule {
  * Email, SMS, push notifications with template support.
  *
  * Routes:
- *   POST   /email/send                    → send email
- *   POST   /email/templates/{name}/send   → send templated email
- *   POST   /sms/send                      → send SMS
- *   POST   /sms/templates/{name}/send     → send templated SMS
- *   POST   /push/send                     → send push notification
- *   POST   /push/register                 → register push token
- *   DELETE /push/tokens/{token}           → unregister push token
- *   GET    /messages/{id}                  → get message status
+ *   POST   /email/send                         → send email
+ *   POST   /email/templates/{name}/send        → send templated email
+ *   POST   /sms/send                           → send SMS
+ *   POST   /sms/templates/{name}/send          → send templated SMS
+ *   POST   /push/send                          → send push notification
+ *   POST   /push/register                      → register push token
+ *   DELETE /push/tokens/{token}                → unregister push token (legacy)
+ *   DELETE /push/tokens/by-id/{id}             → unregister push token by ID
+ *   PUT    /push/tokens/by-id/{id}/user        → associate token with authenticated user
+ *   DELETE /push/tokens/by-id/{id}/user        → disassociate user (logout)
+ *   GET    /push/settings/me                   → get push settings for current app
+ *   GET    /push/topics                        → list notification topics
+ *   POST   /push/topics/{id}/subscribe         → subscribe to topic
+ *   DELETE /push/topics/{id}/subscribe         → unsubscribe from topic
+ *   GET    /push/subscriptions                 → list subscriptions
+ *   GET    /push/preferences                   → get push preferences
+ *   PUT    /push/preferences                   → update push preferences
+ *   GET    /messages/{id}                      → get message status
  */
 
 interface MessageStatus {
@@ -2559,9 +2569,67 @@ interface MessageStatus {
     error_message?: string;
 }
 interface PushToken {
-    token: string;
-    platform: string;
+    id: string;
+    platform: 'ios' | 'android' | 'web';
+    user_id?: string;
+    is_active: boolean;
     created_at: string;
+}
+interface PushTokenAssociationResult {
+    id: string;
+    user_id: string;
+    subscriptions_copied: number;
+}
+interface PushSettings {
+    push_enabled: boolean;
+    webpush_enabled: boolean;
+    vapid_public_key: string | null;
+    fcm_enabled: boolean;
+    apns_enabled: boolean;
+    silent_push_enabled: boolean;
+    rich_media_enabled: boolean;
+    broadcast_enabled: boolean;
+    max_per_user_per_hour: number;
+    max_per_user_per_day: number;
+}
+interface PushTopic {
+    id: string;
+    name: string;
+    display_name: string;
+    description: string | null;
+    is_default: boolean;
+    is_visible: boolean;
+    subscriber_count?: number;
+}
+interface PushSubscriptionInfo {
+    id: string;
+    topic_id: string;
+    topic_name?: string;
+}
+interface PushPreferences {
+    marketing_enabled: boolean;
+    transactional_enabled: boolean;
+    alert_enabled: boolean;
+    quiet_hours_enabled: boolean;
+    quiet_hours_start: string | null;
+    quiet_hours_end: string | null;
+    quiet_hours_tz: string | null;
+}
+interface WebPushSubscriptionData {
+    endpoint: string;
+    keys: {
+        p256dh: string;
+        auth: string;
+    };
+}
+interface RegisterPushTokenData {
+    token: string;
+    platform: 'ios' | 'android' | 'web';
+    device_id?: string;
+    subscription?: WebPushSubscriptionData;
+    app_version?: string;
+    os_version?: string;
+    device_model?: string;
 }
 declare class CommunicationService extends ServiceModule {
     protected basePath: string;
@@ -2590,13 +2658,23 @@ declare class CommunicationService extends ServiceModule {
         body: string;
         data?: Record<string, unknown>;
     }, options?: RequestOptions): Promise<ApiResponse<MessageStatus>>;
-    registerPushToken(data: {
-        token: string;
-        platform: string;
-    }, options?: RequestOptions): Promise<ApiResponse<PushToken>>;
+    registerPushToken(data: RegisterPushTokenData, options?: RequestOptions): Promise<ApiResponse<PushToken>>;
+    /** @deprecated Use unregisterPushTokenById() for web push tokens */
     unregisterPushToken(token: string, options?: RequestOptions): Promise<ApiResponse<{
         unregistered: boolean;
     }>>;
+    unregisterPushTokenById(id: string, options?: RequestOptions): Promise<ApiResponse<void>>;
+    associatePushTokenUserById(id: string, options?: RequestOptions): Promise<ApiResponse<PushTokenAssociationResult>>;
+    disassociatePushTokenUser(id: string, options?: RequestOptions): Promise<ApiResponse<void>>;
+    getMyPushSettings(options?: RequestOptions): Promise<ApiResponse<PushSettings>>;
+    listTopics(options?: RequestOptions): Promise<ApiResponse<PushTopic[]>>;
+    subscribeTopic(topicId: string, data?: {
+        push_token_id?: string;
+    }, options?: RequestOptions): Promise<ApiResponse<void>>;
+    unsubscribeTopic(topicId: string, options?: RequestOptions): Promise<ApiResponse<void>>;
+    listSubscriptions(options?: RequestOptions): Promise<ApiResponse<PushSubscriptionInfo[]>>;
+    getPushPreferences(options?: RequestOptions): Promise<ApiResponse<PushPreferences>>;
+    updatePushPreferences(data: Partial<PushPreferences>, options?: RequestOptions): Promise<ApiResponse<PushPreferences>>;
     getMessageStatus(id: string, options?: RequestOptions): Promise<ApiResponse<MessageStatus>>;
     /** @deprecated Use sendSms() instead */
     sendSMS(data: {
@@ -2611,6 +2689,91 @@ declare class CommunicationService extends ServiceModule {
         data?: Record<string, unknown>;
     }): Promise<ApiResponse<MessageStatus>>;
 }
+
+/**
+ * WebPushManager — Browser push notification subscription manager
+ *
+ * Handles service worker registration, Notification permission prompts,
+ * PushManager.subscribe(), and backend token registration.
+ *
+ * All HTTP calls go through an injectable PushApiFetcher — this lets
+ * the NextJS hook inject a fetcher that routes through /api/push/* proxy,
+ * while the React hook injects one that calls the gateway directly.
+ */
+
+interface PushApiFetcher {
+    getSettings(): Promise<PushSettings>;
+    registerToken(data: RegisterPushTokenData): Promise<{
+        id: string;
+    }>;
+    unregisterToken(tokenId: string): Promise<void>;
+    associateUser(tokenId: string): Promise<void>;
+    disassociateUser(tokenId: string): Promise<void>;
+}
+interface WebPushManagerOptions {
+    /** Service worker URL (default: '/sw.js') */
+    serviceWorkerUrl?: string;
+    /** Required: HTTP transport abstraction */
+    fetcher: PushApiFetcher;
+}
+declare class WebPushManager {
+    private fetcher;
+    private swUrl;
+    private state;
+    private registration;
+    constructor(options: WebPushManagerOptions);
+    /** Whether the browser supports Web Push */
+    isSupported(): boolean;
+    /** Current notification permission state */
+    getPermissionState(): NotificationPermission | 'unsupported';
+    /** Request notification permission from the user */
+    requestPermission(): Promise<NotificationPermission>;
+    /**
+     * Full subscribe flow:
+     * 1. Check browser support
+     * 2. Request notification permission
+     * 3. Register service worker
+     * 4. Fetch VAPID public key from backend
+     * 5. PushManager.subscribe() with VAPID key
+     * 6. Register token with backend
+     *
+     * @param deviceId Optional device identifier for anonymous users.
+     *                 If not provided, generates a random UUID stored in localStorage.
+     */
+    subscribe(deviceId?: string): Promise<{
+        tokenId: string;
+        endpoint: string;
+    } | null>;
+    /** Unsubscribe from browser push and deregister token */
+    unsubscribe(): Promise<void>;
+    /** Link push token to the currently authenticated user (call after login) */
+    associateUser(): Promise<void>;
+    /** Clear user association from push token (call before logout) */
+    disassociateUser(): Promise<void>;
+    /** Check if currently subscribed to push notifications */
+    isSubscribed(): Promise<boolean>;
+    /** Get the active PushSubscription from the service worker */
+    getSubscription(): Promise<PushSubscription | null>;
+    /** Get the stored token ID (for external use) */
+    getTokenId(): string | null;
+    private persistState;
+    private clearState;
+}
+
+/**
+ * Web Push Service Worker Template
+ *
+ * Exports a JavaScript string that can be served as a service worker.
+ * Customers can either:
+ * 1. Use this string with a Next.js API route to serve dynamically
+ * 2. Copy the content into their own public/sw.js
+ *
+ * The service worker handles:
+ * - push events: parse JSON, show notification
+ * - notificationclick: open/focus app window
+ * - message posting to client pages for foreground handling
+ */
+declare const WEB_PUSH_SERVICE_WORKER = "\n// ScaleMule Push Notification Service Worker\n\nself.addEventListener('push', function(event) {\n  if (!event.data) return;\n\n  var data;\n  try {\n    data = event.data.json();\n  } catch (e) {\n    data = { title: 'New Notification', body: event.data.text() };\n  }\n\n  var title = data.title || 'Notification';\n  var options = {\n    body: data.body || '',\n    icon: data.icon || undefined,\n    image: data.image || undefined,\n    badge: data.badge || undefined,\n    data: data.data || data,\n    tag: data.tag || undefined,\n    actions: data.actions || undefined,\n    requireInteraction: data.requireInteraction || false,\n  };\n\n  // Show the notification\n  event.waitUntil(\n    self.registration.showNotification(title, options)\n      .then(function() {\n        // Post message to all client pages for foreground handling\n        return self.clients.matchAll({ type: 'window', includeUncontrolled: true });\n      })\n      .then(function(clients) {\n        clients.forEach(function(client) {\n          client.postMessage({\n            type: 'push-received',\n            payload: data,\n          });\n        });\n      })\n  );\n});\n\nself.addEventListener('notificationclick', function(event) {\n  event.notification.close();\n\n  var url = '/';\n  if (event.notification.data && event.notification.data.url) {\n    url = event.notification.data.url;\n  }\n\n  // Handle action button clicks\n  if (event.action && event.notification.data && event.notification.data.actions) {\n    var action = event.notification.data.actions.find(function(a) {\n      return a.action === event.action;\n    });\n    if (action && action.url) {\n      url = action.url;\n    }\n  }\n\n  event.waitUntil(\n    self.clients.matchAll({ type: 'window', includeUncontrolled: true })\n      .then(function(clientList) {\n        // Try to focus an existing window\n        for (var i = 0; i < clientList.length; i++) {\n          var client = clientList[i];\n          if (client.url.indexOf(self.registration.scope) !== -1 && 'focus' in client) {\n            client.focus();\n            client.navigate(url);\n            return;\n          }\n        }\n        // Open a new window if none exists\n        if (self.clients.openWindow) {\n          return self.clients.openWindow(url);\n        }\n      })\n  );\n});\n";
 
 /**
  * Scheduler Service Module
@@ -5278,4 +5441,4 @@ declare class ScaleMule {
     getClient(): ScaleMuleClient;
 }
 
-export { type AccountBalance, AccountsService, type ActiveUsers, type ActivityItem, AgentAuthService, AgentModelsService, type AgentProfile, AgentProjectsService, type AgentResponse, type AgentSecurityPolicy, AgentSessionsService, type AgentSigningKey, type AgentToken, type AgentToolEntitlement, AgentToolsService, type Workspace as AgentWorkspace, AgentsService, type AggregateOptions, type AggregateResult, type AnalyticsEvent, AnalyticsService, type ApiError, type ApiKey, type ApiResponse, type Appeal, type Application, type Attachment, type Attendee, type AuditLog, type AuthRegisterAgentRequest, type AuthRegisterAgentResponse, AuthService, type AuthSession, type AuthUser, type BackupCodes, BillingService, type CacheEntry, CacheService, type CalendarEvent, type CatalogEntry, CatalogService, type ChatMessage, type ChatReaction, ChatService, type ClaimResult, type Client, type ClientContext, type Collection, type Comment, CommunicationService, type CompletedPart, ComplianceService, type CompressionConfig, type ConnectedAccount, type ConnectedAccountSubscription, type ConnectedSetupIntentResponse, type ConnectedSubscriptionListParams, type ConnectionStatus, type ContentFlag, type Conversation, type CostReportDay, type CreateFlagRequest, type CreateRuleRequest, type CreateSegmentRequest, type CreateSessionResponse, type CreateVariantRequest, type Credential, type CredentialScope, type Customer, type DataAccessPolicy, type DataExport, DataService, type DataSource, type DeadLetterJob, type DeviceInfo, type Document, type ErrorCode, ErrorCodes, type EventAggregation, EventsService, type FileInfo, type FlagAuditEntry, type FlagCheck, type FlagCondition, FlagContentService, type FlagDefinition, type FlagDetail, type FlagEnvironment, type FlagEvaluation, type FlagSegment, type FlagVariant, FlagsService, type FollowStatus, type FunctionExecution, type FunctionMetrics, FunctionsService, type Funnel, type FunnelConversion, type GdprRequest, type GrantInfo, type GraphEdge, type GraphNode, GraphService, IdentityService, type IdentityType, type IncomingRequestLike, type Invoice, type JobExecution, type JobStats, type Leaderboard, type LeaderboardEntry, LeaderboardService, type Like, type Listing, ListingsService, type LogEntry, type LogInput, type LogQueryParams, type LogQueryResponse, type LogRecord, LoggerService, type LoginActivitySummary, type LoginDeviceInfo, type LoginHistoryEntry, type LoginRiskInfo, type MessageCallback, type MessageStatus, type MetricDataPoint, type MfaStatus, type Model, type ModelEntitlement, type ModelPricing, type ModelProvider, type UsageSummary as ModelUsageSummary, type MultipartCompleteResponse, type MultipartConfig, type MultipartPartUrl, type MultipartPartUrlsResponse, type MultipartStartResponse, type NetworkClass, type OAuthProvider, type OAuthUrl, OrchestratorService, PHOTO_BREAKPOINTS, type PaginatedResponse, type PaginationMetadata, type PaginationParams, type PartResult, type PartUrl, type Participant, type Payment, type PaymentListParams, type PaymentMethod, type PaymentStatusResponse, type Payout, type PayoutSchedule, type PermissionCheck, type PermissionMatrix, PermissionsService, type PhotoInfo, PhotoService, type Pipeline, type PipelineVersion, type Policy, type PresenceCallback, type PresenceEvent, type PresignedUploadResponse, type Price, type Product, type Project, type ProjectDocument, type ProjectGrant, type ProjectMember, type PushToken, type QueryFilter, type QueryOptions, type QuerySort, type QueueJob, QueueService, type ReadStatus, RealtimeService, type RedeemResult, type Refund, type RegisterAgentRequest, type RegisterAgentResponse, type RequestOptions, type ResumeSession, type Role, type RuntimeTemplate, type RuntimeTemplateVersion, type S3MultipartOptions, type S3MultipartResult, type S3SingleUploadOptions, type S3SingleUploadResult, type S3UploadProgress, ScaleMule, ScaleMuleClient, type ScaleMuleConfig, type SchedulerJob, SchedulerService, type SearchResult, SearchService, type SecurityLayers, type ServerlessFunction, type ServiceHealth, ServiceModule, type Session, type SessionArtifact, type SessionInfo, type SessionLog, type SessionPoolEntry, type Severity, type ShortestPathResult, type SignedUrlResponse, type SocialPost, SocialService, type SocialUser, type SsoConfig, type StatusCallback, type StorageAdapter, StorageService, type StrategyResult, type SubmitResult, type Subscription, type TargetingRule, type Task, type TaskAttempt, type TaskTransition, type Team, type TeamInvitation, type TeamMember, TeamsService, type TelemetryPayload, type Tool, type ToolCapability, type ToolIntegration, type TopEvent, type TotpSetup, type Transaction, type TransactionListParams, type TransactionSummary, type TransactionSummaryParams, type Transfer, type TransformOptions, type TransformResult, type TraversalResult, type UpdateFlagRequest, type UpdateRuleRequest, type UpdateSegmentRequest, type UpdateVariantRequest, type UploadCompleteResponse, type UploadEngineConfig, type UploadFailureReport, type UploadFailureReportResponse, type UploadOptions, type UploadPlan, UploadResumeStore, type UploadStrategy, UploadTelemetry, type UploadTelemetryConfig, type UploadTelemetryEvent, type UpsertEnvironmentRequest, type UsageRecord, type UsageSummary$1 as UsageSummary, type UserRank, type VideoInfo, VideoService, type VideoUploadOptions, type Webhook, WebhooksService, type Workflow, type WorkflowExecution, type Workspace$1 as Workspace, type WorkspaceInvitation, type WorkspaceMember, WorkspacesService, buildClientContextHeaders, calculateTotalParts, canPerform, createUploadPlan, ScaleMule as default, detectNetworkClass, extractClientContext, generateUploadSessionId, getMeasuredBandwidthMbps, getPartRange, hasMinRoleLevel, resolveStrategy, uploadMultipartToS3, uploadSingleToS3, validateIP };
+export { type AccountBalance, AccountsService, type ActiveUsers, type ActivityItem, AgentAuthService, AgentModelsService, type AgentProfile, AgentProjectsService, type AgentResponse, type AgentSecurityPolicy, AgentSessionsService, type AgentSigningKey, type AgentToken, type AgentToolEntitlement, AgentToolsService, type Workspace as AgentWorkspace, AgentsService, type AggregateOptions, type AggregateResult, type AnalyticsEvent, AnalyticsService, type ApiError, type ApiKey, type ApiResponse, type Appeal, type Application, type Attachment, type Attendee, type AuditLog, type AuthRegisterAgentRequest, type AuthRegisterAgentResponse, AuthService, type AuthSession, type AuthUser, type BackupCodes, BillingService, type CacheEntry, CacheService, type CalendarEvent, type CatalogEntry, CatalogService, type ChatMessage, type ChatReaction, ChatService, type ClaimResult, type Client, type ClientContext, type Collection, type Comment, CommunicationService, type CompletedPart, ComplianceService, type CompressionConfig, type ConnectedAccount, type ConnectedAccountSubscription, type ConnectedSetupIntentResponse, type ConnectedSubscriptionListParams, type ConnectionStatus, type ContentFlag, type Conversation, type CostReportDay, type CreateFlagRequest, type CreateRuleRequest, type CreateSegmentRequest, type CreateSessionResponse, type CreateVariantRequest, type Credential, type CredentialScope, type Customer, type DataAccessPolicy, type DataExport, DataService, type DataSource, type DeadLetterJob, type DeviceInfo, type Document, type ErrorCode, ErrorCodes, type EventAggregation, EventsService, type FileInfo, type FlagAuditEntry, type FlagCheck, type FlagCondition, FlagContentService, type FlagDefinition, type FlagDetail, type FlagEnvironment, type FlagEvaluation, type FlagSegment, type FlagVariant, FlagsService, type FollowStatus, type FunctionExecution, type FunctionMetrics, FunctionsService, type Funnel, type FunnelConversion, type GdprRequest, type GrantInfo, type GraphEdge, type GraphNode, GraphService, IdentityService, type IdentityType, type IncomingRequestLike, type Invoice, type JobExecution, type JobStats, type Leaderboard, type LeaderboardEntry, LeaderboardService, type Like, type Listing, ListingsService, type LogEntry, type LogInput, type LogQueryParams, type LogQueryResponse, type LogRecord, LoggerService, type LoginActivitySummary, type LoginDeviceInfo, type LoginHistoryEntry, type LoginRiskInfo, type MessageCallback, type MessageStatus, type MetricDataPoint, type MfaStatus, type Model, type ModelEntitlement, type ModelPricing, type ModelProvider, type UsageSummary as ModelUsageSummary, type MultipartCompleteResponse, type MultipartConfig, type MultipartPartUrl, type MultipartPartUrlsResponse, type MultipartStartResponse, type NetworkClass, type OAuthProvider, type OAuthUrl, OrchestratorService, PHOTO_BREAKPOINTS, type PaginatedResponse, type PaginationMetadata, type PaginationParams, type PartResult, type PartUrl, type Participant, type Payment, type PaymentListParams, type PaymentMethod, type PaymentStatusResponse, type Payout, type PayoutSchedule, type PermissionCheck, type PermissionMatrix, PermissionsService, type PhotoInfo, PhotoService, type Pipeline, type PipelineVersion, type Policy, type PresenceCallback, type PresenceEvent, type PresignedUploadResponse, type Price, type Product, type Project, type ProjectDocument, type ProjectGrant, type ProjectMember, type PushApiFetcher, type PushPreferences, type PushSettings, type PushSubscriptionInfo, type PushToken, type PushTokenAssociationResult, type PushTopic, type QueryFilter, type QueryOptions, type QuerySort, type QueueJob, QueueService, type ReadStatus, RealtimeService, type RedeemResult, type Refund, type RegisterAgentRequest, type RegisterAgentResponse, type RegisterPushTokenData, type RequestOptions, type ResumeSession, type Role, type RuntimeTemplate, type RuntimeTemplateVersion, type S3MultipartOptions, type S3MultipartResult, type S3SingleUploadOptions, type S3SingleUploadResult, type S3UploadProgress, ScaleMule, ScaleMuleClient, type ScaleMuleConfig, type SchedulerJob, SchedulerService, type SearchResult, SearchService, type SecurityLayers, type ServerlessFunction, type ServiceHealth, ServiceModule, type Session, type SessionArtifact, type SessionInfo, type SessionLog, type SessionPoolEntry, type Severity, type ShortestPathResult, type SignedUrlResponse, type SocialPost, SocialService, type SocialUser, type SsoConfig, type StatusCallback, type StorageAdapter, StorageService, type StrategyResult, type SubmitResult, type Subscription, type TargetingRule, type Task, type TaskAttempt, type TaskTransition, type Team, type TeamInvitation, type TeamMember, TeamsService, type TelemetryPayload, type Tool, type ToolCapability, type ToolIntegration, type TopEvent, type TotpSetup, type Transaction, type TransactionListParams, type TransactionSummary, type TransactionSummaryParams, type Transfer, type TransformOptions, type TransformResult, type TraversalResult, type UpdateFlagRequest, type UpdateRuleRequest, type UpdateSegmentRequest, type UpdateVariantRequest, type UploadCompleteResponse, type UploadEngineConfig, type UploadFailureReport, type UploadFailureReportResponse, type UploadOptions, type UploadPlan, UploadResumeStore, type UploadStrategy, UploadTelemetry, type UploadTelemetryConfig, type UploadTelemetryEvent, type UpsertEnvironmentRequest, type UsageRecord, type UsageSummary$1 as UsageSummary, type UserRank, type VideoInfo, VideoService, type VideoUploadOptions, WEB_PUSH_SERVICE_WORKER, WebPushManager, type WebPushManagerOptions, type WebPushSubscriptionData, type Webhook, WebhooksService, type Workflow, type WorkflowExecution, type Workspace$1 as Workspace, type WorkspaceInvitation, type WorkspaceMember, WorkspacesService, buildClientContextHeaders, calculateTotalParts, canPerform, createUploadPlan, ScaleMule as default, detectNetworkClass, extractClientContext, generateUploadSessionId, getMeasuredBandwidthMbps, getPartRange, hasMinRoleLevel, resolveStrategy, uploadMultipartToS3, uploadSingleToS3, validateIP };

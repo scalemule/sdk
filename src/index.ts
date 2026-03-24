@@ -181,7 +181,20 @@ export type {
   UpsertEnvironmentRequest
 } from './services/flags';
 export { CommunicationService } from './services/communication';
-export type { MessageStatus, PushToken } from './services/communication';
+export type {
+  MessageStatus,
+  PushToken,
+  PushTokenAssociationResult,
+  PushSettings,
+  PushTopic,
+  PushSubscriptionInfo,
+  PushPreferences,
+  WebPushSubscriptionData,
+  RegisterPushTokenData,
+} from './services/communication';
+export { WebPushManager } from './web-push';
+export type { PushApiFetcher, WebPushManagerOptions } from './web-push';
+export { WEB_PUSH_SERVICE_WORKER } from './web-push-sw';
 export { SchedulerService } from './services/scheduler';
 export type { SchedulerJob, JobExecution, JobStats } from './services/scheduler';
 export { PermissionsService } from './services/permissions';

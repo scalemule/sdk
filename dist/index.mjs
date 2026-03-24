@@ -4094,16 +4094,67 @@ var CommunicationService = class extends ServiceModule {
     return this.post(`/sms/templates/${template}/send`, data, options);
   }
   // --------------------------------------------------------------------------
-  // Push Notifications
+  // Push Notifications — Send
   // --------------------------------------------------------------------------
   async sendPush(data, options) {
     return this.post("/push/send", data, options);
   }
+  // --------------------------------------------------------------------------
+  // Push Notifications — Token Management
+  // --------------------------------------------------------------------------
   async registerPushToken(data, options) {
     return this.post("/push/register", data, options);
   }
+  /** @deprecated Use unregisterPushTokenById() for web push tokens */
   async unregisterPushToken(token, options) {
     return this.del(`/push/tokens/${token}`, options);
+  }
+  async unregisterPushTokenById(id, options) {
+    const result = await this.del(`/push/tokens/by-id/${id}`, options);
+    if (result.data && typeof result.data === "object" && !("id" in result.data)) {
+      return { data: void 0, error: null };
+    }
+    return result;
+  }
+  async associatePushTokenUserById(id, options) {
+    return this.put(`/push/tokens/by-id/${id}/user`, {}, options);
+  }
+  async disassociatePushTokenUser(id, options) {
+    const result = await this.del(`/push/tokens/by-id/${id}/user`, options);
+    if (result.data && typeof result.data === "object" && !("id" in result.data)) {
+      return { data: void 0, error: null };
+    }
+    return result;
+  }
+  // --------------------------------------------------------------------------
+  // Push Notifications — Settings
+  // --------------------------------------------------------------------------
+  async getMyPushSettings(options) {
+    return this._get("/push/settings/me", options);
+  }
+  // --------------------------------------------------------------------------
+  // Push Notifications — Topics & Subscriptions
+  // --------------------------------------------------------------------------
+  async listTopics(options) {
+    return this._get("/push/topics", options);
+  }
+  async subscribeTopic(topicId, data, options) {
+    return this.post(`/push/topics/${topicId}/subscribe`, data || {}, options);
+  }
+  async unsubscribeTopic(topicId, options) {
+    return this.del(`/push/topics/${topicId}/subscribe`, options);
+  }
+  async listSubscriptions(options) {
+    return this._get("/push/subscriptions", options);
+  }
+  // --------------------------------------------------------------------------
+  // Push Notifications — Preferences
+  // --------------------------------------------------------------------------
+  async getPushPreferences(options) {
+    return this._get("/push/preferences", options);
+  }
+  async updatePushPreferences(data, options) {
+    return this.put("/push/preferences", data, options);
   }
   // --------------------------------------------------------------------------
   // Message Status
@@ -4123,6 +4174,258 @@ var CommunicationService = class extends ServiceModule {
     return this.sendPush(data);
   }
 };
+
+// src/web-push.ts
+var STORAGE_KEY = "scalemule_push_state";
+var WebPushManager = class {
+  constructor(options) {
+    this.state = null;
+    this.registration = null;
+    if (typeof window === "undefined") {
+      throw new Error("WebPushManager can only be used in a browser environment");
+    }
+    this.fetcher = options.fetcher;
+    this.swUrl = options.serviceWorkerUrl || "/sw.js";
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        this.state = JSON.parse(stored);
+      }
+    } catch {
+    }
+  }
+  /** Whether the browser supports Web Push */
+  isSupported() {
+    return typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  }
+  /** Current notification permission state */
+  getPermissionState() {
+    if (!this.isSupported()) return "unsupported";
+    return Notification.permission;
+  }
+  /** Request notification permission from the user */
+  async requestPermission() {
+    if (!this.isSupported()) return "denied";
+    return Notification.requestPermission();
+  }
+  /**
+   * Full subscribe flow:
+   * 1. Check browser support
+   * 2. Request notification permission
+   * 3. Register service worker
+   * 4. Fetch VAPID public key from backend
+   * 5. PushManager.subscribe() with VAPID key
+   * 6. Register token with backend
+   *
+   * @param deviceId Optional device identifier for anonymous users.
+   *                 If not provided, generates a random UUID stored in localStorage.
+   */
+  async subscribe(deviceId) {
+    if (!this.isSupported()) return null;
+    const permission = await this.requestPermission();
+    if (permission !== "granted") return null;
+    this.registration = await navigator.serviceWorker.register(this.swUrl);
+    await navigator.serviceWorker.ready;
+    const settings = await this.fetcher.getSettings();
+    if (!settings.webpush_enabled || !settings.vapid_public_key) {
+      throw new Error("Web Push is not enabled for this application");
+    }
+    const applicationServerKey = urlBase64ToUint8Array(settings.vapid_public_key);
+    const pushSubscription = await this.registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: applicationServerKey.buffer
+    });
+    const endpoint = pushSubscription.endpoint;
+    const p256dh = arrayBufferToBase64url(pushSubscription.getKey("p256dh"));
+    const auth = arrayBufferToBase64url(pushSubscription.getKey("auth"));
+    const subscription = {
+      endpoint,
+      keys: { p256dh, auth }
+    };
+    const resolvedDeviceId = deviceId || this.state?.deviceId || generateDeviceId();
+    const result = await this.fetcher.registerToken({
+      token: endpoint,
+      platform: "web",
+      device_id: resolvedDeviceId,
+      subscription
+    });
+    this.state = {
+      endpoint,
+      tokenId: result.id,
+      deviceId: resolvedDeviceId
+    };
+    this.persistState();
+    return { tokenId: result.id, endpoint };
+  }
+  /** Unsubscribe from browser push and deregister token */
+  async unsubscribe() {
+    const sub = await this.getSubscription();
+    if (sub) {
+      await sub.unsubscribe();
+    }
+    if (this.state?.tokenId) {
+      try {
+        await this.fetcher.unregisterToken(this.state.tokenId);
+      } catch {
+      }
+    }
+    this.state = null;
+    this.clearState();
+  }
+  /** Link push token to the currently authenticated user (call after login) */
+  async associateUser() {
+    if (!this.state?.tokenId) return;
+    await this.fetcher.associateUser(this.state.tokenId);
+  }
+  /** Clear user association from push token (call before logout) */
+  async disassociateUser() {
+    if (!this.state?.tokenId) return;
+    await this.fetcher.disassociateUser(this.state.tokenId);
+  }
+  /** Check if currently subscribed to push notifications */
+  async isSubscribed() {
+    if (!this.isSupported()) return false;
+    const sub = await this.getSubscription();
+    return sub !== null && this.state !== null;
+  }
+  /** Get the active PushSubscription from the service worker */
+  async getSubscription() {
+    if (!this.isSupported()) return null;
+    try {
+      const reg = await navigator.serviceWorker.getRegistration(this.swUrl);
+      if (!reg) return null;
+      return reg.pushManager.getSubscription();
+    } catch {
+      return null;
+    }
+  }
+  /** Get the stored token ID (for external use) */
+  getTokenId() {
+    return this.state?.tokenId || null;
+  }
+  persistState() {
+    if (this.state) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+      } catch {
+      }
+    }
+  }
+  clearState() {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+    }
+  }
+};
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+function arrayBufferToBase64url(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const binary = Array.from(bytes, (b) => String.fromCharCode(b)).join("");
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function generateDeviceId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0;
+    const v = c === "x" ? r : r & 3 | 8;
+    return v.toString(16);
+  });
+}
+
+// src/web-push-sw.ts
+var WEB_PUSH_SERVICE_WORKER = `
+// ScaleMule Push Notification Service Worker
+
+self.addEventListener('push', function(event) {
+  if (!event.data) return;
+
+  var data;
+  try {
+    data = event.data.json();
+  } catch (e) {
+    data = { title: 'New Notification', body: event.data.text() };
+  }
+
+  var title = data.title || 'Notification';
+  var options = {
+    body: data.body || '',
+    icon: data.icon || undefined,
+    image: data.image || undefined,
+    badge: data.badge || undefined,
+    data: data.data || data,
+    tag: data.tag || undefined,
+    actions: data.actions || undefined,
+    requireInteraction: data.requireInteraction || false,
+  };
+
+  // Show the notification
+  event.waitUntil(
+    self.registration.showNotification(title, options)
+      .then(function() {
+        // Post message to all client pages for foreground handling
+        return self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      })
+      .then(function(clients) {
+        clients.forEach(function(client) {
+          client.postMessage({
+            type: 'push-received',
+            payload: data,
+          });
+        });
+      })
+  );
+});
+
+self.addEventListener('notificationclick', function(event) {
+  event.notification.close();
+
+  var url = '/';
+  if (event.notification.data && event.notification.data.url) {
+    url = event.notification.data.url;
+  }
+
+  // Handle action button clicks
+  if (event.action && event.notification.data && event.notification.data.actions) {
+    var action = event.notification.data.actions.find(function(a) {
+      return a.action === event.action;
+    });
+    if (action && action.url) {
+      url = action.url;
+    }
+  }
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then(function(clientList) {
+        // Try to focus an existing window
+        for (var i = 0; i < clientList.length; i++) {
+          var client = clientList[i];
+          if (client.url.indexOf(self.registration.scope) !== -1 && 'focus' in client) {
+            client.focus();
+            client.navigate(url);
+            return;
+          }
+        }
+        // Open a new window if none exists
+        if (self.clients.openWindow) {
+          return self.clients.openWindow(url);
+        }
+      })
+  );
+});
+`;
 
 // src/services/scheduler.ts
 var SchedulerService = class extends ServiceModule {
@@ -5723,6 +6026,8 @@ export {
   UploadResumeStore,
   UploadTelemetry,
   VideoService,
+  WEB_PUSH_SERVICE_WORKER,
+  WebPushManager,
   WebhooksService,
   WorkspacesService,
   buildClientContextHeaders,
