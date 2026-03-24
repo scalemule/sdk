@@ -104,6 +104,9 @@ var SESSION_STORAGE_KEY = "scalemule_session";
 var USER_ID_STORAGE_KEY = "scalemule_user_id";
 var OFFLINE_QUEUE_KEY = "scalemule_offline_queue";
 var WORKSPACE_STORAGE_KEY = "scalemule_workspace_id";
+var ANONYMOUS_ID_STORAGE_KEY = "scalemule_anonymous_id";
+var SESSION_POOL_KEY = "scalemule_session_pool";
+var ACTIVE_ACCOUNT_KEY = "scalemule_active_account";
 var GATEWAY_URLS = {
   dev: "https://api-dev.scalemule.com",
   prod: "https://api.scalemule.com"
@@ -296,6 +299,8 @@ var ScaleMuleClient = class {
     this.rateLimitQueue = null;
     this.offlineQueue = null;
     this.workspaceId = null;
+    this.anonymousId = null;
+    this.sessionPool = /* @__PURE__ */ new Map();
     this.apiKey = config.apiKey;
     this.baseUrl = config.baseUrl || GATEWAY_URLS[config.environment || "prod"];
     this.debug = config.debug || false;
@@ -310,6 +315,7 @@ var ScaleMuleClient = class {
       this.offlineQueue = new OfflineQueue(this.storage);
       this.offlineQueue.setOnlineCallback(() => this.syncOfflineQueue());
     }
+    this.multiSessionEnabled = config.enableMultiSession || false;
   }
   // --------------------------------------------------------------------------
   // Session Management
@@ -321,7 +327,46 @@ var ScaleMuleClient = class {
     if (userId) this.userId = userId;
     const wsId = await this.storage.getItem(WORKSPACE_STORAGE_KEY);
     if (wsId) this.workspaceId = wsId;
-    if (this.debug) console.log("[ScaleMule] Initialized, session:", !!token);
+    let anonId = await this.storage.getItem(ANONYMOUS_ID_STORAGE_KEY);
+    if (!anonId) {
+      anonId = crypto.randomUUID();
+      await this.storage.setItem(ANONYMOUS_ID_STORAGE_KEY, anonId);
+    }
+    this.anonymousId = anonId;
+    if (this.multiSessionEnabled) {
+      const poolJson = await this.storage.getItem(SESSION_POOL_KEY);
+      if (poolJson) {
+        try {
+          const entries = JSON.parse(poolJson);
+          this.sessionPool = new Map(Object.entries(entries));
+        } catch {
+        }
+      }
+      if (token && userId && !this.sessionPool.has(userId)) {
+        this.sessionPool.set(userId, {
+          token,
+          userId,
+          email: "",
+          addedAt: (/* @__PURE__ */ new Date()).toISOString()
+        });
+        await this.persistSessionPool();
+      }
+      const activeId = await this.storage.getItem(ACTIVE_ACCOUNT_KEY);
+      if (activeId && this.sessionPool.has(activeId)) {
+        const entry = this.sessionPool.get(activeId);
+        this.sessionToken = entry.token;
+        this.userId = activeId;
+      }
+    }
+    if (this.debug)
+      console.log(
+        "[ScaleMule] Initialized, session:",
+        !!this.sessionToken,
+        "anonymousId:",
+        anonId,
+        "poolSize:",
+        this.sessionPool.size
+      );
   }
   async setSession(token, userId) {
     this.sessionToken = token;
@@ -330,12 +375,27 @@ var ScaleMuleClient = class {
     await this.storage.setItem(USER_ID_STORAGE_KEY, userId);
   }
   async clearSession() {
+    if (this.multiSessionEnabled && this.userId) {
+      this.sessionPool.delete(this.userId);
+      await this.persistSessionPool();
+      const next = this.sessionPool.entries().next().value;
+      if (next) {
+        const [nextUserId, nextEntry] = next;
+        this.sessionToken = nextEntry.token;
+        this.userId = nextUserId;
+        await this.storage.setItem(SESSION_STORAGE_KEY, nextEntry.token);
+        await this.storage.setItem(USER_ID_STORAGE_KEY, nextUserId);
+        await this.storage.setItem(ACTIVE_ACCOUNT_KEY, nextUserId);
+        return;
+      }
+    }
     this.sessionToken = null;
     this.userId = null;
     this.workspaceId = null;
     await this.storage.removeItem(SESSION_STORAGE_KEY);
     await this.storage.removeItem(USER_ID_STORAGE_KEY);
     await this.storage.removeItem(WORKSPACE_STORAGE_KEY);
+    await this.storage.removeItem(ACTIVE_ACCOUNT_KEY);
   }
   setAccessToken(token) {
     this.sessionToken = token;
@@ -351,6 +411,80 @@ var ScaleMuleClient = class {
   }
   isAuthenticated() {
     return this.sessionToken !== null;
+  }
+  getAnonymousId() {
+    return this.anonymousId;
+  }
+  isMultiSessionEnabled() {
+    return this.multiSessionEnabled;
+  }
+  // --------------------------------------------------------------------------
+  // Multi-Account Session Pool (Phase 2)
+  // --------------------------------------------------------------------------
+  /** Get all accounts in the session pool */
+  getSessionPool() {
+    return Array.from(this.sessionPool.values());
+  }
+  /** Get the active account entry, or null */
+  getActiveAccount() {
+    if (!this.userId) return null;
+    return this.sessionPool.get(this.userId) || null;
+  }
+  /** Add an account to the session pool and set it as active */
+  async addAccount(entry) {
+    this.sessionPool.set(entry.userId, entry);
+    this.sessionToken = entry.token;
+    this.userId = entry.userId;
+    await this.storage.setItem(SESSION_STORAGE_KEY, entry.token);
+    await this.storage.setItem(USER_ID_STORAGE_KEY, entry.userId);
+    await this.storage.setItem(ACTIVE_ACCOUNT_KEY, entry.userId);
+    await this.persistSessionPool();
+  }
+  /** Switch to a different account in the pool. Returns false if not found. */
+  async switchAccount(userId) {
+    const entry = this.sessionPool.get(userId);
+    if (!entry) return false;
+    this.sessionToken = entry.token;
+    this.userId = userId;
+    this.workspaceId = null;
+    await this.storage.setItem(SESSION_STORAGE_KEY, entry.token);
+    await this.storage.setItem(USER_ID_STORAGE_KEY, userId);
+    await this.storage.setItem(ACTIVE_ACCOUNT_KEY, userId);
+    await this.storage.removeItem(WORKSPACE_STORAGE_KEY);
+    return true;
+  }
+  /** Remove a specific account from the pool */
+  async removeAccount(userId) {
+    this.sessionPool.delete(userId);
+    await this.persistSessionPool();
+    if (this.userId === userId) {
+      const next = this.sessionPool.entries().next().value;
+      if (next) {
+        await this.switchAccount(next[0]);
+      } else {
+        await this.clearSession();
+      }
+    }
+  }
+  /** Clear all accounts from the pool */
+  async clearAllAccounts() {
+    this.sessionPool.clear();
+    await this.storage.removeItem(SESSION_POOL_KEY);
+    await this.storage.removeItem(ACTIVE_ACCOUNT_KEY);
+    this.sessionToken = null;
+    this.userId = null;
+    this.workspaceId = null;
+    await this.storage.removeItem(SESSION_STORAGE_KEY);
+    await this.storage.removeItem(USER_ID_STORAGE_KEY);
+    await this.storage.removeItem(WORKSPACE_STORAGE_KEY);
+  }
+  /** Persist session pool to storage */
+  async persistSessionPool() {
+    const obj = {};
+    for (const [k, v] of this.sessionPool) {
+      obj[k] = v;
+    }
+    await this.storage.setItem(SESSION_POOL_KEY, JSON.stringify(obj));
   }
   getBaseUrl() {
     return this.baseUrl;
@@ -400,6 +534,9 @@ var ScaleMuleClient = class {
     }
     if (this.workspaceId) {
       headers["x-sm-workspace-id"] = this.workspaceId;
+    }
+    if (!this.sessionToken && this.anonymousId) {
+      headers["x-anonymous-id"] = this.anonymousId;
     }
     let bodyStr;
     if (init.body !== void 0 && init.body !== null) {
@@ -857,6 +994,21 @@ import {
 } from "@scalemule/ui/phone";
 
 // src/services/auth.ts
+function collectDeviceFingerprint() {
+  if (typeof window === "undefined" || typeof navigator === "undefined") return void 0;
+  try {
+    return {
+      screen: `${screen.width}x${screen.height}x${screen.colorDepth}`,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      language: navigator.language,
+      platform: navigator.platform,
+      cookie_enabled: navigator.cookieEnabled,
+      do_not_track: navigator.doNotTrack
+    };
+  } catch {
+    return void 0;
+  }
+}
 var AuthMfaApi = class extends ServiceModule {
   constructor() {
     super(...arguments);
@@ -955,12 +1107,42 @@ var AuthService = class extends ServiceModule {
   async register(data, options) {
     const payload = {
       ...data,
-      phone: this.sanitizePhoneField(data.phone)
+      phone: this.sanitizePhoneField(data.phone),
+      anonymous_id: this.client.getAnonymousId()
     };
-    return this.post("/register", payload, options);
+    const result = await this.post("/register", payload, options);
+    if (result.data && this.client.isMultiSessionEnabled()) {
+      await this.client.addAccount({
+        token: result.data.session_token,
+        userId: result.data.user.id,
+        email: result.data.user.email,
+        fullName: result.data.user.full_name,
+        avatarUrl: result.data.user.avatar_url,
+        expiresAt: result.data.expires_at,
+        addedAt: (/* @__PURE__ */ new Date()).toISOString()
+      });
+    }
+    return result;
   }
   async login(data, options) {
-    return this.post("/login", data, options);
+    const payload = {
+      ...data,
+      anonymous_id: this.client.getAnonymousId(),
+      device_fingerprint: data.device_fingerprint || collectDeviceFingerprint()
+    };
+    const result = await this.post("/login", payload, options);
+    if (result.data && this.client.isMultiSessionEnabled()) {
+      await this.client.addAccount({
+        token: result.data.session_token,
+        userId: result.data.user.id,
+        email: result.data.user.email,
+        fullName: result.data.user.full_name,
+        avatarUrl: result.data.user.avatar_url,
+        expiresAt: result.data.expires_at,
+        addedAt: (/* @__PURE__ */ new Date()).toISOString()
+      });
+    }
+    return result;
   }
   async logout(options) {
     return this.post("/logout", void 0, options);
@@ -2488,7 +2670,7 @@ function asNumber2(value) {
 
 // src/services/upload-strategy.ts
 var MULTIPART_THRESHOLD2 = 8 * 1024 * 1024;
-var MULTIPART_THRESHOLD_SLOW2 = 4 * 1024 * 1024;
+var MULTIPART_THRESHOLD_SLOW2 = 1 * 1024 * 1024;
 var DEFAULT_STALL_TIMEOUT_MS2 = 45e3;
 var SLOW_STALL_TIMEOUT_MS = 9e4;
 var CHUNK_SIZES = {
@@ -2598,7 +2780,6 @@ async function uploadSingleToS3(url, file, options) {
     const result = await doSinglePut(url, file, options?.onProgress, options?.signal, stallTimeout);
     if (result === "success") return { success: true };
     if (result === "abort") return { success: false, error: "Upload aborted" };
-    if (result === "stall") return { success: false, error: "Upload stalled \u2014 no progress" };
   }
   return { success: false, error: "Upload failed after retries" };
 }
@@ -3718,7 +3899,11 @@ var AnalyticsService = class extends ServiceModule {
   // Event Tracking (v2 — JetStream buffered)
   // --------------------------------------------------------------------------
   async track(event, properties, userId, options) {
-    return this.post("/v2/events", { event_name: event, properties, user_id: userId }, options);
+    const payload = { event_name: event, properties, user_id: userId };
+    if (!userId && !this.client.isAuthenticated()) {
+      payload.anonymous_id = this.client.getAnonymousId();
+    }
+    return this.post("/v2/events", payload, options);
   }
   async trackBatch(events, options) {
     const mapped = events.map(({ event, ...rest }) => ({ event_name: event, ...rest }));
@@ -4842,6 +5027,18 @@ var IdentityService = class extends ServiceModule {
   async revokeApiKey(id, options) {
     return this.del(`/api-keys/${id}`, options);
   }
+  /**
+   * Explicitly link an anonymous_id to the current authenticated user.
+   * Called automatically on init when both a session and anonymous_id exist
+   * (transitional path for users who registered before identity linking existed).
+   */
+  async identify(anonymousId, deviceFingerprintHash, options) {
+    return this.post(
+      "/identify",
+      { anonymous_id: anonymousId, device_fingerprint_hash: deviceFingerprintHash },
+      options
+    );
+  }
 };
 
 // src/services/catalog.ts
@@ -5398,7 +5595,12 @@ var ScaleMule = class {
    * Call this once after construction, before making authenticated requests.
    */
   async initialize() {
-    return this._client.initialize();
+    await this._client.initialize();
+    const anonymousId = this._client.getAnonymousId();
+    if (this._client.isAuthenticated() && anonymousId) {
+      this.identity.identify(anonymousId).catch(() => {
+      });
+    }
   }
   /**
    * Set authentication session (token + userId).
@@ -5430,6 +5632,33 @@ var ScaleMule = class {
   /** Whether a session token is set. */
   isAuthenticated() {
     return this._client.isAuthenticated();
+  }
+  /** The anonymous visitor ID used for identity linking. */
+  getAnonymousId() {
+    return this._client.getAnonymousId();
+  }
+  // --------------------------------------------------------------------------
+  // Multi-Account Session Pool (Phase 2)
+  // --------------------------------------------------------------------------
+  /** Get all accounts in the session pool (requires enableMultiSession) */
+  getSessionPool() {
+    return this._client.getSessionPool();
+  }
+  /** Get the active account, or null */
+  getActiveAccount() {
+    return this._client.getActiveAccount();
+  }
+  /** Switch to a different account in the pool. Returns false if not found. */
+  async switchAccount(userId) {
+    return this._client.switchAccount(userId);
+  }
+  /** Remove a specific account from the pool */
+  async removeAccount(userId) {
+    return this._client.removeAccount(userId);
+  }
+  /** Clear all accounts from the pool */
+  async clearAllAccounts() {
+    return this._client.clearAllAccounts();
   }
   /** The base URL being used for API requests. */
   getBaseUrl() {

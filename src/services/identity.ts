@@ -47,4 +47,21 @@ export class IdentityService extends ServiceModule {
   async revokeApiKey(id: string, options?: RequestOptions): Promise<ApiResponse<{ revoked: boolean }>> {
     return this.del<{ revoked: boolean }>(`/api-keys/${id}`, options);
   }
+
+  /**
+   * Explicitly link an anonymous_id to the current authenticated user.
+   * Called automatically on init when both a session and anonymous_id exist
+   * (transitional path for users who registered before identity linking existed).
+   */
+  async identify(
+    anonymousId: string,
+    deviceFingerprintHash?: string,
+    options?: RequestOptions
+  ): Promise<ApiResponse<{ linked: boolean; anonymous_id: string; message: string }>> {
+    return this.post<{ linked: boolean; anonymous_id: string; message: string }>(
+      '/identify',
+      { anonymous_id: anonymousId, device_fingerprint_hash: deviceFingerprintHash },
+      options
+    );
+  }
 }

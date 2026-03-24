@@ -163,6 +163,21 @@ export interface ScaleMuleConfig {
   enableRateLimitQueue?: boolean;
   /** Enable offline queue — queues requests when offline, syncs on reconnect */
   enableOfflineQueue?: boolean;
+  /** Enable multi-account session pool (Google Account Chooser style). Default: false */
+  enableMultiSession?: boolean;
+}
+
+/**
+ * A session entry in the multi-account session pool.
+ */
+export interface SessionPoolEntry {
+  token: string;
+  userId: string;
+  email: string;
+  fullName?: string;
+  avatarUrl?: string;
+  expiresAt?: string;
+  addedAt: string;
 }
 
 // ============================================================================

@@ -104,8 +104,7 @@ export async function uploadSingleToS3(
     const result = await doSinglePut(url, file, options?.onProgress, options?.signal, stallTimeout);
     if (result === 'success') return { success: true };
     if (result === 'abort') return { success: false, error: 'Upload aborted' };
-    if (result === 'stall') return { success: false, error: 'Upload stalled — no progress' };
-    // 'retry' — continue loop
+    // 'retry' or 'stall' — continue loop
   }
 
   return { success: false, error: 'Upload failed after retries' };

@@ -37,6 +37,9 @@ const SESSION_STORAGE_KEY = 'scalemule_session';
 const USER_ID_STORAGE_KEY = 'scalemule_user_id';
 const OFFLINE_QUEUE_KEY = 'scalemule_offline_queue';
 const WORKSPACE_STORAGE_KEY = 'scalemule_workspace_id';
+const ANONYMOUS_ID_STORAGE_KEY = 'scalemule_anonymous_id';
+const SESSION_POOL_KEY = 'scalemule_session_pool';
+const ACTIVE_ACCOUNT_KEY = 'scalemule_active_account';
 
 const GATEWAY_URLS = {
   dev: 'https://api-dev.scalemule.com',
@@ -312,6 +315,9 @@ export class ScaleMuleClient {
   private rateLimitQueue: RateLimitQueue | null = null;
   private offlineQueue: OfflineQueue | null = null;
   private workspaceId: string | null = null;
+  private anonymousId: string | null = null;
+  private multiSessionEnabled: boolean;
+  private sessionPool: Map<string, import('./types').SessionPoolEntry> = new Map();
 
   constructor(config: ScaleMuleConfig) {
     this.apiKey = config.apiKey;
@@ -329,6 +335,7 @@ export class ScaleMuleClient {
       this.offlineQueue = new OfflineQueue(this.storage);
       this.offlineQueue.setOnlineCallback(() => this.syncOfflineQueue());
     }
+    this.multiSessionEnabled = config.enableMultiSession || false;
   }
 
   // --------------------------------------------------------------------------
@@ -342,7 +349,54 @@ export class ScaleMuleClient {
     if (userId) this.userId = userId;
     const wsId = await this.storage.getItem(WORKSPACE_STORAGE_KEY);
     if (wsId) this.workspaceId = wsId;
-    if (this.debug) console.log('[ScaleMule] Initialized, session:', !!token);
+
+    // Load or generate anonymous_id for identity linking
+    let anonId = await this.storage.getItem(ANONYMOUS_ID_STORAGE_KEY);
+    if (!anonId) {
+      anonId = crypto.randomUUID();
+      await this.storage.setItem(ANONYMOUS_ID_STORAGE_KEY, anonId);
+    }
+    this.anonymousId = anonId;
+
+    // Load session pool when multi-session is enabled
+    if (this.multiSessionEnabled) {
+      const poolJson = await this.storage.getItem(SESSION_POOL_KEY);
+      if (poolJson) {
+        try {
+          const entries = JSON.parse(poolJson) as Record<string, import('./types').SessionPoolEntry>;
+          this.sessionPool = new Map(Object.entries(entries));
+        } catch {
+          /* ignore corrupt pool data */
+        }
+      }
+      // Migrate existing single session into pool if it exists
+      if (token && userId && !this.sessionPool.has(userId)) {
+        this.sessionPool.set(userId, {
+          token,
+          userId,
+          email: '',
+          addedAt: new Date().toISOString()
+        });
+        await this.persistSessionPool();
+      }
+      // Restore active account
+      const activeId = await this.storage.getItem(ACTIVE_ACCOUNT_KEY);
+      if (activeId && this.sessionPool.has(activeId)) {
+        const entry = this.sessionPool.get(activeId)!;
+        this.sessionToken = entry.token;
+        this.userId = activeId;
+      }
+    }
+
+    if (this.debug)
+      console.log(
+        '[ScaleMule] Initialized, session:',
+        !!this.sessionToken,
+        'anonymousId:',
+        anonId,
+        'poolSize:',
+        this.sessionPool.size
+      );
   }
 
   async setSession(token: string, userId: string): Promise<void> {
@@ -353,12 +407,29 @@ export class ScaleMuleClient {
   }
 
   async clearSession(): Promise<void> {
+    if (this.multiSessionEnabled && this.userId) {
+      // Remove only the active account from the pool
+      this.sessionPool.delete(this.userId);
+      await this.persistSessionPool();
+      // Switch to next available account if any
+      const next = this.sessionPool.entries().next().value;
+      if (next) {
+        const [nextUserId, nextEntry] = next;
+        this.sessionToken = nextEntry.token;
+        this.userId = nextUserId;
+        await this.storage.setItem(SESSION_STORAGE_KEY, nextEntry.token);
+        await this.storage.setItem(USER_ID_STORAGE_KEY, nextUserId);
+        await this.storage.setItem(ACTIVE_ACCOUNT_KEY, nextUserId);
+        return;
+      }
+    }
     this.sessionToken = null;
     this.userId = null;
     this.workspaceId = null;
     await this.storage.removeItem(SESSION_STORAGE_KEY);
     await this.storage.removeItem(USER_ID_STORAGE_KEY);
     await this.storage.removeItem(WORKSPACE_STORAGE_KEY);
+    await this.storage.removeItem(ACTIVE_ACCOUNT_KEY);
   }
 
   setAccessToken(token: string): void {
@@ -376,6 +447,90 @@ export class ScaleMuleClient {
   isAuthenticated(): boolean {
     return this.sessionToken !== null;
   }
+  getAnonymousId(): string | null {
+    return this.anonymousId;
+  }
+  isMultiSessionEnabled(): boolean {
+    return this.multiSessionEnabled;
+  }
+
+  // --------------------------------------------------------------------------
+  // Multi-Account Session Pool (Phase 2)
+  // --------------------------------------------------------------------------
+
+  /** Get all accounts in the session pool */
+  getSessionPool(): import('./types').SessionPoolEntry[] {
+    return Array.from(this.sessionPool.values());
+  }
+
+  /** Get the active account entry, or null */
+  getActiveAccount(): import('./types').SessionPoolEntry | null {
+    if (!this.userId) return null;
+    return this.sessionPool.get(this.userId) || null;
+  }
+
+  /** Add an account to the session pool and set it as active */
+  async addAccount(entry: import('./types').SessionPoolEntry): Promise<void> {
+    this.sessionPool.set(entry.userId, entry);
+    this.sessionToken = entry.token;
+    this.userId = entry.userId;
+    await this.storage.setItem(SESSION_STORAGE_KEY, entry.token);
+    await this.storage.setItem(USER_ID_STORAGE_KEY, entry.userId);
+    await this.storage.setItem(ACTIVE_ACCOUNT_KEY, entry.userId);
+    await this.persistSessionPool();
+  }
+
+  /** Switch to a different account in the pool. Returns false if not found. */
+  async switchAccount(userId: string): Promise<boolean> {
+    const entry = this.sessionPool.get(userId);
+    if (!entry) return false;
+    this.sessionToken = entry.token;
+    this.userId = userId;
+    this.workspaceId = null;
+    await this.storage.setItem(SESSION_STORAGE_KEY, entry.token);
+    await this.storage.setItem(USER_ID_STORAGE_KEY, userId);
+    await this.storage.setItem(ACTIVE_ACCOUNT_KEY, userId);
+    await this.storage.removeItem(WORKSPACE_STORAGE_KEY);
+    return true;
+  }
+
+  /** Remove a specific account from the pool */
+  async removeAccount(userId: string): Promise<void> {
+    this.sessionPool.delete(userId);
+    await this.persistSessionPool();
+    // If we removed the active account, switch to next
+    if (this.userId === userId) {
+      const next = this.sessionPool.entries().next().value;
+      if (next) {
+        await this.switchAccount(next[0]);
+      } else {
+        await this.clearSession();
+      }
+    }
+  }
+
+  /** Clear all accounts from the pool */
+  async clearAllAccounts(): Promise<void> {
+    this.sessionPool.clear();
+    await this.storage.removeItem(SESSION_POOL_KEY);
+    await this.storage.removeItem(ACTIVE_ACCOUNT_KEY);
+    this.sessionToken = null;
+    this.userId = null;
+    this.workspaceId = null;
+    await this.storage.removeItem(SESSION_STORAGE_KEY);
+    await this.storage.removeItem(USER_ID_STORAGE_KEY);
+    await this.storage.removeItem(WORKSPACE_STORAGE_KEY);
+  }
+
+  /** Persist session pool to storage */
+  private async persistSessionPool(): Promise<void> {
+    const obj: Record<string, import('./types').SessionPoolEntry> = {};
+    for (const [k, v] of this.sessionPool) {
+      obj[k] = v;
+    }
+    await this.storage.setItem(SESSION_POOL_KEY, JSON.stringify(obj));
+  }
+
   getBaseUrl(): string {
     return this.baseUrl;
   }
@@ -444,6 +599,10 @@ export class ScaleMuleClient {
     }
     if (this.workspaceId) {
       headers['x-sm-workspace-id'] = this.workspaceId;
+    }
+    // Include anonymous_id header when not authenticated (for identity linking)
+    if (!this.sessionToken && this.anonymousId) {
+      headers['x-anonymous-id'] = this.anonymousId;
     }
 
     // Serialize body

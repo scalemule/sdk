@@ -20,7 +20,8 @@ export type {
   StorageAdapter,
   RequestOptions,
   ClientContext,
-  ErrorCode
+  ErrorCode,
+  SessionPoolEntry
 } from './types';
 export { ErrorCodes } from './types';
 
@@ -486,7 +487,17 @@ export class ScaleMule {
    * Call this once after construction, before making authenticated requests.
    */
   async initialize(): Promise<void> {
-    return this._client.initialize();
+    await this._client.initialize();
+
+    // Transitional identity linking: if user has both an active session and
+    // an anonymous_id in storage, call identity.identify() to link them.
+    // This covers users who registered before identity linking existed.
+    const anonymousId = this._client.getAnonymousId();
+    if (this._client.isAuthenticated() && anonymousId) {
+      this.identity.identify(anonymousId).catch(() => {
+        // Fire-and-forget — don't block initialization on linking
+      });
+    }
   }
 
   /**
@@ -525,6 +536,40 @@ export class ScaleMule {
   /** Whether a session token is set. */
   isAuthenticated(): boolean {
     return this._client.isAuthenticated();
+  }
+
+  /** The anonymous visitor ID used for identity linking. */
+  getAnonymousId(): string | null {
+    return this._client.getAnonymousId();
+  }
+
+  // --------------------------------------------------------------------------
+  // Multi-Account Session Pool (Phase 2)
+  // --------------------------------------------------------------------------
+
+  /** Get all accounts in the session pool (requires enableMultiSession) */
+  getSessionPool(): import('./types').SessionPoolEntry[] {
+    return this._client.getSessionPool();
+  }
+
+  /** Get the active account, or null */
+  getActiveAccount(): import('./types').SessionPoolEntry | null {
+    return this._client.getActiveAccount();
+  }
+
+  /** Switch to a different account in the pool. Returns false if not found. */
+  async switchAccount(userId: string): Promise<boolean> {
+    return this._client.switchAccount(userId);
+  }
+
+  /** Remove a specific account from the pool */
+  async removeAccount(userId: string): Promise<void> {
+    return this._client.removeAccount(userId);
+  }
+
+  /** Clear all accounts from the pool */
+  async clearAllAccounts(): Promise<void> {
+    return this._client.clearAllAccounts();
   }
 
   /** The base URL being used for API requests. */

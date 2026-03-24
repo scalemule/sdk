@@ -13,6 +13,23 @@ import { ServiceModule } from '../service';
 import type { ApiResponse, PaginationParams, RequestOptions } from '../types';
 import { normalizePhoneNumber } from '../utils/phone';
 
+/** Auto-collect device fingerprint components in browser environments */
+function collectDeviceFingerprint(): Record<string, unknown> | undefined {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return undefined;
+  try {
+    return {
+      screen: `${screen.width}x${screen.height}x${screen.colorDepth}`,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      language: navigator.language,
+      platform: navigator.platform,
+      cookie_enabled: navigator.cookieEnabled,
+      do_not_track: navigator.doNotTrack
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -326,16 +343,51 @@ export class AuthService extends ServiceModule {
   ): Promise<ApiResponse<AuthSession>> {
     const payload = {
       ...data,
-      phone: this.sanitizePhoneField(data.phone)
+      phone: this.sanitizePhoneField(data.phone),
+      anonymous_id: this.client.getAnonymousId()
     };
-    return this.post<AuthSession>('/register', payload, options);
+    const result = await this.post<AuthSession>('/register', payload, options);
+    if (result.data && this.client.isMultiSessionEnabled()) {
+      await this.client.addAccount({
+        token: result.data.session_token,
+        userId: result.data.user.id,
+        email: result.data.user.email,
+        fullName: result.data.user.full_name,
+        avatarUrl: result.data.user.avatar_url,
+        expiresAt: result.data.expires_at,
+        addedAt: new Date().toISOString()
+      });
+    }
+    return result;
   }
 
   async login(
-    data: { email: string; password: string; remember_me?: boolean },
+    data: {
+      email: string;
+      password: string;
+      remember_me?: boolean;
+      device_fingerprint?: Record<string, unknown>;
+    },
     options?: RequestOptions
   ): Promise<ApiResponse<AuthSession>> {
-    return this.post<AuthSession>('/login', data, options);
+    const payload = {
+      ...data,
+      anonymous_id: this.client.getAnonymousId(),
+      device_fingerprint: data.device_fingerprint || collectDeviceFingerprint()
+    };
+    const result = await this.post<AuthSession>('/login', payload, options);
+    if (result.data && this.client.isMultiSessionEnabled()) {
+      await this.client.addAccount({
+        token: result.data.session_token,
+        userId: result.data.user.id,
+        email: result.data.user.email,
+        fullName: result.data.user.full_name,
+        avatarUrl: result.data.user.avatar_url,
+        expiresAt: result.data.expires_at,
+        addedAt: new Date().toISOString()
+      });
+    }
+    return result;
   }
 
   async logout(options?: RequestOptions): Promise<ApiResponse<{ logged_out: boolean }>> {

@@ -91,7 +91,12 @@ export class AnalyticsService extends ServiceModule {
     userId?: string,
     options?: RequestOptions
   ): Promise<ApiResponse<{ tracked: boolean }>> {
-    return this.post<{ tracked: boolean }>('/v2/events', { event_name: event, properties, user_id: userId }, options);
+    const payload: Record<string, unknown> = { event_name: event, properties, user_id: userId };
+    // Include anonymous_id when not authenticated for identity linking
+    if (!userId && !this.client.isAuthenticated()) {
+      payload.anonymous_id = this.client.getAnonymousId();
+    }
+    return this.post<{ tracked: boolean }>('/v2/events', payload, options);
   }
 
   async trackBatch(
