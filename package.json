@@ -1,6 +1,6 @@
 {
   "name": "@scalemule/sdk",
-  "version": "0.0.25",
+  "version": "0.0.26",
   "description": "Official TypeScript/JavaScript SDK for ScaleMule Backend-as-a-Service",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
