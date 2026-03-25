@@ -34,6 +34,7 @@ export interface Task {
   status: string;
   priority?: string;
   due_date?: string;
+  sort_order?: number;
   assigned_agent_id?: string;
   metadata?: Record<string, unknown>;
   created_at: string;
@@ -266,6 +267,15 @@ export class AgentProjectsService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<Task>> {
     return this.patch<Task>(this.withAppId(`/tasks/${id}`, applicationId), data, options);
+  }
+
+  async reorderTasks(
+    projectId: string,
+    taskIds: string[],
+    applicationId?: string,
+    options?: RequestOptions
+  ): Promise<ApiResponse<void>> {
+    return this.post<void>(this.withAppId(`/projects/${projectId}/tasks/reorder`, applicationId), { task_ids: taskIds }, options);
   }
 
   // Lifecycle (use registry agent_id)
