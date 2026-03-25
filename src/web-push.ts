@@ -123,7 +123,7 @@ export class WebPushManager {
     // Subscribe via PushManager
     const pushSubscription = await this.registration.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: applicationServerKey.buffer as ArrayBuffer,
+      applicationServerKey: applicationServerKey.buffer as ArrayBuffer
     });
 
     // Extract subscription data
@@ -133,7 +133,7 @@ export class WebPushManager {
 
     const subscription: WebPushSubscriptionData = {
       endpoint,
-      keys: { p256dh, auth },
+      keys: { p256dh, auth }
     };
 
     // Generate or use provided device_id
@@ -144,14 +144,14 @@ export class WebPushManager {
       token: endpoint,
       platform: 'web',
       device_id: resolvedDeviceId,
-      subscription,
+      subscription
     });
 
     // Persist state
     this.state = {
       endpoint,
       tokenId: result.id,
-      deviceId: resolvedDeviceId,
+      deviceId: resolvedDeviceId
     };
     this.persistState();
 

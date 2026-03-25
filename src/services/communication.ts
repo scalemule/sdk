@@ -171,10 +171,7 @@ export class CommunicationService extends ServiceModule {
   // Push Notifications — Token Management
   // --------------------------------------------------------------------------
 
-  async registerPushToken(
-    data: RegisterPushTokenData,
-    options?: RequestOptions
-  ): Promise<ApiResponse<PushToken>> {
+  async registerPushToken(data: RegisterPushTokenData, options?: RequestOptions): Promise<ApiResponse<PushToken>> {
     return this.post<PushToken>('/push/register', data, options);
   }
 

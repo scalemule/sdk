@@ -190,7 +190,7 @@ export type {
   PushSubscriptionInfo,
   PushPreferences,
   WebPushSubscriptionData,
-  RegisterPushTokenData,
+  RegisterPushTokenData
 } from './services/communication';
 export { WebPushManager } from './web-push';
 export type { PushApiFetcher, WebPushManagerOptions } from './web-push';
