@@ -3710,6 +3710,44 @@ var SocialService = class extends ServiceModule {
   }
 };
 
+// src/services/referrals.ts
+var ReferralsService = class extends ServiceModule {
+  constructor() {
+    super(...arguments);
+    this.basePath = "/v1/referrals";
+  }
+  /**
+   * Get current user's referral code, share link, campaign, and stats.
+   * Requires member auth.
+   */
+  async getMyReferral(options) {
+    return this._get("/me", options);
+  }
+  /**
+   * Generate a tracked share link. The `channel` param records where
+   * the share was initiated (e.g., 'whatsapp', 'email', 'copy').
+   * Requires member auth.
+   */
+  async createShareLink(channel, options) {
+    return this.post("/links", channel ? { channel } : void 0, options);
+  }
+  /**
+   * Get referral analytics for the current user over the last N days.
+   * Requires member auth.
+   */
+  async getMyAnalytics(days, options) {
+    const query = days ? `?days=${days}` : "";
+    return this._get(`/me/analytics${query}`, options);
+  }
+  /**
+   * Resolve a referral code to its campaign info.
+   * Public endpoint — no member auth required, only API key.
+   */
+  async resolveCode(code, options) {
+    return this._get(`/public?rc=${encodeURIComponent(code)}`, options);
+  }
+};
+
 // src/services/billing.ts
 var BillingService = class extends ServiceModule {
   constructor() {
@@ -5862,6 +5900,7 @@ var ScaleMule = class {
     this.data = new DataService(this._client);
     this.chat = new ChatService(this._client);
     this.social = new SocialService(this._client);
+    this.referrals = new ReferralsService(this._client);
     this.billing = new BillingService(this._client);
     this.analytics = new AnalyticsService(this._client);
     this.flags = new FlagsService(this._client);
@@ -6015,6 +6054,7 @@ export {
   PhotoService,
   QueueService,
   RealtimeService,
+  ReferralsService,
   ScaleMule,
   ScaleMuleClient,
   SchedulerService,

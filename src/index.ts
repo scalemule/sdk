@@ -123,6 +123,15 @@ export { ChatService } from './services/chat';
 export type { Conversation, Participant, Attachment, ChatMessage, ReadStatus, ChatReaction } from './services/chat';
 export { SocialService } from './services/social';
 export type { SocialPost, Comment, FollowStatus, ActivityItem, SocialUser, Like } from './services/social';
+export { ReferralsService } from './services/referrals';
+export type {
+  ReferralProfile,
+  ReferralCampaign,
+  ReferralStats,
+  ShareLink,
+  ReferralAnalytics,
+  ResolvedReferral
+} from './services/referrals';
 export { BillingService } from './services/billing';
 export type {
   Customer,
@@ -314,6 +323,7 @@ import { VideoService } from './services/video';
 import { DataService } from './services/data';
 import { ChatService } from './services/chat';
 import { SocialService } from './services/social';
+import { ReferralsService } from './services/referrals';
 import { BillingService } from './services/billing';
 import { AnalyticsService } from './services/analytics';
 import { FlagsService } from './services/flags';
@@ -397,6 +407,7 @@ export class ScaleMule {
   public readonly data: DataService;
   public readonly chat: ChatService;
   public readonly social: SocialService;
+  public readonly referrals: ReferralsService;
   public readonly billing: BillingService;
   public readonly analytics: AnalyticsService;
   public readonly flags: FlagsService;
@@ -459,6 +470,7 @@ export class ScaleMule {
     this.data = new DataService(this._client);
     this.chat = new ChatService(this._client);
     this.social = new SocialService(this._client);
+    this.referrals = new ReferralsService(this._client);
     this.billing = new BillingService(this._client);
     this.analytics = new AnalyticsService(this._client);
     this.flags = new FlagsService(this._client);
