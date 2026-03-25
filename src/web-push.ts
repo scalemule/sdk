@@ -32,6 +32,8 @@ export interface WebPushManagerOptions {
   serviceWorkerUrl?: string;
   /** Required: HTTP transport abstraction */
   fetcher: PushApiFetcher;
+  /** Where the user subscribed (e.g., 'landing_prompt', 'post_signup', 'settings') */
+  registrationSource?: string;
 }
 
 const STORAGE_KEY = 'scalemule_push_state';
@@ -45,6 +47,7 @@ interface PersistedPushState {
 export class WebPushManager {
   private fetcher: PushApiFetcher;
   private swUrl: string;
+  private registrationSource?: string;
   private state: PersistedPushState | null = null;
   private registration: ServiceWorkerRegistration | null = null;
 
@@ -54,6 +57,7 @@ export class WebPushManager {
     }
     this.fetcher = options.fetcher;
     this.swUrl = options.serviceWorkerUrl || '/sw.js';
+    this.registrationSource = options.registrationSource;
 
     // Restore persisted state
     try {
@@ -139,12 +143,18 @@ export class WebPushManager {
     // Generate or use provided device_id
     const resolvedDeviceId = deviceId || this.state?.deviceId || generateDeviceId();
 
-    // Register with backend
+    // Register with backend — include device context
     const result = await this.fetcher.registerToken({
       token: endpoint,
       platform: 'web',
       device_id: resolvedDeviceId,
-      subscription
+      subscription,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      language: navigator.language,
+      browser: detectBrowser(),
+      os_version: detectOS(),
+      device_model: detectDeviceType(),
+      registration_source: this.registrationSource
     });
 
     // Persist state
@@ -263,10 +273,46 @@ function generateDeviceId(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();
   }
-  // Fallback for older browsers
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
     const v = c === 'x' ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
+}
+
+/** Detect browser name + version from user agent */
+function detectBrowser(): string {
+  if (typeof navigator === 'undefined') return 'Unknown';
+  const ua = navigator.userAgent;
+  if (ua.includes('Firefox/')) return 'Firefox/' + (ua.split('Firefox/')[1] || '').split(' ')[0];
+  if (ua.includes('Edg/')) return 'Edge/' + (ua.split('Edg/')[1] || '').split(' ')[0];
+  if (ua.includes('Chrome/')) return 'Chrome/' + (ua.split('Chrome/')[1] || '').split(' ')[0];
+  if (ua.includes('Safari/') && !ua.includes('Chrome')) {
+    const ver = (ua.split('Version/')[1] || '').split(' ')[0];
+    return 'Safari/' + ver;
+  }
+  return 'Unknown';
+}
+
+/** Detect OS name + version from user agent */
+function detectOS(): string {
+  if (typeof navigator === 'undefined') return 'Unknown';
+  const ua = navigator.userAgent;
+  if (ua.includes('Windows NT')) return 'Windows/' + ((ua.split('Windows NT ')[1] || '').split(/[;)]/)[0] || '');
+  if (ua.includes('Mac OS X'))
+    return 'macOS/' + ((ua.split('Mac OS X ')[1] || '').split(/[;)]/)[0] || '').replace(/_/g, '.');
+  if (ua.includes('Android')) return 'Android/' + ((ua.split('Android ')[1] || '').split(/[;)]/)[0] || '');
+  if (ua.includes('iPhone OS'))
+    return 'iOS/' + ((ua.split('iPhone OS ')[1] || '').split(' ')[0] || '').replace(/_/g, '.');
+  if (ua.includes('Linux')) return 'Linux';
+  return 'Unknown';
+}
+
+/** Detect device type from user agent */
+function detectDeviceType(): string {
+  if (typeof navigator === 'undefined') return 'unknown';
+  const ua = navigator.userAgent;
+  if (/Mobi|Android.*Mobile|iPhone/i.test(ua)) return 'mobile';
+  if (/iPad|Android(?!.*Mobile)|Tablet/i.test(ua)) return 'tablet';
+  return 'desktop';
 }

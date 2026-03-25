@@ -112,6 +112,10 @@ export interface RegisterPushTokenData {
   app_version?: string;
   os_version?: string;
   device_model?: string;
+  timezone?: string;
+  language?: string;
+  browser?: string;
+  registration_source?: string;
 }
 
 // ============================================================================
