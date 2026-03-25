@@ -275,7 +275,11 @@ export class AgentProjectsService extends ServiceModule {
     applicationId?: string,
     options?: RequestOptions
   ): Promise<ApiResponse<void>> {
-    return this.post<void>(this.withAppId(`/projects/${projectId}/tasks/reorder`, applicationId), { task_ids: taskIds }, options);
+    return this.post<void>(
+      this.withAppId(`/projects/${projectId}/tasks/reorder`, applicationId),
+      { task_ids: taskIds },
+      options
+    );
   }
 
   // Lifecycle (use registry agent_id)
