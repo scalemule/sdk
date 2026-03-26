@@ -264,7 +264,7 @@ export class RealtimeService extends ServiceModule {
     this.sendWs({
       type: 'auth',
       token: token || undefined,
-      app_id: appId || undefined,
+      app_id: appId || undefined
     });
   }
 

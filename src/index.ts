@@ -98,7 +98,13 @@ export type {
   S3MultipartResult
 } from './services/upload-to-s3';
 export { RealtimeService } from './services/realtime';
-export type { ConnectionStatus, MessageCallback, StatusCallback, PresenceCallback, PresenceEvent } from './services/realtime';
+export type {
+  ConnectionStatus,
+  MessageCallback,
+  StatusCallback,
+  PresenceCallback,
+  PresenceEvent
+} from './services/realtime';
 export { VideoService } from './services/video';
 export type { VideoUploadOptions, VideoInfo } from './services/video';
 
@@ -185,7 +191,12 @@ export type {
 } from './services/flags';
 export { CommunicationService } from './services/communication';
 export { NotificationsService } from './services/notifications';
-export type { Notification, NotificationListResponse, UnreadCountResponse, ListNotificationsParams } from './services/notifications';
+export type {
+  Notification,
+  NotificationListResponse,
+  UnreadCountResponse,
+  ListNotificationsParams
+} from './services/notifications';
 export type {
   MessageStatus,
   PushToken,
