@@ -2707,6 +2707,10 @@ interface RegisterPushTokenData {
     app_version?: string;
     os_version?: string;
     device_model?: string;
+    timezone?: string;
+    language?: string;
+    browser?: string;
+    registration_source?: string;
 }
 declare class CommunicationService extends ServiceModule {
     protected basePath: string;
@@ -2792,10 +2796,13 @@ interface WebPushManagerOptions {
     serviceWorkerUrl?: string;
     /** Required: HTTP transport abstraction */
     fetcher: PushApiFetcher;
+    /** Where the user subscribed (e.g., 'landing_prompt', 'post_signup', 'settings') */
+    registrationSource?: string;
 }
 declare class WebPushManager {
     private fetcher;
     private swUrl;
+    private registrationSource?;
     private state;
     private registration;
     constructor(options: WebPushManagerOptions);
@@ -4854,6 +4861,7 @@ interface Task {
     status: string;
     priority?: string;
     due_date?: string;
+    sort_order?: number;
     assigned_agent_id?: string;
     metadata?: Record<string, unknown>;
     created_at: string;
@@ -4998,6 +5006,7 @@ declare class AgentProjectsService extends ServiceModule {
         actual_hours: number;
         metadata: Record<string, unknown>;
     }>, applicationId?: string, options?: RequestOptions): Promise<ApiResponse<Task>>;
+    reorderTasks(projectId: string, taskIds: string[], applicationId?: string, options?: RequestOptions): Promise<ApiResponse<void>>;
     claimNext(agentId: string, applicationId?: string, options?: RequestOptions): Promise<ApiResponse<ClaimResult | null>>;
     claim(taskId: string, agentId: string, applicationId?: string, options?: RequestOptions): Promise<ApiResponse<ClaimResult>>;
     heartbeat(taskId: string, agentId: string, applicationId?: string, options?: RequestOptions): Promise<ApiResponse<{

@@ -4224,6 +4224,7 @@ var WebPushManager = class {
     }
     this.fetcher = options.fetcher;
     this.swUrl = options.serviceWorkerUrl || "/sw.js";
+    this.registrationSource = options.registrationSource;
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
@@ -4285,7 +4286,13 @@ var WebPushManager = class {
       token: endpoint,
       platform: "web",
       device_id: resolvedDeviceId,
-      subscription
+      subscription,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      language: navigator.language,
+      browser: detectBrowser(),
+      os_version: detectOS(),
+      device_model: detectDeviceType(),
+      registration_source: this.registrationSource
     });
     this.state = {
       endpoint,
@@ -4380,6 +4387,37 @@ function generateDeviceId() {
     const v = c === "x" ? r : r & 3 | 8;
     return v.toString(16);
   });
+}
+function detectBrowser() {
+  if (typeof navigator === "undefined") return "Unknown";
+  const ua = navigator.userAgent;
+  if (ua.includes("Firefox/")) return "Firefox/" + (ua.split("Firefox/")[1] || "").split(" ")[0];
+  if (ua.includes("Edg/")) return "Edge/" + (ua.split("Edg/")[1] || "").split(" ")[0];
+  if (ua.includes("Chrome/")) return "Chrome/" + (ua.split("Chrome/")[1] || "").split(" ")[0];
+  if (ua.includes("Safari/") && !ua.includes("Chrome")) {
+    const ver = (ua.split("Version/")[1] || "").split(" ")[0];
+    return "Safari/" + ver;
+  }
+  return "Unknown";
+}
+function detectOS() {
+  if (typeof navigator === "undefined") return "Unknown";
+  const ua = navigator.userAgent;
+  if (ua.includes("Windows NT")) return "Windows/" + ((ua.split("Windows NT ")[1] || "").split(/[;)]/)[0] || "");
+  if (ua.includes("Mac OS X"))
+    return "macOS/" + ((ua.split("Mac OS X ")[1] || "").split(/[;)]/)[0] || "").replace(/_/g, ".");
+  if (ua.includes("Android")) return "Android/" + ((ua.split("Android ")[1] || "").split(/[;)]/)[0] || "");
+  if (ua.includes("iPhone OS"))
+    return "iOS/" + ((ua.split("iPhone OS ")[1] || "").split(" ")[0] || "").replace(/_/g, ".");
+  if (ua.includes("Linux")) return "Linux";
+  return "Unknown";
+}
+function detectDeviceType() {
+  if (typeof navigator === "undefined") return "unknown";
+  const ua = navigator.userAgent;
+  if (/Mobi|Android.*Mobile|iPhone/i.test(ua)) return "mobile";
+  if (/iPad|Android(?!.*Mobile)|Tablet/i.test(ua)) return "tablet";
+  return "desktop";
 }
 
 // src/web-push-sw.ts
@@ -5591,6 +5629,13 @@ var AgentProjectsService = class extends ServiceModule {
   }
   async updateTask(id, data, applicationId, options) {
     return this.patch(this.withAppId(`/tasks/${id}`, applicationId), data, options);
+  }
+  async reorderTasks(projectId, taskIds, applicationId, options) {
+    return this.post(
+      this.withAppId(`/projects/${projectId}/tasks/reorder`, applicationId),
+      { task_ids: taskIds },
+      options
+    );
   }
   // Lifecycle (use registry agent_id)
   async claimNext(agentId, applicationId, options) {
