@@ -319,6 +319,7 @@ __export(index_exports, {
   LeaderboardService: () => LeaderboardService,
   ListingsService: () => ListingsService,
   LoggerService: () => LoggerService,
+  NotificationsService: () => NotificationsService,
   OrchestratorService: () => OrchestratorService,
   PHONE_COUNTRIES: () => import_phone.PHONE_COUNTRIES,
   PHOTO_BREAKPOINTS: () => PHOTO_BREAKPOINTS,
@@ -660,6 +661,7 @@ var OfflineQueue = class {
 };
 var ScaleMuleClient = class {
   constructor(config) {
+    this.applicationId = null;
     this.sessionToken = null;
     this.userId = null;
     this.rateLimitQueue = null;
@@ -668,6 +670,7 @@ var ScaleMuleClient = class {
     this.anonymousId = null;
     this.sessionPool = /* @__PURE__ */ new Map();
     this.apiKey = config.apiKey;
+    this.applicationId = config.applicationId || null;
     this.baseUrl = config.baseUrl || GATEWAY_URLS[config.environment || "prod"];
     this.debug = config.debug || false;
     this.storage = config.storage || createDefaultStorage();
@@ -771,6 +774,9 @@ var ScaleMuleClient = class {
   }
   getSessionToken() {
     return this.sessionToken;
+  }
+  getApplicationId() {
+    return this.applicationId;
   }
   getUserId() {
     return this.userId;
@@ -3512,9 +3518,11 @@ var RealtimeService = class extends ServiceModule {
   }
   authenticate() {
     const token = this.client.getSessionToken();
+    const appId = this.client.getApplicationId();
     this.sendWs({
       type: "auth",
-      token: token || void 0
+      token: token || void 0,
+      app_id: appId || void 0
     });
   }
   handleMessage(msg) {
@@ -4569,6 +4577,70 @@ var CommunicationService = class extends ServiceModule {
   /** @deprecated Use sendPush() instead */
   async sendPushNotification(data) {
     return this.sendPush(data);
+  }
+};
+
+// src/services/notifications.ts
+var NotificationsService = class extends ServiceModule {
+  constructor() {
+    super(...arguments);
+    this.basePath = "/notifications";
+  }
+  /**
+   * List notifications for the authenticated user.
+   *
+   * @example
+   * ```ts
+   * // All unread
+   * const { data } = await sm.notifications.list({ unread_only: true })
+   *
+   * // With pagination
+   * const { data } = await sm.notifications.list({ limit: 10, cursor: lastCreatedAt })
+   *
+   * // Since last seen (reconnect catch-up)
+   * const { data } = await sm.notifications.list({ unread_only: true, since: '2026-03-25T00:00:00Z' })
+   * ```
+   */
+  async list(params, options) {
+    const qs = new URLSearchParams();
+    if (params?.unread_only) qs.set("unread_only", "true");
+    if (params?.kind) qs.set("kind", params.kind);
+    if (params?.since) qs.set("since", params.since);
+    if (params?.limit) qs.set("limit", String(params.limit));
+    if (params?.cursor) qs.set("cursor", params.cursor);
+    const query = qs.toString();
+    const path = query ? `?${query}` : "";
+    return this._get(path, options);
+  }
+  /**
+   * Get the count of unread notifications.
+   *
+   * @example
+   * ```ts
+   * const { data } = await sm.notifications.unreadCount()
+   * console.log(`${data.count} unread`)
+   * ```
+   */
+  async unreadCount(options) {
+    return this._get("/unread-count", options);
+  }
+  /**
+   * Mark a single notification as read.
+   */
+  async markRead(id, options) {
+    return this.patch(`/${id}/read`, void 0, options);
+  }
+  /**
+   * Mark all notifications as read.
+   */
+  async markAllRead(options) {
+    return this.patch("/read-all", void 0, options);
+  }
+  /**
+   * Dismiss a notification (soft delete).
+   */
+  async dismiss(id, options) {
+    return this.del(`/${id}`, options);
   }
 };
 
@@ -6309,6 +6381,7 @@ var ScaleMule = class {
     this.analytics = new AnalyticsService(this._client);
     this.flags = new FlagsService(this._client);
     this.communication = new CommunicationService(this._client);
+    this.notifications = new NotificationsService(this._client);
     this.scheduler = new SchedulerService(this._client);
     this.permissions = new PermissionsService(this._client);
     this.workspaces = new WorkspacesService(this._client);
@@ -6410,6 +6483,10 @@ var ScaleMule = class {
   getBaseUrl() {
     return this._client.getBaseUrl();
   }
+  /** The application ID, or null if not configured. */
+  getApplicationId() {
+    return this._client.getApplicationId();
+  }
   /** Set the active workspace context. All subsequent requests include this as x-sm-workspace-id. */
   setWorkspaceContext(id) {
     this._client.setWorkspaceContext(id);
@@ -6452,6 +6529,7 @@ var index_default = ScaleMule;
   LeaderboardService,
   ListingsService,
   LoggerService,
+  NotificationsService,
   OrchestratorService,
   PHONE_COUNTRIES,
   PHOTO_BREAKPOINTS,
