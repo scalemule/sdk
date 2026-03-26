@@ -98,6 +98,7 @@ export type {
   S3MultipartResult
 } from './services/upload-to-s3';
 export { RealtimeService } from './services/realtime';
+export type { ConnectionStatus, MessageCallback, StatusCallback, PresenceCallback, PresenceEvent } from './services/realtime';
 export type {
   ConnectionStatus,
   MessageCallback,
@@ -190,6 +191,8 @@ export type {
   UpsertEnvironmentRequest
 } from './services/flags';
 export { CommunicationService } from './services/communication';
+export { NotificationsService } from './services/notifications';
+export type { Notification, NotificationListResponse, UnreadCountResponse, ListNotificationsParams } from './services/notifications';
 export type {
   MessageStatus,
   PushToken,
@@ -328,6 +331,7 @@ import { BillingService } from './services/billing';
 import { AnalyticsService } from './services/analytics';
 import { FlagsService } from './services/flags';
 import { CommunicationService } from './services/communication';
+import { NotificationsService } from './services/notifications';
 import { SchedulerService } from './services/scheduler';
 import { PermissionsService } from './services/permissions';
 import { WorkspacesService } from './services/workspaces';
@@ -412,6 +416,7 @@ export class ScaleMule {
   public readonly analytics: AnalyticsService;
   public readonly flags: FlagsService;
   public readonly communication: CommunicationService;
+  public readonly notifications: NotificationsService;
   public readonly scheduler: SchedulerService;
   public readonly permissions: PermissionsService;
   public readonly workspaces: WorkspacesService;
@@ -475,6 +480,7 @@ export class ScaleMule {
     this.analytics = new AnalyticsService(this._client);
     this.flags = new FlagsService(this._client);
     this.communication = new CommunicationService(this._client);
+    this.notifications = new NotificationsService(this._client);
     this.scheduler = new SchedulerService(this._client);
     this.permissions = new PermissionsService(this._client);
     this.workspaces = new WorkspacesService(this._client);
@@ -600,6 +606,11 @@ export class ScaleMule {
   /** The base URL being used for API requests. */
   getBaseUrl(): string {
     return this._client.getBaseUrl();
+  }
+
+  /** The application ID, or null if not configured. */
+  getApplicationId(): string | null {
+    return this._client.getApplicationId();
   }
 
   /** Set the active workspace context. All subsequent requests include this as x-sm-workspace-id. */

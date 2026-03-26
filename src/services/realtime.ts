@@ -260,9 +260,11 @@ export class RealtimeService extends ServiceModule {
 
   private authenticate(): void {
     const token = this.client.getSessionToken();
+    const appId = this.client.getApplicationId();
     this.sendWs({
       type: 'auth',
-      token: token || undefined
+      token: token || undefined,
+      app_id: appId || undefined,
     });
   }
 

@@ -304,6 +304,7 @@ class OfflineQueue {
 
 export class ScaleMuleClient {
   private apiKey: string;
+  private applicationId: string | null = null;
   private baseUrl: string;
   private debug: boolean;
   private storage: StorageAdapter;
@@ -321,6 +322,7 @@ export class ScaleMuleClient {
 
   constructor(config: ScaleMuleConfig) {
     this.apiKey = config.apiKey;
+    this.applicationId = config.applicationId || null;
     this.baseUrl = config.baseUrl || GATEWAY_URLS[config.environment || 'prod'];
     this.debug = config.debug || false;
     this.storage = config.storage || createDefaultStorage();
@@ -440,6 +442,9 @@ export class ScaleMuleClient {
   }
   getSessionToken(): string | null {
     return this.sessionToken;
+  }
+  getApplicationId(): string | null {
+    return this.applicationId;
   }
   getUserId(): string | null {
     return this.userId;
