@@ -39,6 +39,10 @@ export interface Task {
   metadata?: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+  pipeline_id?: string;
+  pipeline_version?: number;
+  current_phase?: string;
+  phase_entered_at?: string;
 }
 
 export interface ClaimResult {
@@ -233,6 +237,7 @@ export class AgentProjectsService extends ServiceModule {
       priority?: string;
       due_date?: string;
       metadata?: Record<string, unknown>;
+      pipeline_id?: string;
     },
     applicationId?: string,
     options?: RequestOptions
@@ -321,6 +326,19 @@ export class AgentProjectsService extends ServiceModule {
   ): Promise<ApiResponse<{ lease_expires_at: string }>> {
     return this.post<{ lease_expires_at: string }>(
       this.withAppId(`/tasks/${taskId}/heartbeat`, applicationId),
+      { agent_id: agentId },
+      options
+    );
+  }
+
+  async startTask(
+    taskId: string,
+    agentId: string,
+    applicationId?: string,
+    options?: RequestOptions
+  ): Promise<ApiResponse<{ task_id: string; status: string }>> {
+    return this.post<{ task_id: string; status: string }>(
+      this.withAppId(`/tasks/${taskId}/start`, applicationId),
       { agent_id: agentId },
       options
     );
