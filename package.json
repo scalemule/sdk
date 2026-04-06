@@ -23,7 +23,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsup src/index.ts src/flags/server.ts --format cjs,esm --dts --clean --external @scalemule/ui --external browser-image-compression",
+    "build": "tsup",
     "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -62,16 +62,13 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "@scalemule/ui": ">=0.0.1",
     "semver": "^7.7.4"
   },
   "peerDependencies": {
-    "@scalemule/ui": ">=0.0.1",
     "browser-image-compression": ">=2.0.0"
   },
   "peerDependenciesMeta": {
-    "@scalemule/ui": {
-      "optional": false
-    },
     "browser-image-compression": {
       "optional": true
     }

@@ -985,18 +985,138 @@ function asString(parent, key) {
   return typeof value === "string" ? value : void 0;
 }
 
-// src/utils/phone.ts
-import {
-  PHONE_COUNTRIES,
-  normalizePhoneNumber,
-  normalizeAndValidatePhone,
-  composePhoneNumber,
-  isValidE164Phone,
-  findPhoneCountryByCode,
-  findPhoneCountryByDialCode,
-  detectCountryFromE164,
-  countryFlag
-} from "@scalemule/ui/phone";
+// node_modules/@scalemule/ui/dist/phone/index.mjs
+var PHONE_COUNTRIES = [
+  { code: "US", name: "United States", dialCode: "+1" },
+  { code: "CA", name: "Canada", dialCode: "+1" },
+  { code: "GB", name: "United Kingdom", dialCode: "+44" },
+  { code: "AU", name: "Australia", dialCode: "+61" },
+  { code: "DE", name: "Germany", dialCode: "+49" },
+  { code: "FR", name: "France", dialCode: "+33" },
+  { code: "IT", name: "Italy", dialCode: "+39" },
+  { code: "ES", name: "Spain", dialCode: "+34" },
+  { code: "NL", name: "Netherlands", dialCode: "+31" },
+  { code: "BE", name: "Belgium", dialCode: "+32" },
+  { code: "CH", name: "Switzerland", dialCode: "+41" },
+  { code: "AT", name: "Austria", dialCode: "+43" },
+  { code: "SE", name: "Sweden", dialCode: "+46" },
+  { code: "NO", name: "Norway", dialCode: "+47" },
+  { code: "DK", name: "Denmark", dialCode: "+45" },
+  { code: "FI", name: "Finland", dialCode: "+358" },
+  { code: "IE", name: "Ireland", dialCode: "+353" },
+  { code: "PT", name: "Portugal", dialCode: "+351" },
+  { code: "PL", name: "Poland", dialCode: "+48" },
+  { code: "CZ", name: "Czech Republic", dialCode: "+420" },
+  { code: "GR", name: "Greece", dialCode: "+30" },
+  { code: "RU", name: "Russia", dialCode: "+7" },
+  { code: "JP", name: "Japan", dialCode: "+81" },
+  { code: "KR", name: "South Korea", dialCode: "+82" },
+  { code: "CN", name: "China", dialCode: "+86" },
+  { code: "HK", name: "Hong Kong", dialCode: "+852" },
+  { code: "TW", name: "Taiwan", dialCode: "+886" },
+  { code: "SG", name: "Singapore", dialCode: "+65" },
+  { code: "MY", name: "Malaysia", dialCode: "+60" },
+  { code: "TH", name: "Thailand", dialCode: "+66" },
+  { code: "VN", name: "Vietnam", dialCode: "+84" },
+  { code: "PH", name: "Philippines", dialCode: "+63" },
+  { code: "ID", name: "Indonesia", dialCode: "+62" },
+  { code: "IN", name: "India", dialCode: "+91" },
+  { code: "PK", name: "Pakistan", dialCode: "+92" },
+  { code: "BD", name: "Bangladesh", dialCode: "+880" },
+  { code: "AE", name: "UAE", dialCode: "+971" },
+  { code: "SA", name: "Saudi Arabia", dialCode: "+966" },
+  { code: "IL", name: "Israel", dialCode: "+972" },
+  { code: "TR", name: "Turkey", dialCode: "+90" },
+  { code: "EG", name: "Egypt", dialCode: "+20" },
+  { code: "ZA", name: "South Africa", dialCode: "+27" },
+  { code: "NG", name: "Nigeria", dialCode: "+234" },
+  { code: "KE", name: "Kenya", dialCode: "+254" },
+  { code: "BR", name: "Brazil", dialCode: "+55" },
+  { code: "MX", name: "Mexico", dialCode: "+52" },
+  { code: "AR", name: "Argentina", dialCode: "+54" },
+  { code: "CL", name: "Chile", dialCode: "+56" },
+  { code: "CO", name: "Colombia", dialCode: "+57" },
+  { code: "PE", name: "Peru", dialCode: "+51" },
+  { code: "NZ", name: "New Zealand", dialCode: "+64" }
+];
+var E164_REGEX = /^\+[1-9]\d{6,14}$/;
+function isValidE164Phone(input) {
+  return E164_REGEX.test(input);
+}
+function normalizePhoneNumber(input) {
+  if (typeof input !== "string") return "";
+  const trimmed = input.trim();
+  if (!trimmed) return "";
+  const digitsOnly = trimmed.replace(/\D/g, "");
+  if (!digitsOnly) return "";
+  if (trimmed.startsWith("+")) {
+    return `+${digitsOnly}`;
+  }
+  if (trimmed.startsWith("00") && digitsOnly.length > 2) {
+    return `+${digitsOnly.slice(2)}`;
+  }
+  return `+${digitsOnly}`;
+}
+function normalizeAndValidatePhone(input) {
+  const normalized = normalizePhoneNumber(input);
+  if (!normalized) {
+    return {
+      input,
+      normalized: null,
+      valid: false,
+      error: "Phone number is required"
+    };
+  }
+  if (!E164_REGEX.test(normalized)) {
+    return {
+      input,
+      normalized,
+      valid: false,
+      error: "Phone number must be in E.164 format (+[country code][number])"
+    };
+  }
+  return {
+    input,
+    normalized,
+    valid: true,
+    error: null
+  };
+}
+function composePhoneNumber(countryDialCode, localNumber) {
+  const normalizedDial = normalizePhoneNumber(countryDialCode);
+  if (!normalizedDial) return "";
+  const localDigits = typeof localNumber === "string" ? localNumber.replace(/\D/g, "") : "";
+  if (!localDigits) return "";
+  return `${normalizedDial}${localDigits}`;
+}
+function findPhoneCountryByCode(code) {
+  if (!code) return void 0;
+  const upperCode = code.toUpperCase();
+  return PHONE_COUNTRIES.find((country) => country.code === upperCode);
+}
+function findPhoneCountryByDialCode(dialCode) {
+  if (!dialCode) return void 0;
+  const normalized = dialCode.startsWith("+") ? dialCode : `+${dialCode}`;
+  return PHONE_COUNTRIES.find((country) => country.dialCode === normalized);
+}
+var DIAL_CODES_DESC = [...PHONE_COUNTRIES].sort((a, b) => b.dialCode.length - a.dialCode.length);
+function detectCountryFromE164(e164) {
+  if (!e164 || !e164.startsWith("+")) return null;
+  const normalized = "+" + e164.slice(1).replace(/\D/g, "");
+  for (const country of DIAL_CODES_DESC) {
+    const prefix = country.dialCode;
+    if (normalized.startsWith(prefix)) {
+      const local = normalized.slice(prefix.length);
+      if (local.length > 0) {
+        return { country, local };
+      }
+    }
+  }
+  return null;
+}
+function countryFlag(code) {
+  return [...code.toUpperCase()].map((c) => String.fromCodePoint(127462 + c.charCodeAt(0) - 65)).join("");
+}
 
 // src/services/auth.ts
 function collectDeviceFingerprint() {
@@ -5730,6 +5850,13 @@ var AgentProjectsService = class extends ServiceModule {
   async heartbeat(taskId, agentId, applicationId, options) {
     return this.post(
       this.withAppId(`/tasks/${taskId}/heartbeat`, applicationId),
+      { agent_id: agentId },
+      options
+    );
+  }
+  async startTask(taskId, agentId, applicationId, options) {
+    return this.post(
+      this.withAppId(`/tasks/${taskId}/start`, applicationId),
       { agent_id: agentId },
       options
     );
