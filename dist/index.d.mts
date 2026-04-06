@@ -4952,6 +4952,10 @@ interface Task {
     metadata?: Record<string, unknown>;
     created_at: string;
     updated_at: string;
+    pipeline_id?: string;
+    pipeline_version?: number;
+    current_phase?: string;
+    phase_entered_at?: string;
 }
 interface ClaimResult {
     task_id: string;
@@ -5075,6 +5079,7 @@ declare class AgentProjectsService extends ServiceModule {
         priority?: string;
         due_date?: string;
         metadata?: Record<string, unknown>;
+        pipeline_id?: string;
     }, applicationId?: string, options?: RequestOptions): Promise<ApiResponse<Task>>;
     listTasks(projectId: string, params?: PaginationParams & {
         application_id?: string;
@@ -5097,6 +5102,10 @@ declare class AgentProjectsService extends ServiceModule {
     claim(taskId: string, agentId: string, applicationId?: string, options?: RequestOptions): Promise<ApiResponse<ClaimResult>>;
     heartbeat(taskId: string, agentId: string, applicationId?: string, options?: RequestOptions): Promise<ApiResponse<{
         lease_expires_at: string;
+    }>>;
+    startTask(taskId: string, agentId: string, applicationId?: string, options?: RequestOptions): Promise<ApiResponse<{
+        task_id: string;
+        status: string;
     }>>;
     submit(taskId: string, data: {
         agent_id: string;
