@@ -256,6 +256,16 @@ export { LoggerService } from './services/logger';
 export type { LogEntry, Severity, LogInput, LogRecord, LogQueryParams, LogQueryResponse } from './services/logger';
 export { FlagContentService } from './services/flagcontent';
 export type { ContentFlag, FlagCheck, Appeal } from './services/flagcontent';
+export { CreatorMakerService } from './services/creator-maker';
+export type {
+  GenerateInput,
+  GenerationJob as CreatorJob,
+  GenerationOutput as CreatorOutput,
+  StylePreset,
+  CreatorUsage,
+  CreateProjectInput as CreateCreatorProjectInput,
+  CreatorProject
+} from './services/creator-maker';
 
 // Re-export agent service modules
 export { AgentAuthService } from './services/agent-auth';
@@ -359,6 +369,7 @@ import { IdentityService } from './services/identity';
 import { CatalogService } from './services/catalog';
 import { LoggerService } from './services/logger';
 import { FlagContentService } from './services/flagcontent';
+import { CreatorMakerService } from './services/creator-maker';
 
 // Agent service imports
 import { AgentAuthService } from './services/agent-auth';
@@ -454,6 +465,9 @@ export class ScaleMule {
   // Content moderation
   public readonly flagContent: FlagContentService;
 
+  // Creator services
+  public readonly creatorMaker: CreatorMakerService;
+
   // Business services
   public readonly compliance: ComplianceService;
   public readonly orchestrator: OrchestratorService;
@@ -505,6 +519,7 @@ export class ScaleMule {
     this.functions = new FunctionsService(this._client);
     this.photo = new PhotoService(this._client);
     this.flagContent = new FlagContentService(this._client);
+    this.creatorMaker = new CreatorMakerService(this._client);
     this.compliance = new ComplianceService(this._client);
     this.orchestrator = new OrchestratorService(this._client);
 
