@@ -56,6 +56,7 @@ export class RealtimeService extends ServiceModule {
   protected basePath = '/v1/realtime';
 
   private ws: WebSocket | null = null;
+  private usedTicketAuth = false;
   private subscriptions = new Map<string, Set<MessageCallback>>();
   private presenceCallbacks = new Map<string, Set<PresenceCallback>>();
   private statusCallbacks = new Set<StatusCallback>();
@@ -238,7 +239,7 @@ export class RealtimeService extends ServiceModule {
       if (token) headers['Authorization'] = `Bearer ${token}`;
       const ticketRes = await fetch(`${baseUrl}/v1/realtime/ws/ticket`, {
         method: 'POST',
-        headers,
+        headers
       });
 
       let wsUrl: string;
@@ -246,9 +247,10 @@ export class RealtimeService extends ServiceModule {
         const ticketData = await ticketRes.json();
         const ticket = ticketData.ticket;
         wsUrl = baseUrl.replace(/^http/, 'ws') + `/v1/realtime/ws?ticket=${encodeURIComponent(ticket)}`;
+        this.usedTicketAuth = true;
       } else {
-        // Fallback: connect without ticket (works when connecting directly to realtime service)
         wsUrl = baseUrl.replace(/^http/, 'ws') + '/v1/realtime/ws';
+        this.usedTicketAuth = false;
       }
 
       this.ws = new WebSocket(wsUrl);
@@ -259,8 +261,23 @@ export class RealtimeService extends ServiceModule {
 
     this.ws.onopen = () => {
       this.reconnectAttempt = 0;
-      this.authenticate();
+      if (!this.usedTicketAuth) {
+        this.authenticate();
+      }
       this.startHeartbeat();
+      if (this.usedTicketAuth) {
+        // Gateway sends synthetic auth — wait for auth_success
+        // If it doesn't arrive in 2s, force-subscribe
+        setTimeout(() => {
+          if (!this.authenticated) {
+            this.authenticated = true;
+            this.setStatus('connected');
+            for (const channel of this.subscriptions.keys()) {
+              this.sendWs({ type: 'subscribe', channel });
+            }
+          }
+        }, 2000);
+      }
     };
 
     this.ws.onmessage = (event) => {

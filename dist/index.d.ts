@@ -129,6 +129,30 @@ interface ScaleMuleConfig {
     enableOfflineQueue?: boolean;
     /** Enable multi-account session pool (Google Account Chooser style). Default: false */
     enableMultiSession?: boolean;
+    /**
+     * Enable the account switcher — remembers which accounts have logged in on
+     * this device so users can pick an account and re-authenticate.
+     *
+     * Unlike enableMultiSession, this stores **no tokens** for inactive accounts.
+     * Only display metadata (email, name, avatar) is persisted.
+     * Switching accounts always requires re-authentication.
+     *
+     * Default: false
+     */
+    enableAccountSwitcher?: boolean;
+    /**
+     * Privacy level for the account switcher.
+     *
+     * Controls how much identifying information is stored for inactive accounts:
+     * - `'full'`    — Full email, name, avatar stored (like Google). Default.
+     * - `'masked'`  — Email masked (j***@g***.com), name shows initial only, no avatar.
+     *                  Masked at write time — the full email is never persisted.
+     * - `'minimal'` — Only userId and provider stored. No PII at all.
+     *
+     * Privacy downgrades are lossy: switching from minimal/masked to full cannot
+     * recover stripped fields for existing entries until those accounts log in again.
+     */
+    accountSwitcherPrivacy?: AccountSwitcherPrivacy;
 }
 /**
  * A session entry in the multi-account session pool.
@@ -141,6 +165,55 @@ interface SessionPoolEntry {
     avatarUrl?: string;
     expiresAt?: string;
     addedAt: string;
+}
+/**
+ * A remembered account for the account switcher.
+ *
+ * Contains display metadata only — NO tokens or session data.
+ * Switching to a known account requires re-authentication.
+ * This is the secure alternative to SessionPoolEntry which stores tokens.
+ */
+interface KnownAccount {
+    /** User ID */
+    userId: string;
+    /** Email address (used for login pre-fill) */
+    email: string;
+    /** Display name */
+    fullName?: string;
+    /** Avatar URL */
+    avatarUrl?: string;
+    /** How the user last authenticated ('email', 'google', 'apple', etc.) */
+    provider?: string;
+    /** ISO timestamp of last successful login on this device */
+    lastActiveAt: string;
+}
+/**
+ * Privacy level for the account switcher.
+ */
+type AccountSwitcherPrivacy = 'full' | 'masked' | 'minimal';
+/**
+ * A known account after privacy transforms have been applied.
+ *
+ * This is what gets stored and returned to the UI. In 'masked' mode, email
+ * is partially masked and avatarUrl is stripped. In 'minimal' mode, all PII
+ * is stripped and only userId/provider/displayLabel/colorIndex remain.
+ */
+interface KnownAccountDisplay {
+    userId: string;
+    /** Masked or full email, absent in 'minimal' mode */
+    email?: string;
+    /** Full name, first initial, or absent depending on privacy mode */
+    fullName?: string;
+    /** Avatar URL, absent in 'masked' and 'minimal' modes */
+    avatarUrl?: string;
+    /** Authentication provider ('email', 'google', etc.) */
+    provider?: string;
+    /** ISO timestamp of last successful login on this device */
+    lastActiveAt: string;
+    /** Display label for 'minimal' mode (constant "Account") */
+    displayLabel?: string;
+    /** Stable color index derived from userId hash (0-7), for avatar circles */
+    colorIndex?: number;
 }
 /**
  * Per-request options that override client defaults.
@@ -267,6 +340,9 @@ declare class ScaleMuleClient {
     private anonymousId;
     private multiSessionEnabled;
     private sessionPool;
+    private accountSwitcherEnabled;
+    private accountSwitcherPrivacy;
+    private knownAccounts;
     constructor(config: ScaleMuleConfig);
     initialize(): Promise<void>;
     setSession(token: string, userId: string): Promise<void>;
@@ -293,6 +369,23 @@ declare class ScaleMuleClient {
     clearAllAccounts(): Promise<void>;
     /** Persist session pool to storage */
     private persistSessionPool;
+    isAccountSwitcherEnabled(): boolean;
+    getAccountSwitcherPrivacy(): AccountSwitcherPrivacy;
+    /** Get all known accounts that have logged in on this device (privacy-transformed) */
+    getKnownAccounts(): KnownAccountDisplay[];
+    /**
+     * Record an account as "known" on this device.
+     * Applies privacy transforms before storing — full email is never persisted
+     * in masked/minimal modes. Evicts oldest accounts if over the cap.
+     * Called automatically after successful login/register when account switcher is enabled.
+     */
+    addKnownAccount(account: KnownAccount): Promise<void>;
+    /** Remove a specific account from the known accounts list ("forget this account") */
+    removeKnownAccount(userId: string): Promise<void>;
+    /** Clear all known accounts ("forget all accounts on this device") */
+    clearKnownAccounts(): Promise<void>;
+    /** Persist known accounts to storage */
+    private persistKnownAccounts;
     getBaseUrl(): string;
     getApiKey(): string;
     isOnline(): boolean;
@@ -1409,6 +1502,7 @@ interface PresenceEvent {
 declare class RealtimeService extends ServiceModule {
     protected basePath: string;
     private ws;
+    private usedTicketAuth;
     private subscriptions;
     private presenceCallbacks;
     private statusCallbacks;
@@ -1449,6 +1543,7 @@ declare class RealtimeService extends ServiceModule {
     /** Disconnect and clean up all subscriptions. */
     disconnect(): void;
     private connect;
+    private fetchTicketAndConnect;
     private authenticate;
     private handleMessage;
     private dispatchMessage;
@@ -4651,6 +4746,121 @@ declare class FlagContentService extends ServiceModule {
     getAppeal(id: string, options?: RequestOptions): Promise<ApiResponse<Appeal>>;
 }
 
+/**
+ * Creator Maker Service Module
+ *
+ * Thin integration for AI image/clip generation via the creator-maker service.
+ * For rich features (React hooks, waitForJob, WebSocket status), use
+ * the standalone @scalemule/creator-maker package instead.
+ */
+
+interface GenerateInput {
+    project_id?: string;
+    output_type: 'image' | 'clip';
+    content_mode: 'promo' | 'cartoon';
+    aspect_ratio: '9:16' | '16:9' | '1:1';
+    style_preset_slug?: string;
+    prompt: string;
+    provider_mode?: 'auto' | 'fast' | 'balanced' | 'quality';
+    source_assets?: Array<{
+        storage_file_id: string;
+        role: 'reference' | 'init_image' | 'style_ref';
+        weight?: number;
+    }>;
+    composition?: {
+        caption?: string;
+        watermark?: boolean;
+    };
+}
+interface GenerationJob {
+    id: string;
+    project_id: string;
+    output_type: string;
+    content_mode: string;
+    aspect_ratio: string;
+    prompt: string;
+    status: string;
+    estimated_credits: number;
+    actual_credits?: number;
+    outputs: GenerationOutput[];
+    error_code?: string;
+    error_message?: string;
+    created_at: string;
+    completed_at?: string;
+}
+interface GenerationOutput {
+    id: string;
+    output_type: string;
+    cdn_url?: string;
+    width: number;
+    height: number;
+    mime_type: string;
+    created_at: string;
+}
+interface StylePreset {
+    id: string;
+    mode: string;
+    slug: string;
+    name: string;
+    description?: string;
+    thumbnail_url?: string;
+    estimated_credits: number;
+}
+interface CreatorUsage {
+    balance_credits: number;
+    total_generations: number;
+    completed_generations: number;
+}
+interface CreateProjectInput {
+    title?: string;
+    content_mode: 'promo' | 'cartoon';
+}
+interface CreatorProject {
+    id: string;
+    title: string;
+    content_mode: string;
+    created_at: string;
+    updated_at: string;
+}
+declare class CreatorMakerService extends ServiceModule {
+    protected basePath: string;
+    /** Submit a generation job. */
+    generate(data: GenerateInput, options?: RequestOptions): Promise<ApiResponse<GenerationJob>>;
+    /** Get a generation job by ID. */
+    getJob(jobId: string, options?: RequestOptions): Promise<ApiResponse<GenerationJob>>;
+    /** Long-poll for job completion (server holds up to 30s). */
+    pollJob(jobId: string, options?: RequestOptions): Promise<ApiResponse<GenerationJob>>;
+    /** List the current user's generation jobs. */
+    listJobs(params?: Record<string, unknown>, options?: RequestOptions): Promise<PaginatedResponse<GenerationJob>>;
+    /** Cancel a pending or queued job. */
+    cancelJob(jobId: string, options?: RequestOptions): Promise<ApiResponse<{
+        id: string;
+        status: string;
+    }>>;
+    /** Retry a failed job. */
+    retryJob(jobId: string, options?: RequestOptions): Promise<ApiResponse<GenerationJob>>;
+    /** Generate variations of a completed job. */
+    generateVariations(jobId: string, options?: RequestOptions): Promise<ApiResponse<GenerationJob[]>>;
+    /** List available style presets, optionally filtered by mode. */
+    listPresets(params?: {
+        mode?: string;
+    }, options?: RequestOptions): Promise<ApiResponse<StylePreset[]>>;
+    /** Get a style preset by slug. */
+    getPreset(slug: string, options?: RequestOptions): Promise<ApiResponse<StylePreset>>;
+    /** Create a project. */
+    createProject(data: CreateProjectInput, options?: RequestOptions): Promise<ApiResponse<CreatorProject>>;
+    /** List the current user's projects. */
+    listProjects(params?: Record<string, unknown>, options?: RequestOptions): Promise<PaginatedResponse<CreatorProject>>;
+    /** Get generation usage and credit balance. */
+    getUsage(options?: RequestOptions): Promise<ApiResponse<CreatorUsage>>;
+    /** Get a generation output by ID. */
+    getOutput(outputId: string, options?: RequestOptions): Promise<ApiResponse<GenerationOutput>>;
+    /** Get a download URL for a generation output. */
+    getDownloadUrl(outputId: string, options?: RequestOptions): Promise<ApiResponse<{
+        cdn_url: string;
+    }>>;
+}
+
 interface AuthRegisterAgentRequest {
     name: string;
     agent_platform: string;
@@ -5571,6 +5781,7 @@ declare class ScaleMule {
     readonly functions: FunctionsService;
     readonly photo: PhotoService;
     readonly flagContent: FlagContentService;
+    readonly creatorMaker: CreatorMakerService;
     readonly compliance: ComplianceService;
     readonly orchestrator: OrchestratorService;
     readonly agentAuth: AgentAuthService;
@@ -5614,6 +5825,23 @@ declare class ScaleMule {
     removeAccount(userId: string): Promise<void>;
     /** Clear all accounts from the pool */
     clearAllAccounts(): Promise<void>;
+    /** Whether the account switcher is enabled */
+    isAccountSwitcherEnabled(): boolean;
+    /** The configured privacy level for the account switcher */
+    getAccountSwitcherPrivacy(): AccountSwitcherPrivacy;
+    /**
+     * Get all accounts that have previously logged in on this device.
+     * Returns privacy-transformed display data — no raw PII in masked/minimal modes.
+     * Requires `enableAccountSwitcher: true` in config.
+     */
+    getKnownAccounts(): KnownAccountDisplay[];
+    /**
+     * Forget a specific account — removes it from the known accounts list.
+     * Does NOT affect any active session.
+     */
+    removeKnownAccount(userId: string): Promise<void>;
+    /** Forget all known accounts on this device. */
+    clearKnownAccounts(): Promise<void>;
     /** The base URL being used for API requests. */
     getBaseUrl(): string;
     /** The application ID, or null if not configured. */
@@ -5626,4 +5854,4 @@ declare class ScaleMule {
     getClient(): ScaleMuleClient;
 }
 
-export { type AccountBalance, AccountsService, type ActiveUsers, type ActivityItem, AgentAuthService, AgentModelsService, type AgentProfile, AgentProjectsService, type AgentResponse, type AgentSecurityPolicy, AgentSessionsService, type AgentSigningKey, type AgentToken, type AgentToolEntitlement, AgentToolsService, type Workspace as AgentWorkspace, AgentsService, type AggregateOptions, type AggregateResult, type AnalyticsEvent, AnalyticsService, type ApiError, type ApiKey, type ApiResponse, type Appeal, type Application, type Attachment, type Attendee, type AuditLog, type AuthRegisterAgentRequest, type AuthRegisterAgentResponse, AuthService, type AuthSession, type AuthUser, type BackupCodes, BillingService, type CacheEntry, CacheService, type CalendarEvent, type CatalogEntry, CatalogService, type ChatMessage, type ChatReaction, ChatService, type ClaimResult, type Client, type ClientContext, type Collection, type Comment, CommunicationService, type CompletedPart, ComplianceService, type CompressionConfig, type ConnectedAccount, type ConnectedAccountSubscription, type ConnectedSetupIntentResponse, type ConnectedSubscriptionListParams, type ConnectionStatus, type ContentFlag, type Conversation, type CostReportDay, type CreateFlagRequest, type CreateRuleRequest, type CreateSegmentRequest, type CreateSessionResponse, type CreateVariantRequest, type Credential, type CredentialScope, type Customer, type DataAccessPolicy, type DataExport, DataService, type DataSource, type DeadLetterJob, type DeviceInfo, type Document, type ErrorCode, ErrorCodes, type EventAggregation, EventsService, type FileInfo, type FlagAuditEntry, type FlagCheck, type FlagCondition, FlagContentService, type FlagDefinition, type FlagDetail, type FlagEnvironment, type FlagEvaluation, type FlagSegment, type FlagVariant, FlagsService, type FollowStatus, type FunctionExecution, type FunctionMetrics, FunctionsService, type Funnel, type FunnelConversion, type GdprRequest, type GrantInfo, type GraphEdge, type GraphNode, GraphService, IdentityService, type IdentityType, type IncomingRequestLike, type Invoice, type JobExecution, type JobStats, type Leaderboard, type LeaderboardEntry, LeaderboardService, type Like, type ListNotificationsParams, type Listing, ListingsService, type LogEntry, type LogInput, type LogQueryParams, type LogQueryResponse, type LogRecord, LoggerService, type LoginActivitySummary, type LoginDeviceInfo, type LoginHistoryEntry, type LoginRiskInfo, type MessageCallback, type MessageStatus, type MetricDataPoint, type MfaStatus, type Model, type ModelEntitlement, type ModelPricing, type ModelProvider, type UsageSummary as ModelUsageSummary, type MultipartCompleteResponse, type MultipartConfig, type MultipartPartUrl, type MultipartPartUrlsResponse, type MultipartStartResponse, type NetworkClass, type Notification, type NotificationListResponse, NotificationsService, type OAuthProvider, type OAuthUrl, OrchestratorService, PHOTO_BREAKPOINTS, type PaginatedResponse, type PaginationMetadata, type PaginationParams, type PartResult, type PartUrl, type Participant, type Payment, type PaymentListParams, type PaymentMethod, type PaymentStatusResponse, type Payout, type PayoutSchedule, type PermissionCheck, type PermissionMatrix, PermissionsService, type PhotoInfo, PhotoService, type Pipeline, type PipelineVersion, type Policy, type PresenceCallback, type PresenceEvent, type PresignedUploadResponse, type Price, type Product, type Project, type ProjectDocument, type ProjectGrant, type ProjectMember, type PushApiFetcher, type PushPreferences, type PushSettings, type PushSubscriptionInfo, type PushToken, type PushTokenAssociationResult, type PushTopic, type QueryFilter, type QueryOptions, type QuerySort, type QueueJob, QueueService, type ReadStatus, RealtimeService, type RedeemResult, type ReferralAnalytics, type ReferralCampaign, type ReferralProfile, type ReferralStats, ReferralsService, type Refund, type RegisterAgentRequest, type RegisterAgentResponse, type RegisterPushTokenData, type RequestOptions, type ResolvedReferral, type ResumeSession, type Role, type RuntimeTemplate, type RuntimeTemplateVersion, type S3MultipartOptions, type S3MultipartResult, type S3SingleUploadOptions, type S3SingleUploadResult, type S3UploadProgress, ScaleMule, ScaleMuleClient, type ScaleMuleConfig, type SchedulerJob, SchedulerService, type SearchResult, SearchService, type SecurityLayers, type ServerlessFunction, type ServiceHealth, ServiceModule, type Session, type SessionArtifact, type SessionInfo, type SessionLog, type SessionPoolEntry, type Severity, type ShareLink, type ShortestPathResult, type SignedUrlResponse, type SocialPost, SocialService, type SocialUser, type SsoConfig, type StatusCallback, type StorageAdapter, StorageService, type StrategyResult, type SubmitResult, type Subscription, type TargetingRule, type Task, type TaskAttempt, type TaskTransition, type Team, type TeamInvitation, type TeamMember, TeamsService, type TelemetryPayload, type Tool, type ToolCapability, type ToolIntegration, type TopEvent, type TotpSetup, type Transaction, type TransactionListParams, type TransactionSummary, type TransactionSummaryParams, type Transfer, type TransformOptions, type TransformResult, type TraversalResult, type UnreadCountResponse, type UpdateFlagRequest, type UpdateRuleRequest, type UpdateSegmentRequest, type UpdateVariantRequest, type UploadCompleteResponse, type UploadEngineConfig, type UploadFailureReport, type UploadFailureReportResponse, type UploadOptions, type UploadPlan, UploadResumeStore, type UploadStrategy, UploadTelemetry, type UploadTelemetryConfig, type UploadTelemetryEvent, type UpsertEnvironmentRequest, type UsageRecord, type UsageSummary$1 as UsageSummary, type UserRank, type VideoInfo, VideoService, type VideoUploadOptions, WEB_PUSH_SERVICE_WORKER, WebPushManager, type WebPushManagerOptions, type WebPushSubscriptionData, type Webhook, WebhooksService, type Workflow, type WorkflowExecution, type Workspace$1 as Workspace, type WorkspaceInvitation, type WorkspaceMember, WorkspacesService, buildClientContextHeaders, calculateTotalParts, canPerform, createUploadPlan, ScaleMule as default, detectNetworkClass, extractClientContext, generateUploadSessionId, getMeasuredBandwidthMbps, getPartRange, hasMinRoleLevel, resolveStrategy, uploadMultipartToS3, uploadSingleToS3, validateIP };
+export { type AccountBalance, type AccountSwitcherPrivacy, AccountsService, type ActiveUsers, type ActivityItem, AgentAuthService, AgentModelsService, type AgentProfile, AgentProjectsService, type AgentResponse, type AgentSecurityPolicy, AgentSessionsService, type AgentSigningKey, type AgentToken, type AgentToolEntitlement, AgentToolsService, type Workspace as AgentWorkspace, AgentsService, type AggregateOptions, type AggregateResult, type AnalyticsEvent, AnalyticsService, type ApiError, type ApiKey, type ApiResponse, type Appeal, type Application, type Attachment, type Attendee, type AuditLog, type AuthRegisterAgentRequest, type AuthRegisterAgentResponse, AuthService, type AuthSession, type AuthUser, type BackupCodes, BillingService, type CacheEntry, CacheService, type CalendarEvent, type CatalogEntry, CatalogService, type ChatMessage, type ChatReaction, ChatService, type ClaimResult, type Client, type ClientContext, type Collection, type Comment, CommunicationService, type CompletedPart, ComplianceService, type CompressionConfig, type ConnectedAccount, type ConnectedAccountSubscription, type ConnectedSetupIntentResponse, type ConnectedSubscriptionListParams, type ConnectionStatus, type ContentFlag, type Conversation, type CostReportDay, type CreateProjectInput as CreateCreatorProjectInput, type CreateFlagRequest, type CreateRuleRequest, type CreateSegmentRequest, type CreateSessionResponse, type CreateVariantRequest, type GenerationJob as CreatorJob, CreatorMakerService, type GenerationOutput as CreatorOutput, type CreatorProject, type CreatorUsage, type Credential, type CredentialScope, type Customer, type DataAccessPolicy, type DataExport, DataService, type DataSource, type DeadLetterJob, type DeviceInfo, type Document, type ErrorCode, ErrorCodes, type EventAggregation, EventsService, type FileInfo, type FlagAuditEntry, type FlagCheck, type FlagCondition, FlagContentService, type FlagDefinition, type FlagDetail, type FlagEnvironment, type FlagEvaluation, type FlagSegment, type FlagVariant, FlagsService, type FollowStatus, type FunctionExecution, type FunctionMetrics, FunctionsService, type Funnel, type FunnelConversion, type GdprRequest, type GenerateInput, type GrantInfo, type GraphEdge, type GraphNode, GraphService, IdentityService, type IdentityType, type IncomingRequestLike, type Invoice, type JobExecution, type JobStats, type KnownAccount, type KnownAccountDisplay, type Leaderboard, type LeaderboardEntry, LeaderboardService, type Like, type ListNotificationsParams, type Listing, ListingsService, type LogEntry, type LogInput, type LogQueryParams, type LogQueryResponse, type LogRecord, LoggerService, type LoginActivitySummary, type LoginDeviceInfo, type LoginHistoryEntry, type LoginRiskInfo, type MessageCallback, type MessageStatus, type MetricDataPoint, type MfaStatus, type Model, type ModelEntitlement, type ModelPricing, type ModelProvider, type UsageSummary as ModelUsageSummary, type MultipartCompleteResponse, type MultipartConfig, type MultipartPartUrl, type MultipartPartUrlsResponse, type MultipartStartResponse, type NetworkClass, type Notification, type NotificationListResponse, NotificationsService, type OAuthProvider, type OAuthUrl, OrchestratorService, PHOTO_BREAKPOINTS, type PaginatedResponse, type PaginationMetadata, type PaginationParams, type PartResult, type PartUrl, type Participant, type Payment, type PaymentListParams, type PaymentMethod, type PaymentStatusResponse, type Payout, type PayoutSchedule, type PermissionCheck, type PermissionMatrix, PermissionsService, type PhotoInfo, PhotoService, type Pipeline, type PipelineVersion, type Policy, type PresenceCallback, type PresenceEvent, type PresignedUploadResponse, type Price, type Product, type Project, type ProjectDocument, type ProjectGrant, type ProjectMember, type PushApiFetcher, type PushPreferences, type PushSettings, type PushSubscriptionInfo, type PushToken, type PushTokenAssociationResult, type PushTopic, type QueryFilter, type QueryOptions, type QuerySort, type QueueJob, QueueService, type ReadStatus, RealtimeService, type RedeemResult, type ReferralAnalytics, type ReferralCampaign, type ReferralProfile, type ReferralStats, ReferralsService, type Refund, type RegisterAgentRequest, type RegisterAgentResponse, type RegisterPushTokenData, type RequestOptions, type ResolvedReferral, type ResumeSession, type Role, type RuntimeTemplate, type RuntimeTemplateVersion, type S3MultipartOptions, type S3MultipartResult, type S3SingleUploadOptions, type S3SingleUploadResult, type S3UploadProgress, ScaleMule, ScaleMuleClient, type ScaleMuleConfig, type SchedulerJob, SchedulerService, type SearchResult, SearchService, type SecurityLayers, type ServerlessFunction, type ServiceHealth, ServiceModule, type Session, type SessionArtifact, type SessionInfo, type SessionLog, type SessionPoolEntry, type Severity, type ShareLink, type ShortestPathResult, type SignedUrlResponse, type SocialPost, SocialService, type SocialUser, type SsoConfig, type StatusCallback, type StorageAdapter, StorageService, type StrategyResult, type StylePreset, type SubmitResult, type Subscription, type TargetingRule, type Task, type TaskAttempt, type TaskTransition, type Team, type TeamInvitation, type TeamMember, TeamsService, type TelemetryPayload, type Tool, type ToolCapability, type ToolIntegration, type TopEvent, type TotpSetup, type Transaction, type TransactionListParams, type TransactionSummary, type TransactionSummaryParams, type Transfer, type TransformOptions, type TransformResult, type TraversalResult, type UnreadCountResponse, type UpdateFlagRequest, type UpdateRuleRequest, type UpdateSegmentRequest, type UpdateVariantRequest, type UploadCompleteResponse, type UploadEngineConfig, type UploadFailureReport, type UploadFailureReportResponse, type UploadOptions, type UploadPlan, UploadResumeStore, type UploadStrategy, UploadTelemetry, type UploadTelemetryConfig, type UploadTelemetryEvent, type UpsertEnvironmentRequest, type UsageRecord, type UsageSummary$1 as UsageSummary, type UserRank, type VideoInfo, VideoService, type VideoUploadOptions, WEB_PUSH_SERVICE_WORKER, WebPushManager, type WebPushManagerOptions, type WebPushSubscriptionData, type Webhook, WebhooksService, type Workflow, type WorkflowExecution, type Workspace$1 as Workspace, type WorkspaceInvitation, type WorkspaceMember, WorkspacesService, buildClientContextHeaders, calculateTotalParts, canPerform, createUploadPlan, ScaleMule as default, detectNetworkClass, extractClientContext, generateUploadSessionId, getMeasuredBandwidthMbps, getPartRange, hasMinRoleLevel, resolveStrategy, uploadMultipartToS3, uploadSingleToS3, validateIP };
