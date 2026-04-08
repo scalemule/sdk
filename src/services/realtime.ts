@@ -220,12 +220,37 @@ export class RealtimeService extends ServiceModule {
   private connect(): void {
     if (this._status === 'connecting' || this._status === 'connected') return;
 
-    const baseUrl = this.client.getBaseUrl();
-    const wsUrl = baseUrl.replace(/^http/, 'ws') + '/v1/realtime/ws';
-
     this.setStatus(this.reconnectAttempt > 0 ? 'reconnecting' : 'connecting');
 
+    // Fetch a WebSocket ticket from the gateway, then connect with it
+    this.fetchTicketAndConnect();
+  }
+
+  private async fetchTicketAndConnect(): Promise<void> {
+    const baseUrl = this.client.getBaseUrl();
+
     try {
+      // Exchange API key + session token for a short-lived WS ticket
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const apiKey = this.client.getApiKey();
+      if (apiKey) headers['x-api-key'] = apiKey;
+      const token = this.client.getSessionToken();
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const ticketRes = await fetch(`${baseUrl}/v1/realtime/ws/ticket`, {
+        method: 'POST',
+        headers,
+      });
+
+      let wsUrl: string;
+      if (ticketRes.ok) {
+        const ticketData = await ticketRes.json();
+        const ticket = ticketData.ticket;
+        wsUrl = baseUrl.replace(/^http/, 'ws') + `/v1/realtime/ws?ticket=${encodeURIComponent(ticket)}`;
+      } else {
+        // Fallback: connect without ticket (works when connecting directly to realtime service)
+        wsUrl = baseUrl.replace(/^http/, 'ws') + '/v1/realtime/ws';
+      }
+
       this.ws = new WebSocket(wsUrl);
     } catch {
       this.scheduleReconnect();
