@@ -107,6 +107,7 @@ var WORKSPACE_STORAGE_KEY = "scalemule_workspace_id";
 var ANONYMOUS_ID_STORAGE_KEY = "scalemule_anonymous_id";
 var SESSION_POOL_KEY = "scalemule_session_pool";
 var ACTIVE_ACCOUNT_KEY = "scalemule_active_account";
+var KNOWN_ACCOUNTS_KEY = "scalemule_known_accounts";
 var GATEWAY_URLS = {
   dev: "https://api-dev.scalemule.com",
   prod: "https://api.scalemule.com"
@@ -154,6 +155,54 @@ function statusToErrorCode(status) {
       return "rate_limited";
     default:
       return status >= 500 ? "internal_error" : `http_${status}`;
+  }
+}
+var MAX_KNOWN_ACCOUNTS = 10;
+function maskEmail(email) {
+  const parts = email.split("@");
+  const local = parts[0] ?? "";
+  const domain = parts[1];
+  if (!domain) return "***@***.***";
+  const tldDot = domain.lastIndexOf(".");
+  const tld = tldDot > 0 ? domain.slice(tldDot) : "";
+  const domainBase = tldDot > 0 ? domain.slice(0, tldDot) : domain;
+  return `${local[0] || "*"}***@${domainBase[0] || "*"}***${tld}`;
+}
+function stableColorIndex(userId) {
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) {
+    hash = (hash << 5) - hash + userId.charCodeAt(i) | 0;
+  }
+  return Math.abs(hash) % 8;
+}
+function applyPrivacy(account, privacy) {
+  switch (privacy) {
+    case "full":
+      return {
+        userId: account.userId,
+        email: account.email,
+        fullName: account.fullName,
+        avatarUrl: account.avatarUrl,
+        provider: account.provider,
+        lastActiveAt: account.lastActiveAt
+      };
+    case "masked":
+      return {
+        userId: account.userId,
+        email: account.email ? maskEmail(account.email) : void 0,
+        fullName: account.fullName && account.fullName.length > 0 ? `${account.fullName[0].toUpperCase()}.` : void 0,
+        provider: account.provider,
+        lastActiveAt: account.lastActiveAt,
+        colorIndex: stableColorIndex(account.userId)
+      };
+    case "minimal":
+      return {
+        userId: account.userId,
+        provider: account.provider,
+        lastActiveAt: account.lastActiveAt,
+        displayLabel: "Account",
+        colorIndex: stableColorIndex(account.userId)
+      };
   }
 }
 function createDefaultStorage() {
@@ -302,6 +351,7 @@ var ScaleMuleClient = class {
     this.workspaceId = null;
     this.anonymousId = null;
     this.sessionPool = /* @__PURE__ */ new Map();
+    this.knownAccounts = /* @__PURE__ */ new Map();
     this.apiKey = config.apiKey;
     this.applicationId = config.applicationId || null;
     this.baseUrl = config.baseUrl || GATEWAY_URLS[config.environment || "prod"];
@@ -318,6 +368,8 @@ var ScaleMuleClient = class {
       this.offlineQueue.setOnlineCallback(() => this.syncOfflineQueue());
     }
     this.multiSessionEnabled = config.enableMultiSession || false;
+    this.accountSwitcherEnabled = config.enableAccountSwitcher || false;
+    this.accountSwitcherPrivacy = config.accountSwitcherPrivacy || "full";
   }
   // --------------------------------------------------------------------------
   // Session Management
@@ -360,6 +412,27 @@ var ScaleMuleClient = class {
         this.userId = activeId;
       }
     }
+    if (this.accountSwitcherEnabled) {
+      const knownJson = await this.storage.getItem(KNOWN_ACCOUNTS_KEY);
+      if (knownJson) {
+        try {
+          const entries = JSON.parse(knownJson);
+          this.knownAccounts = new Map(Object.entries(entries));
+          let changed = false;
+          for (const [userId2, entry] of this.knownAccounts) {
+            const normalized = applyPrivacy(entry, this.accountSwitcherPrivacy);
+            if (JSON.stringify(normalized) !== JSON.stringify(entry)) {
+              this.knownAccounts.set(userId2, normalized);
+              changed = true;
+            }
+          }
+          if (changed) {
+            await this.persistKnownAccounts();
+          }
+        } catch {
+        }
+      }
+    }
     if (this.debug)
       console.log(
         "[ScaleMule] Initialized, session:",
@@ -367,7 +440,9 @@ var ScaleMuleClient = class {
         "anonymousId:",
         anonId,
         "poolSize:",
-        this.sessionPool.size
+        this.sessionPool.size,
+        "knownAccounts:",
+        this.knownAccounts.size
       );
   }
   async setSession(token, userId) {
@@ -490,6 +565,57 @@ var ScaleMuleClient = class {
       obj[k] = v;
     }
     await this.storage.setItem(SESSION_POOL_KEY, JSON.stringify(obj));
+  }
+  // --------------------------------------------------------------------------
+  // Account Switcher (Secure — metadata only, no tokens)
+  // --------------------------------------------------------------------------
+  isAccountSwitcherEnabled() {
+    return this.accountSwitcherEnabled;
+  }
+  getAccountSwitcherPrivacy() {
+    return this.accountSwitcherPrivacy;
+  }
+  /** Get all known accounts that have logged in on this device (privacy-transformed) */
+  getKnownAccounts() {
+    return Array.from(this.knownAccounts.values());
+  }
+  /**
+   * Record an account as "known" on this device.
+   * Applies privacy transforms before storing — full email is never persisted
+   * in masked/minimal modes. Evicts oldest accounts if over the cap.
+   * Called automatically after successful login/register when account switcher is enabled.
+   */
+  async addKnownAccount(account) {
+    const display = applyPrivacy(account, this.accountSwitcherPrivacy);
+    this.knownAccounts.set(account.userId, display);
+    if (this.knownAccounts.size > MAX_KNOWN_ACCOUNTS) {
+      const sorted = Array.from(this.knownAccounts.entries()).sort(
+        (a, b) => (a[1].lastActiveAt || "").localeCompare(b[1].lastActiveAt || "")
+      );
+      while (this.knownAccounts.size > MAX_KNOWN_ACCOUNTS && sorted.length > 0) {
+        const oldest = sorted.shift();
+        this.knownAccounts.delete(oldest[0]);
+      }
+    }
+    await this.persistKnownAccounts();
+  }
+  /** Remove a specific account from the known accounts list ("forget this account") */
+  async removeKnownAccount(userId) {
+    this.knownAccounts.delete(userId);
+    await this.persistKnownAccounts();
+  }
+  /** Clear all known accounts ("forget all accounts on this device") */
+  async clearKnownAccounts() {
+    this.knownAccounts.clear();
+    await this.storage.removeItem(KNOWN_ACCOUNTS_KEY);
+  }
+  /** Persist known accounts to storage */
+  async persistKnownAccounts() {
+    const obj = {};
+    for (const [k, v] of this.knownAccounts) {
+      obj[k] = v;
+    }
+    await this.storage.setItem(KNOWN_ACCOUNTS_KEY, JSON.stringify(obj));
   }
   getBaseUrl() {
     return this.baseUrl;
@@ -1247,6 +1373,16 @@ var AuthService = class extends ServiceModule {
         addedAt: (/* @__PURE__ */ new Date()).toISOString()
       });
     }
+    if (result.data && this.client.isAccountSwitcherEnabled()) {
+      await this.client.addKnownAccount({
+        userId: result.data.user.id,
+        email: result.data.user.email,
+        fullName: result.data.user.full_name,
+        avatarUrl: result.data.user.avatar_url,
+        provider: "email",
+        lastActiveAt: (/* @__PURE__ */ new Date()).toISOString()
+      });
+    }
     return result;
   }
   async login(data, options) {
@@ -1265,6 +1401,16 @@ var AuthService = class extends ServiceModule {
         avatarUrl: result.data.user.avatar_url,
         expiresAt: result.data.expires_at,
         addedAt: (/* @__PURE__ */ new Date()).toISOString()
+      });
+    }
+    if (result.data && this.client.isAccountSwitcherEnabled()) {
+      await this.client.addKnownAccount({
+        userId: result.data.user.id,
+        email: result.data.user.email,
+        fullName: result.data.user.full_name,
+        avatarUrl: result.data.user.avatar_url,
+        provider: "email",
+        lastActiveAt: (/* @__PURE__ */ new Date()).toISOString()
       });
     }
     return result;
@@ -1408,7 +1554,18 @@ var AuthService = class extends ServiceModule {
   }
   async handleOAuthCallback(data, options) {
     const { provider, ...rest } = data;
-    return this._get(this.withQuery(`/oauth/${provider}/callback`, rest), options);
+    const result = await this._get(this.withQuery(`/oauth/${provider}/callback`, rest), options);
+    if (result.data && this.client.isAccountSwitcherEnabled()) {
+      await this.client.addKnownAccount({
+        userId: result.data.user.id,
+        email: result.data.user.email,
+        fullName: result.data.user.full_name,
+        avatarUrl: result.data.user.avatar_url,
+        provider,
+        lastActiveAt: (/* @__PURE__ */ new Date()).toISOString()
+      });
+    }
+    return result;
   }
   async listOAuthProviders(options) {
     return this._get("/oauth/providers", options);
@@ -3119,6 +3276,7 @@ var RealtimeService = class extends ServiceModule {
     super(...arguments);
     this.basePath = "/v1/realtime";
     this.ws = null;
+    this.usedTicketAuth = false;
     this.subscriptions = /* @__PURE__ */ new Map();
     this.presenceCallbacks = /* @__PURE__ */ new Map();
     this.statusCallbacks = /* @__PURE__ */ new Set();
@@ -3247,10 +3405,31 @@ var RealtimeService = class extends ServiceModule {
   // --------------------------------------------------------------------------
   connect() {
     if (this._status === "connecting" || this._status === "connected") return;
-    const baseUrl = this.client.getBaseUrl();
-    const wsUrl = baseUrl.replace(/^http/, "ws") + "/v1/realtime/ws";
     this.setStatus(this.reconnectAttempt > 0 ? "reconnecting" : "connecting");
+    this.fetchTicketAndConnect();
+  }
+  async fetchTicketAndConnect() {
+    const baseUrl = this.client.getBaseUrl();
     try {
+      const headers = { "Content-Type": "application/json" };
+      const apiKey = this.client.getApiKey();
+      if (apiKey) headers["x-api-key"] = apiKey;
+      const token = this.client.getSessionToken();
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const ticketRes = await fetch(`${baseUrl}/v1/realtime/ws/ticket`, {
+        method: "POST",
+        headers
+      });
+      let wsUrl;
+      if (ticketRes.ok) {
+        const ticketData = await ticketRes.json();
+        const ticket = ticketData.ticket;
+        wsUrl = baseUrl.replace(/^http/, "ws") + `/v1/realtime/ws?ticket=${encodeURIComponent(ticket)}`;
+        this.usedTicketAuth = true;
+      } else {
+        wsUrl = baseUrl.replace(/^http/, "ws") + "/v1/realtime/ws";
+        this.usedTicketAuth = false;
+      }
       this.ws = new WebSocket(wsUrl);
     } catch {
       this.scheduleReconnect();
@@ -3258,8 +3437,21 @@ var RealtimeService = class extends ServiceModule {
     }
     this.ws.onopen = () => {
       this.reconnectAttempt = 0;
-      this.authenticate();
+      if (!this.usedTicketAuth) {
+        this.authenticate();
+      }
       this.startHeartbeat();
+      if (this.usedTicketAuth) {
+        setTimeout(() => {
+          if (!this.authenticated) {
+            this.authenticated = true;
+            this.setStatus("connected");
+            for (const channel of this.subscriptions.keys()) {
+              this.sendWs({ type: "subscribe", channel });
+            }
+          }
+        }, 2e3);
+      }
     };
     this.ws.onmessage = (event) => {
       try {
@@ -5648,6 +5840,73 @@ var FlagContentService = class extends ServiceModule {
   }
 };
 
+// src/services/creator-maker.ts
+var CreatorMakerService = class extends ServiceModule {
+  constructor() {
+    super(...arguments);
+    this.basePath = "/v1/creator-maker";
+  }
+  /** Submit a generation job. */
+  async generate(data, options) {
+    return this.post("/jobs", data, options);
+  }
+  /** Get a generation job by ID. */
+  async getJob(jobId, options) {
+    return this._get(`/jobs/${jobId}`, options);
+  }
+  /** Long-poll for job completion (server holds up to 30s). */
+  async pollJob(jobId, options) {
+    return this._get(`/jobs/${jobId}/poll`, {
+      ...options,
+      timeout: 35e3
+    });
+  }
+  /** List the current user's generation jobs. */
+  async listJobs(params, options) {
+    return this._list("/jobs", params, options);
+  }
+  /** Cancel a pending or queued job. */
+  async cancelJob(jobId, options) {
+    return this.post(`/jobs/${jobId}/cancel`, void 0, options);
+  }
+  /** Retry a failed job. */
+  async retryJob(jobId, options) {
+    return this.post(`/jobs/${jobId}/retry`, void 0, options);
+  }
+  /** Generate variations of a completed job. */
+  async generateVariations(jobId, options) {
+    return this.post(`/jobs/${jobId}/variations`, void 0, options);
+  }
+  /** List available style presets, optionally filtered by mode. */
+  async listPresets(params, options) {
+    return this._get(this.withQuery("/presets", params), options);
+  }
+  /** Get a style preset by slug. */
+  async getPreset(slug, options) {
+    return this._get(`/presets/${slug}`, options);
+  }
+  /** Create a project. */
+  async createProject(data, options) {
+    return this.post("/projects", data, options);
+  }
+  /** List the current user's projects. */
+  async listProjects(params, options) {
+    return this._list("/projects", params, options);
+  }
+  /** Get generation usage and credit balance. */
+  async getUsage(options) {
+    return this._get("/usage", options);
+  }
+  /** Get a generation output by ID. */
+  async getOutput(outputId, options) {
+    return this._get(`/outputs/${outputId}`, options);
+  }
+  /** Get a download URL for a generation output. */
+  async getDownloadUrl(outputId, options) {
+    return this._get(`/outputs/${outputId}/download`, options);
+  }
+};
+
 // src/services/agent-auth.ts
 var AgentAuthService = class extends ServiceModule {
   constructor() {
@@ -6167,6 +6426,7 @@ var ScaleMule = class {
     this.functions = new FunctionsService(this._client);
     this.photo = new PhotoService(this._client);
     this.flagContent = new FlagContentService(this._client);
+    this.creatorMaker = new CreatorMakerService(this._client);
     this.compliance = new ComplianceService(this._client);
     this.orchestrator = new OrchestratorService(this._client);
     this.agentAuth = new AgentAuthService(this._client);
@@ -6246,6 +6506,36 @@ var ScaleMule = class {
   async clearAllAccounts() {
     return this._client.clearAllAccounts();
   }
+  // --------------------------------------------------------------------------
+  // Account Switcher (Secure — metadata only, re-auth required)
+  // --------------------------------------------------------------------------
+  /** Whether the account switcher is enabled */
+  isAccountSwitcherEnabled() {
+    return this._client.isAccountSwitcherEnabled();
+  }
+  /** The configured privacy level for the account switcher */
+  getAccountSwitcherPrivacy() {
+    return this._client.getAccountSwitcherPrivacy();
+  }
+  /**
+   * Get all accounts that have previously logged in on this device.
+   * Returns privacy-transformed display data — no raw PII in masked/minimal modes.
+   * Requires `enableAccountSwitcher: true` in config.
+   */
+  getKnownAccounts() {
+    return this._client.getKnownAccounts();
+  }
+  /**
+   * Forget a specific account — removes it from the known accounts list.
+   * Does NOT affect any active session.
+   */
+  async removeKnownAccount(userId) {
+    return this._client.removeKnownAccount(userId);
+  }
+  /** Forget all known accounts on this device. */
+  async clearKnownAccounts() {
+    return this._client.clearKnownAccounts();
+  }
   /** The base URL being used for API requests. */
   getBaseUrl() {
     return this._client.getBaseUrl();
@@ -6284,6 +6574,7 @@ export {
   ChatService,
   CommunicationService,
   ComplianceService,
+  CreatorMakerService,
   DataService,
   ErrorCodes,
   EventsService,
