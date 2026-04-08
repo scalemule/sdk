@@ -13,7 +13,16 @@
  * Promoted from sdks/scalemule-nextjs and adapted for the base SDK.
  */
 
-import type { ApiResponse, ApiError, ScaleMuleConfig, StorageAdapter, RequestOptions, AccountSwitcherPrivacy, KnownAccount, KnownAccountDisplay } from './types';
+import type {
+  ApiResponse,
+  ApiError,
+  ScaleMuleConfig,
+  StorageAdapter,
+  RequestOptions,
+  AccountSwitcherPrivacy,
+  KnownAccount,
+  KnownAccountDisplay
+} from './types';
 
 // ============================================================================
 // Constants
@@ -146,7 +155,10 @@ function stableColorIndex(userId: string): number {
 }
 
 /** Apply privacy transforms to a known account */
-function applyPrivacy(account: KnownAccount | KnownAccountDisplay, privacy: AccountSwitcherPrivacy): KnownAccountDisplay {
+function applyPrivacy(
+  account: KnownAccount | KnownAccountDisplay,
+  privacy: AccountSwitcherPrivacy
+): KnownAccountDisplay {
   switch (privacy) {
     case 'full':
       return {
@@ -155,16 +167,17 @@ function applyPrivacy(account: KnownAccount | KnownAccountDisplay, privacy: Acco
         fullName: account.fullName,
         avatarUrl: account.avatarUrl,
         provider: account.provider,
-        lastActiveAt: account.lastActiveAt,
+        lastActiveAt: account.lastActiveAt
       };
     case 'masked':
       return {
         userId: account.userId,
         email: account.email ? maskEmail(account.email) : undefined,
-        fullName: account.fullName && account.fullName.length > 0 ? `${account.fullName[0]!.toUpperCase()}.` : undefined,
+        fullName:
+          account.fullName && account.fullName.length > 0 ? `${account.fullName[0]!.toUpperCase()}.` : undefined,
         provider: account.provider,
         lastActiveAt: account.lastActiveAt,
-        colorIndex: stableColorIndex(account.userId),
+        colorIndex: stableColorIndex(account.userId)
       };
     case 'minimal':
       return {
@@ -172,7 +185,7 @@ function applyPrivacy(account: KnownAccount | KnownAccountDisplay, privacy: Acco
         provider: account.provider,
         lastActiveAt: account.lastActiveAt,
         displayLabel: 'Account',
-        colorIndex: stableColorIndex(account.userId),
+        colorIndex: stableColorIndex(account.userId)
       };
   }
 }
@@ -662,8 +675,9 @@ export class ScaleMuleClient {
 
     // Evict oldest accounts if over cap
     if (this.knownAccounts.size > MAX_KNOWN_ACCOUNTS) {
-      const sorted = Array.from(this.knownAccounts.entries())
-        .sort((a, b) => (a[1].lastActiveAt || '').localeCompare(b[1].lastActiveAt || ''));
+      const sorted = Array.from(this.knownAccounts.entries()).sort((a, b) =>
+        (a[1].lastActiveAt || '').localeCompare(b[1].lastActiveAt || '')
+      );
       while (this.knownAccounts.size > MAX_KNOWN_ACCOUNTS && sorted.length > 0) {
         const oldest = sorted.shift()!;
         this.knownAccounts.delete(oldest[0]);
