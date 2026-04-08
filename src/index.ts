@@ -21,7 +21,10 @@ export type {
   RequestOptions,
   ClientContext,
   ErrorCode,
-  SessionPoolEntry
+  SessionPoolEntry,
+  KnownAccount,
+  AccountSwitcherPrivacy,
+  KnownAccountDisplay
 } from './types';
 export { ErrorCodes } from './types';
 
@@ -605,6 +608,42 @@ export class ScaleMule {
   /** Clear all accounts from the pool */
   async clearAllAccounts(): Promise<void> {
     return this._client.clearAllAccounts();
+  }
+
+  // --------------------------------------------------------------------------
+  // Account Switcher (Secure — metadata only, re-auth required)
+  // --------------------------------------------------------------------------
+
+  /** Whether the account switcher is enabled */
+  isAccountSwitcherEnabled(): boolean {
+    return this._client.isAccountSwitcherEnabled();
+  }
+
+  /** The configured privacy level for the account switcher */
+  getAccountSwitcherPrivacy(): import('./types').AccountSwitcherPrivacy {
+    return this._client.getAccountSwitcherPrivacy();
+  }
+
+  /**
+   * Get all accounts that have previously logged in on this device.
+   * Returns privacy-transformed display data — no raw PII in masked/minimal modes.
+   * Requires `enableAccountSwitcher: true` in config.
+   */
+  getKnownAccounts(): import('./types').KnownAccountDisplay[] {
+    return this._client.getKnownAccounts();
+  }
+
+  /**
+   * Forget a specific account — removes it from the known accounts list.
+   * Does NOT affect any active session.
+   */
+  async removeKnownAccount(userId: string): Promise<void> {
+    return this._client.removeKnownAccount(userId);
+  }
+
+  /** Forget all known accounts on this device. */
+  async clearKnownAccounts(): Promise<void> {
+    return this._client.clearKnownAccounts();
   }
 
   /** The base URL being used for API requests. */
