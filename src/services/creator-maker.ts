@@ -105,12 +105,15 @@ export class CreatorMakerService extends ServiceModule {
   async pollJob(jobId: string, options?: RequestOptions): Promise<ApiResponse<GenerationJob>> {
     return this._get<GenerationJob>(`/jobs/${jobId}/poll`, {
       ...options,
-      timeout: 35_000,
+      timeout: 35_000
     });
   }
 
   /** List the current user's generation jobs. */
-  async listJobs(params?: Record<string, unknown>, options?: RequestOptions): Promise<PaginatedResponse<GenerationJob>> {
+  async listJobs(
+    params?: Record<string, unknown>,
+    options?: RequestOptions
+  ): Promise<PaginatedResponse<GenerationJob>> {
     return this._list<GenerationJob>('/jobs', params, options);
   }
 
@@ -145,7 +148,10 @@ export class CreatorMakerService extends ServiceModule {
   }
 
   /** List the current user's projects. */
-  async listProjects(params?: Record<string, unknown>, options?: RequestOptions): Promise<PaginatedResponse<CreatorProject>> {
+  async listProjects(
+    params?: Record<string, unknown>,
+    options?: RequestOptions
+  ): Promise<PaginatedResponse<CreatorProject>> {
     return this._list<CreatorProject>('/projects', params, options);
   }
 
