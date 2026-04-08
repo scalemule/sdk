@@ -126,7 +126,9 @@ const MAX_KNOWN_ACCOUNTS = 10;
  * john.doe@gmail.com -> j***@g***.com
  */
 function maskEmail(email: string): string {
-  const [local, domain] = email.split('@');
+  const parts = email.split('@');
+  const local = parts[0] ?? '';
+  const domain = parts[1];
   if (!domain) return '***@***.***';
   const tldDot = domain.lastIndexOf('.');
   const tld = tldDot > 0 ? domain.slice(tldDot) : '';
@@ -159,7 +161,7 @@ function applyPrivacy(account: KnownAccount | KnownAccountDisplay, privacy: Acco
       return {
         userId: account.userId,
         email: account.email ? maskEmail(account.email) : undefined,
-        fullName: account.fullName ? `${account.fullName[0].toUpperCase()}.` : undefined,
+        fullName: account.fullName && account.fullName.length > 0 ? `${account.fullName[0]!.toUpperCase()}.` : undefined,
         provider: account.provider,
         lastActiveAt: account.lastActiveAt,
         colorIndex: stableColorIndex(account.userId),
