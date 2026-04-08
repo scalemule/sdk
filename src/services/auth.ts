@@ -358,6 +358,16 @@ export class AuthService extends ServiceModule {
         addedAt: new Date().toISOString()
       });
     }
+    if (result.data && this.client.isAccountSwitcherEnabled()) {
+      await this.client.addKnownAccount({
+        userId: result.data.user.id,
+        email: result.data.user.email,
+        fullName: result.data.user.full_name,
+        avatarUrl: result.data.user.avatar_url,
+        provider: 'email',
+        lastActiveAt: new Date().toISOString()
+      });
+    }
     return result;
   }
 
@@ -385,6 +395,16 @@ export class AuthService extends ServiceModule {
         avatarUrl: result.data.user.avatar_url,
         expiresAt: result.data.expires_at,
         addedAt: new Date().toISOString()
+      });
+    }
+    if (result.data && this.client.isAccountSwitcherEnabled()) {
+      await this.client.addKnownAccount({
+        userId: result.data.user.id,
+        email: result.data.user.email,
+        fullName: result.data.user.full_name,
+        avatarUrl: result.data.user.avatar_url,
+        provider: 'email',
+        lastActiveAt: new Date().toISOString()
       });
     }
     return result;
@@ -594,7 +614,18 @@ export class AuthService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<AuthSession>> {
     const { provider, ...rest } = data;
-    return this._get<AuthSession>(this.withQuery(`/oauth/${provider}/callback`, rest), options);
+    const result = await this._get<AuthSession>(this.withQuery(`/oauth/${provider}/callback`, rest), options);
+    if (result.data && this.client.isAccountSwitcherEnabled()) {
+      await this.client.addKnownAccount({
+        userId: result.data.user.id,
+        email: result.data.user.email,
+        fullName: result.data.user.full_name,
+        avatarUrl: result.data.user.avatar_url,
+        provider,
+        lastActiveAt: new Date().toISOString()
+      });
+    }
+    return result;
   }
 
   async listOAuthProviders(options?: RequestOptions): Promise<ApiResponse<OAuthProvider[]>> {

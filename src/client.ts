@@ -13,7 +13,7 @@
  * Promoted from sdks/scalemule-nextjs and adapted for the base SDK.
  */
 
-import type { ApiResponse, ApiError, ScaleMuleConfig, StorageAdapter, RequestOptions } from './types';
+import type { ApiResponse, ApiError, ScaleMuleConfig, StorageAdapter, RequestOptions, AccountSwitcherPrivacy, KnownAccount, KnownAccountDisplay } from './types';
 
 // ============================================================================
 // Constants
@@ -40,6 +40,7 @@ const WORKSPACE_STORAGE_KEY = 'scalemule_workspace_id';
 const ANONYMOUS_ID_STORAGE_KEY = 'scalemule_anonymous_id';
 const SESSION_POOL_KEY = 'scalemule_session_pool';
 const ACTIVE_ACCOUNT_KEY = 'scalemule_active_account';
+const KNOWN_ACCOUNTS_KEY = 'scalemule_known_accounts';
 
 const GATEWAY_URLS = {
   dev: 'https://api-dev.scalemule.com',
@@ -110,6 +111,67 @@ function statusToErrorCode(status: number): string {
       return 'rate_limited';
     default:
       return status >= 500 ? 'internal_error' : `http_${status}`;
+  }
+}
+
+// ============================================================================
+// Account Switcher Privacy Utilities
+// ============================================================================
+
+/** Max number of known accounts to store (evicts oldest by lastActiveAt) */
+const MAX_KNOWN_ACCOUNTS = 10;
+
+/**
+ * Mask an email for privacy display.
+ * john.doe@gmail.com -> j***@g***.com
+ */
+function maskEmail(email: string): string {
+  const [local, domain] = email.split('@');
+  if (!domain) return '***@***.***';
+  const tldDot = domain.lastIndexOf('.');
+  const tld = tldDot > 0 ? domain.slice(tldDot) : '';
+  const domainBase = tldDot > 0 ? domain.slice(0, tldDot) : domain;
+  return `${local[0] || '*'}***@${domainBase[0] || '*'}***${tld}`;
+}
+
+/** Stable color index derived from userId hash (0-7) */
+function stableColorIndex(userId: string): number {
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) {
+    hash = ((hash << 5) - hash + userId.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash) % 8;
+}
+
+/** Apply privacy transforms to a known account */
+function applyPrivacy(account: KnownAccount | KnownAccountDisplay, privacy: AccountSwitcherPrivacy): KnownAccountDisplay {
+  switch (privacy) {
+    case 'full':
+      return {
+        userId: account.userId,
+        email: account.email,
+        fullName: account.fullName,
+        avatarUrl: account.avatarUrl,
+        provider: account.provider,
+        lastActiveAt: account.lastActiveAt,
+      };
+    case 'masked':
+      return {
+        userId: account.userId,
+        email: account.email ? maskEmail(account.email) : undefined,
+        fullName: account.fullName ? `${account.fullName[0].toUpperCase()}.` : undefined,
+        provider: account.provider,
+        lastActiveAt: account.lastActiveAt,
+        colorIndex: stableColorIndex(account.userId),
+      };
+    case 'minimal':
+      return {
+        userId: account.userId,
+        provider: account.provider,
+        lastActiveAt: account.lastActiveAt,
+        displayLabel: 'Account',
+        colorIndex: stableColorIndex(account.userId),
+      };
   }
 }
 
@@ -319,6 +381,9 @@ export class ScaleMuleClient {
   private anonymousId: string | null = null;
   private multiSessionEnabled: boolean;
   private sessionPool: Map<string, import('./types').SessionPoolEntry> = new Map();
+  private accountSwitcherEnabled: boolean;
+  private accountSwitcherPrivacy: AccountSwitcherPrivacy;
+  private knownAccounts: Map<string, KnownAccountDisplay> = new Map();
 
   constructor(config: ScaleMuleConfig) {
     this.apiKey = config.apiKey;
@@ -338,6 +403,8 @@ export class ScaleMuleClient {
       this.offlineQueue.setOnlineCallback(() => this.syncOfflineQueue());
     }
     this.multiSessionEnabled = config.enableMultiSession || false;
+    this.accountSwitcherEnabled = config.enableAccountSwitcher || false;
+    this.accountSwitcherPrivacy = config.accountSwitcherPrivacy || 'full';
   }
 
   // --------------------------------------------------------------------------
@@ -390,6 +457,32 @@ export class ScaleMuleClient {
       }
     }
 
+    // Load known accounts when account switcher is enabled
+    if (this.accountSwitcherEnabled) {
+      const knownJson = await this.storage.getItem(KNOWN_ACCOUNTS_KEY);
+      if (knownJson) {
+        try {
+          const entries = JSON.parse(knownJson) as Record<string, KnownAccountDisplay>;
+          this.knownAccounts = new Map(Object.entries(entries));
+          // Migration: re-apply privacy to all entries (cleans legacy full-PII data
+          // when upgrading from 'full' to 'masked' or 'minimal')
+          let changed = false;
+          for (const [userId, entry] of this.knownAccounts) {
+            const normalized = applyPrivacy(entry, this.accountSwitcherPrivacy);
+            if (JSON.stringify(normalized) !== JSON.stringify(entry)) {
+              this.knownAccounts.set(userId, normalized);
+              changed = true;
+            }
+          }
+          if (changed) {
+            await this.persistKnownAccounts();
+          }
+        } catch {
+          /* ignore corrupt data */
+        }
+      }
+    }
+
     if (this.debug)
       console.log(
         '[ScaleMule] Initialized, session:',
@@ -397,7 +490,9 @@ export class ScaleMuleClient {
         'anonymousId:',
         anonId,
         'poolSize:',
-        this.sessionPool.size
+        this.sessionPool.size,
+        'knownAccounts:',
+        this.knownAccounts.size
       );
   }
 
@@ -534,6 +629,67 @@ export class ScaleMuleClient {
       obj[k] = v;
     }
     await this.storage.setItem(SESSION_POOL_KEY, JSON.stringify(obj));
+  }
+
+  // --------------------------------------------------------------------------
+  // Account Switcher (Secure — metadata only, no tokens)
+  // --------------------------------------------------------------------------
+
+  isAccountSwitcherEnabled(): boolean {
+    return this.accountSwitcherEnabled;
+  }
+
+  getAccountSwitcherPrivacy(): AccountSwitcherPrivacy {
+    return this.accountSwitcherPrivacy;
+  }
+
+  /** Get all known accounts that have logged in on this device (privacy-transformed) */
+  getKnownAccounts(): KnownAccountDisplay[] {
+    return Array.from(this.knownAccounts.values());
+  }
+
+  /**
+   * Record an account as "known" on this device.
+   * Applies privacy transforms before storing — full email is never persisted
+   * in masked/minimal modes. Evicts oldest accounts if over the cap.
+   * Called automatically after successful login/register when account switcher is enabled.
+   */
+  async addKnownAccount(account: KnownAccount): Promise<void> {
+    const display = applyPrivacy(account, this.accountSwitcherPrivacy);
+    this.knownAccounts.set(account.userId, display);
+
+    // Evict oldest accounts if over cap
+    if (this.knownAccounts.size > MAX_KNOWN_ACCOUNTS) {
+      const sorted = Array.from(this.knownAccounts.entries())
+        .sort((a, b) => (a[1].lastActiveAt || '').localeCompare(b[1].lastActiveAt || ''));
+      while (this.knownAccounts.size > MAX_KNOWN_ACCOUNTS && sorted.length > 0) {
+        const oldest = sorted.shift()!;
+        this.knownAccounts.delete(oldest[0]);
+      }
+    }
+
+    await this.persistKnownAccounts();
+  }
+
+  /** Remove a specific account from the known accounts list ("forget this account") */
+  async removeKnownAccount(userId: string): Promise<void> {
+    this.knownAccounts.delete(userId);
+    await this.persistKnownAccounts();
+  }
+
+  /** Clear all known accounts ("forget all accounts on this device") */
+  async clearKnownAccounts(): Promise<void> {
+    this.knownAccounts.clear();
+    await this.storage.removeItem(KNOWN_ACCOUNTS_KEY);
+  }
+
+  /** Persist known accounts to storage */
+  private async persistKnownAccounts(): Promise<void> {
+    const obj: Record<string, KnownAccountDisplay> = {};
+    for (const [k, v] of this.knownAccounts) {
+      obj[k] = v;
+    }
+    await this.storage.setItem(KNOWN_ACCOUNTS_KEY, JSON.stringify(obj));
   }
 
   getBaseUrl(): string {

@@ -167,6 +167,30 @@ export interface ScaleMuleConfig {
   enableOfflineQueue?: boolean;
   /** Enable multi-account session pool (Google Account Chooser style). Default: false */
   enableMultiSession?: boolean;
+  /**
+   * Enable the account switcher — remembers which accounts have logged in on
+   * this device so users can pick an account and re-authenticate.
+   *
+   * Unlike enableMultiSession, this stores **no tokens** for inactive accounts.
+   * Only display metadata (email, name, avatar) is persisted.
+   * Switching accounts always requires re-authentication.
+   *
+   * Default: false
+   */
+  enableAccountSwitcher?: boolean;
+  /**
+   * Privacy level for the account switcher.
+   *
+   * Controls how much identifying information is stored for inactive accounts:
+   * - `'full'`    — Full email, name, avatar stored (like Google). Default.
+   * - `'masked'`  — Email masked (j***@g***.com), name shows initial only, no avatar.
+   *                  Masked at write time — the full email is never persisted.
+   * - `'minimal'` — Only userId and provider stored. No PII at all.
+   *
+   * Privacy downgrades are lossy: switching from minimal/masked to full cannot
+   * recover stripped fields for existing entries until those accounts log in again.
+   */
+  accountSwitcherPrivacy?: AccountSwitcherPrivacy;
 }
 
 /**
@@ -180,6 +204,58 @@ export interface SessionPoolEntry {
   avatarUrl?: string;
   expiresAt?: string;
   addedAt: string;
+}
+
+/**
+ * A remembered account for the account switcher.
+ *
+ * Contains display metadata only — NO tokens or session data.
+ * Switching to a known account requires re-authentication.
+ * This is the secure alternative to SessionPoolEntry which stores tokens.
+ */
+export interface KnownAccount {
+  /** User ID */
+  userId: string;
+  /** Email address (used for login pre-fill) */
+  email: string;
+  /** Display name */
+  fullName?: string;
+  /** Avatar URL */
+  avatarUrl?: string;
+  /** How the user last authenticated ('email', 'google', 'apple', etc.) */
+  provider?: string;
+  /** ISO timestamp of last successful login on this device */
+  lastActiveAt: string;
+}
+
+/**
+ * Privacy level for the account switcher.
+ */
+export type AccountSwitcherPrivacy = 'full' | 'masked' | 'minimal';
+
+/**
+ * A known account after privacy transforms have been applied.
+ *
+ * This is what gets stored and returned to the UI. In 'masked' mode, email
+ * is partially masked and avatarUrl is stripped. In 'minimal' mode, all PII
+ * is stripped and only userId/provider/displayLabel/colorIndex remain.
+ */
+export interface KnownAccountDisplay {
+  userId: string;
+  /** Masked or full email, absent in 'minimal' mode */
+  email?: string;
+  /** Full name, first initial, or absent depending on privacy mode */
+  fullName?: string;
+  /** Avatar URL, absent in 'masked' and 'minimal' modes */
+  avatarUrl?: string;
+  /** Authentication provider ('email', 'google', etc.) */
+  provider?: string;
+  /** ISO timestamp of last successful login on this device */
+  lastActiveAt: string;
+  /** Display label for 'minimal' mode (constant "Account") */
+  displayLabel?: string;
+  /** Stable color index derived from userId hash (0-7), for avatar circles */
+  colorIndex?: number;
 }
 
 // ============================================================================
