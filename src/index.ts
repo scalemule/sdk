@@ -124,6 +124,8 @@ export type {
 } from './services/data';
 export { ChatService } from './services/chat';
 export type { Conversation, Participant, Attachment, ChatMessage, ReadStatus, ChatReaction } from './services/chat';
+export { ConferenceService } from './services/conference';
+export type { CallSession, CallParticipant, JoinCallResponse, ConferenceSettings, WebrtcStats } from './services/conference';
 export { SocialService } from './services/social';
 export type { SocialPost, Comment, FollowStatus, ActivityItem, SocialUser, Like } from './services/social';
 export { ReferralsService } from './services/referrals';
@@ -342,6 +344,7 @@ import { VideoService } from './services/video';
 // Application service imports
 import { DataService } from './services/data';
 import { ChatService } from './services/chat';
+import { ConferenceService } from './services/conference';
 import { SocialService } from './services/social';
 import { ReferralsService } from './services/referrals';
 import { BillingService } from './services/billing';
@@ -428,6 +431,7 @@ export class ScaleMule {
   // Application services
   public readonly data: DataService;
   public readonly chat: ChatService;
+  public readonly conference: ConferenceService;
   public readonly social: SocialService;
   public readonly referrals: ReferralsService;
   public readonly billing: BillingService;
@@ -495,6 +499,7 @@ export class ScaleMule {
     // Application services
     this.data = new DataService(this._client);
     this.chat = new ChatService(this._client);
+    this.conference = new ConferenceService(this._client);
     this.social = new SocialService(this._client);
     this.referrals = new ReferralsService(this._client);
     this.billing = new BillingService(this._client);
