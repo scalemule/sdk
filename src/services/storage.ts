@@ -1129,7 +1129,10 @@ export class StorageService extends ServiceModule {
     const controller = new AbortController();
     let parentSignalCleanup: (() => void) | undefined;
     const combinedSignal = signal
-      ? ((AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any?.([signal, controller.signal]) ??
+      ? ((AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any?.([
+          signal,
+          controller.signal
+        ]) ??
         (() => {
           // Fallback: wire parent signal to controller when AbortSignal.any is unavailable
           const onAbort = () => controller.abort();
@@ -1349,7 +1352,10 @@ export class StorageService extends ServiceModule {
       const controller = new AbortController();
       let partSignalCleanup: (() => void) | undefined;
       const combinedSignal = signal
-        ? ((AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any?.([signal, controller.signal]) ??
+        ? ((AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any?.([
+            signal,
+            controller.signal
+          ]) ??
           (() => {
             const onAbort = () => controller.abort();
             signal.addEventListener('abort', onAbort, { once: true });

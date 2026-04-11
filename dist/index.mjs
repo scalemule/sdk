@@ -1456,10 +1456,7 @@ var AuthService = class extends ServiceModule {
       query.phone_verified = params.phone_verified ? "true" : "false";
     }
     if (params?.page !== void 0) query.page = params.page;
-    return this._get(
-      this.withQuery("/users", query),
-      options
-    );
+    return this._get(this.withQuery("/users", query), options);
   }
   /**
    * Fetch a single user by ID within the caller's application.
@@ -1468,10 +1465,7 @@ var AuthService = class extends ServiceModule {
    * reads are blocked at the gateway via the x-app-id header scope.
    */
   async getUser(userId, options) {
-    return this._get(
-      `/users/${encodeURIComponent(userId)}`,
-      options
-    );
+    return this._get(`/users/${encodeURIComponent(userId)}`, options);
   }
   /** Refresh the session. Alias: refreshToken() */
   async refreshSession(data, options) {
@@ -2664,7 +2658,10 @@ var StorageService = class extends ServiceModule {
     const stallTimeout = DEFAULT_STALL_TIMEOUT_MS;
     const controller = new AbortController();
     let parentSignalCleanup;
-    const combinedSignal = signal ? AbortSignal.any?.([signal, controller.signal]) ?? (() => {
+    const combinedSignal = signal ? AbortSignal.any?.([
+      signal,
+      controller.signal
+    ]) ?? (() => {
       const onAbort = () => controller.abort();
       signal.addEventListener("abort", onAbort, { once: true });
       parentSignalCleanup = () => signal.removeEventListener("abort", onAbort);
@@ -2845,7 +2842,10 @@ var StorageService = class extends ServiceModule {
       }
       const controller = new AbortController();
       let partSignalCleanup;
-      const combinedSignal = signal ? AbortSignal.any?.([signal, controller.signal]) ?? (() => {
+      const combinedSignal = signal ? AbortSignal.any?.([
+        signal,
+        controller.signal
+      ]) ?? (() => {
         const onAbort = () => controller.abort();
         signal.addEventListener("abort", onAbort, { once: true });
         partSignalCleanup = () => signal.removeEventListener("abort", onAbort);

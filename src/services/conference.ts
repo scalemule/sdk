@@ -98,7 +98,7 @@ export class ConferenceService extends ServiceModule {
       call_type?: 'audio' | 'video' | 'screen_share';
       metadata?: Record<string, unknown>;
     },
-    options?: RequestOptions,
+    options?: RequestOptions
   ): Promise<ApiResponse<CallSession>> {
     return this.post<CallSession>('/calls', data, options);
   }
@@ -109,7 +109,7 @@ export class ConferenceService extends ServiceModule {
 
   async listCalls(
     params?: { conversation_id?: string; status?: string; page?: number; per_page?: number },
-    options?: RequestOptions,
+    options?: RequestOptions
   ): Promise<ApiResponse<{ data: CallSession[]; pagination: { page: number; per_page: number; total: number } }>> {
     return this._get(this.withQuery('/calls', params as Record<string, unknown>), options);
   }
@@ -130,10 +130,7 @@ export class ConferenceService extends ServiceModule {
     return this.post<{ left: boolean }>(`/calls/${callId}/leave`, undefined, options);
   }
 
-  async listParticipants(
-    callId: string,
-    options?: RequestOptions,
-  ): Promise<ApiResponse<CallParticipant[]>> {
+  async listParticipants(callId: string, options?: RequestOptions): Promise<ApiResponse<CallParticipant[]>> {
     return this._get<CallParticipant[]>(`/calls/${callId}/participants`, options);
   }
 
@@ -143,22 +140,19 @@ export class ConferenceService extends ServiceModule {
 
   async startRecording(
     callId: string,
-    options?: RequestOptions,
+    options?: RequestOptions
   ): Promise<ApiResponse<{ recording_id: string; status: string }>> {
     return this.post(`/calls/${callId}/recording/start`, undefined, options);
   }
 
   async stopRecording(
     callId: string,
-    options?: RequestOptions,
+    options?: RequestOptions
   ): Promise<ApiResponse<{ recording_id: string; status: string }>> {
     return this.post(`/calls/${callId}/recording/stop`, undefined, options);
   }
 
-  async consentToRecording(
-    callId: string,
-    options?: RequestOptions,
-  ): Promise<ApiResponse<{ granted: boolean }>> {
+  async consentToRecording(callId: string, options?: RequestOptions): Promise<ApiResponse<{ granted: boolean }>> {
     return this.post(`/calls/${callId}/recording/consent`, undefined, options);
   }
 
@@ -172,7 +166,7 @@ export class ConferenceService extends ServiceModule {
 
   async updateSettings(
     data: Partial<ConferenceSettings>,
-    options?: RequestOptions,
+    options?: RequestOptions
   ): Promise<ApiResponse<ConferenceSettings>> {
     return this.put<ConferenceSettings>('/settings', data, options);
   }
@@ -184,7 +178,7 @@ export class ConferenceService extends ServiceModule {
   async submitStats(
     callId: string,
     stats: WebrtcStats,
-    options?: RequestOptions,
+    options?: RequestOptions
   ): Promise<ApiResponse<{ success: boolean }>> {
     return this.post(`/calls/${callId}/stats`, stats, options);
   }

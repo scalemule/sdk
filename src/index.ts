@@ -129,7 +129,13 @@ export type {
 export { ChatService } from './services/chat';
 export type { Conversation, Participant, Attachment, ChatMessage, ReadStatus, ChatReaction } from './services/chat';
 export { ConferenceService } from './services/conference';
-export type { CallSession, CallParticipant, JoinCallResponse, ConferenceSettings, WebrtcStats } from './services/conference';
+export type {
+  CallSession,
+  CallParticipant,
+  JoinCallResponse,
+  ConferenceSettings,
+  WebrtcStats
+} from './services/conference';
 export { SocialService } from './services/social';
 export type { SocialPost, Comment, FollowStatus, ActivityItem, SocialUser, Like } from './services/social';
 export { ReferralsService } from './services/referrals';
