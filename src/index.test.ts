@@ -1451,79 +1451,73 @@ describe('BillingService', () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: { id: 'cust1' } }))
     await sm.billing.createCustomer({ email: 'a@b.com', name: 'John' })
     const [url, init] = mockFetch.mock.calls[0]
-    expect(url).toBe('https://api.scalemule.com/v1/billing/customers')
+    expect(url).toBe('https://api.scalemule.com/v1/money/billing/customers')
     expect(JSON.parse(init.body).email).toBe('a@b.com')
   })
 
   it('should POST /payment-methods', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: { id: 'pm1' } }))
     await sm.billing.addPaymentMethod({ type: 'card', token: 'tok_visa' })
-    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/billing/payment-methods')
+    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/money/billing/payment-methods')
   })
 
-  it('should POST /subscriptions for subscribe', async () => {
-    mockFetch.mockResolvedValueOnce(jsonResponse({ data: { id: 'sub1' } }))
-    await sm.billing.subscribe({ customer_id: 'c1', plan_id: 'plan1' })
-    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/billing/subscriptions')
+  it('should reject retired subscription routes for subscribe', async () => {
+    await expect(sm.billing.subscribe({ customer_id: 'c1', plan_id: 'plan1' })).rejects.toThrow(
+      /retired after the money-services cutover/i
+    )
+    expect(mockFetch).not.toHaveBeenCalled()
   })
 
-  it('should GET /subscriptions for listSubscriptions', async () => {
-    mockFetch.mockResolvedValueOnce(jsonResponse({ data: { data: [], metadata: { total: 0 } } }))
-    await sm.billing.listSubscriptions()
-    expect(mockFetch.mock.calls[0][0]).toContain('/v1/billing/subscriptions')
-    expect(mockFetch.mock.calls[0][1].method).toBe('GET')
+  it('should reject retired subscription routes for listSubscriptions', async () => {
+    await expect(sm.billing.listSubscriptions()).rejects.toThrow(/retired after the money-services cutover/i)
+    expect(mockFetch).not.toHaveBeenCalled()
   })
 
-  it('should POST /subscriptions/{id}/cancel', async () => {
-    mockFetch.mockResolvedValueOnce(jsonResponse({ data: { id: 'sub1', status: 'canceled' } }))
-    await sm.billing.cancelSubscription('sub1')
-    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/billing/subscriptions/sub1/cancel')
+  it('should reject retired subscription cancel routes', async () => {
+    await expect(sm.billing.cancelSubscription('sub1')).rejects.toThrow(/retired after the money-services cutover/i)
+    expect(mockFetch).not.toHaveBeenCalled()
   })
 
-  it('should POST /subscriptions/{id}/resume', async () => {
-    mockFetch.mockResolvedValueOnce(jsonResponse({ data: { id: 'sub1', status: 'active' } }))
-    await sm.billing.resumeSubscription('sub1')
-    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/billing/subscriptions/sub1/resume')
+  it('should reject retired subscription resume routes', async () => {
+    await expect(sm.billing.resumeSubscription('sub1')).rejects.toThrow(/retired after the money-services cutover/i)
+    expect(mockFetch).not.toHaveBeenCalled()
   })
 
-  it('should PATCH /subscriptions/{id}/upgrade', async () => {
-    mockFetch.mockResolvedValueOnce(jsonResponse({ data: { id: 'sub1' } }))
-    await sm.billing.upgradeSubscription('sub1', { plan_id: 'plan2' })
-    const [url, init] = mockFetch.mock.calls[0]
-    expect(url).toBe('https://api.scalemule.com/v1/billing/subscriptions/sub1/upgrade')
-    expect(init.method).toBe('PATCH')
+  it('should reject retired subscription upgrade routes', async () => {
+    await expect(sm.billing.upgradeSubscription('sub1', { plan_id: 'plan2' })).rejects.toThrow(
+      /retired after the money-services cutover/i
+    )
+    expect(mockFetch).not.toHaveBeenCalled()
   })
 
-  it('should POST /usage for reportUsage', async () => {
-    mockFetch.mockResolvedValueOnce(jsonResponse({ data: {} }))
-    await sm.billing.reportUsage({ metric: 'api_calls', quantity: 1000 })
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body)
-    expect(body.metric).toBe('api_calls')
-    expect(body.quantity).toBe(1000)
+  it('should reject retired usage routes for reportUsage', async () => {
+    await expect(sm.billing.reportUsage({ metric: 'api_calls', quantity: 1000 })).rejects.toThrow(
+      /retired after the money-services cutover/i
+    )
+    expect(mockFetch).not.toHaveBeenCalled()
   })
 
-  it('should GET /usage/summary', async () => {
-    mockFetch.mockResolvedValueOnce(jsonResponse({ data: [] }))
-    await sm.billing.getUsageSummary()
-    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/billing/usage/summary')
+  it('should reject retired usage summary routes', async () => {
+    await expect(sm.billing.getUsageSummary()).rejects.toThrow(/retired after the money-services cutover/i)
+    expect(mockFetch).not.toHaveBeenCalled()
   })
 
   it('should GET /invoices/{id}', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: { id: 'inv1' } }))
     await sm.billing.getInvoice('inv1')
-    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/billing/invoices/inv1')
+    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/money/billing/invoices/inv1')
   })
 
   it('should POST /invoices/{id}/pay', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: { status: 'paid' } }))
     await sm.billing.payInvoice('inv1')
-    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/billing/invoices/inv1/pay')
+    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/money/billing/invoices/inv1/pay')
   })
 
   it('should GET /invoices/{id}/pdf', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: { url: 'https://pdf.url' } }))
     await sm.billing.getInvoicePdf('inv1')
-    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/billing/invoices/inv1/pdf')
+    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/money/billing/invoices/inv1/pdf')
   })
 })
 

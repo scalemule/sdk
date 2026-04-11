@@ -29,6 +29,7 @@ export interface Application {
   name: string;
   description?: string;
   api_key?: string;
+  features?: string[];
   created_at: string;
 }
 
@@ -48,7 +49,7 @@ export class AccountsService extends ServiceModule {
   }
 
   async createApplication(
-    data: { name: string; description?: string },
+    data: { name: string; description?: string; features?: string[] },
     options?: RequestOptions
   ): Promise<ApiResponse<Application>> {
     return this.post<Application>('/applications', data, options);

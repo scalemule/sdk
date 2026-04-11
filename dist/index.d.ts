@@ -2234,18 +2234,11 @@ declare class ReferralsService extends ServiceModule {
 /**
  * Billing Service Module
  *
- * Customers, subscriptions, usage, invoices, marketplace payments, payouts.
+ * Compatibility wrapper for the remaining `/v1/money/billing/*` endpoints.
  *
  * Routes:
  *   POST   /customers                    → create customer
  *   POST   /payment-methods              → add payment method
- *   POST   /subscriptions                → create subscription
- *   GET    /subscriptions                 → list subscriptions
- *   POST   /subscriptions/{id}/cancel     → cancel subscription
- *   POST   /subscriptions/{id}/resume     → resume subscription
- *   PATCH  /subscriptions/{id}/upgrade    → upgrade plan
- *   POST   /usage                         → report usage
- *   GET    /usage/summary                 → usage summary
  *   GET    /invoices                       → list invoices
  *   GET    /invoices/{id}                  → get invoice
  *   POST   /invoices/{id}/pay              → pay invoice
@@ -2254,18 +2247,14 @@ declare class ReferralsService extends ServiceModule {
  *   GET    /connected-accounts/me          → get own connected account
  *   GET    /connected-accounts/{id}        → get connected account
  *   POST   /connected-accounts/{id}/onboarding-link → create onboarding link
- *   GET    /connected-accounts/{id}/balance → get account balance
  *   POST   /connected-accounts/{id}/account-session → create account session (embedded onboarding)
- *   POST   /payments                       → create payment
- *   GET    /payments                       → list payments
- *   GET    /payments/{id}                  → get payment
- *   POST   /payments/{id}/refund           → refund payment
- *   GET    /connected-accounts/{id}/payouts → payout history
  *   GET    /connected-accounts/{id}/payout-schedule → get payout schedule
  *   PUT    /connected-accounts/{id}/payout-schedule → set payout schedule
- *   GET    /transactions                   → ledger transactions
- *   GET    /transactions/summary           → transaction summary
  *   POST   /setup-sessions                 → create setup session
+ *
+ * Subscription lifecycle, usage, ledger, payment creation, and marketplace
+ * settlement moved out of `money-billing` during the April 10, 2026 cutover.
+ * Use `@scalemule/money` for the full money-service family.
  */
 
 interface Customer {
@@ -2464,6 +2453,7 @@ interface ConnectedSubscriptionListParams extends PaginationParams {
 }
 declare class BillingService extends ServiceModule {
     protected basePath: string;
+    private retiredSurface;
     createCustomer(data: {
         email: string;
         name?: string;
@@ -4681,6 +4671,7 @@ interface Application {
     name: string;
     description?: string;
     api_key?: string;
+    features?: string[];
     created_at: string;
 }
 declare class AccountsService extends ServiceModule {
@@ -4693,6 +4684,7 @@ declare class AccountsService extends ServiceModule {
     createApplication(data: {
         name: string;
         description?: string;
+        features?: string[];
     }, options?: RequestOptions): Promise<ApiResponse<Application>>;
     getApplications(options?: RequestOptions): Promise<ApiResponse<Application[]>>;
 }
