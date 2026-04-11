@@ -4557,7 +4557,14 @@ var ReferralsService = class extends ServiceModule {
 var BillingService = class extends ServiceModule {
   constructor() {
     super(...arguments);
-    this.basePath = "/v1/billing";
+    this.basePath = "/v1/money/billing";
+  }
+  retiredSurface(route) {
+    return Promise.reject(
+      new Error(
+        `${route} was retired after the money-services cutover. Use the dedicated money services instead of BillingService for this operation.`
+      )
+    );
   }
   // --------------------------------------------------------------------------
   // Customers
@@ -4572,28 +4579,39 @@ var BillingService = class extends ServiceModule {
   // Subscriptions
   // --------------------------------------------------------------------------
   async subscribe(data, options) {
-    return this.post("/subscriptions", data, options);
+    void data;
+    void options;
+    return this.retiredSurface("/v1/money/billing/subscriptions");
   }
   async listSubscriptions(params, options) {
-    return this._list("/subscriptions", params, options);
+    void params;
+    void options;
+    return this.retiredSurface("/v1/money/billing/subscriptions");
   }
   async cancelSubscription(id, options) {
-    return this.post(`/subscriptions/${id}/cancel`, void 0, options);
+    void options;
+    return this.retiredSurface(`/v1/money/billing/subscriptions/${id}/cancel`);
   }
   async resumeSubscription(id, options) {
-    return this.post(`/subscriptions/${id}/resume`, void 0, options);
+    void options;
+    return this.retiredSurface(`/v1/money/billing/subscriptions/${id}/resume`);
   }
   async upgradeSubscription(id, data, options) {
-    return this.patch(`/subscriptions/${id}/upgrade`, data, options);
+    void data;
+    void options;
+    return this.retiredSurface(`/v1/money/billing/subscriptions/${id}/upgrade`);
   }
   // --------------------------------------------------------------------------
   // Usage
   // --------------------------------------------------------------------------
   async reportUsage(data, options) {
-    return this.post("/usage", data, options);
+    void data;
+    void options;
+    return this.retiredSurface("/v1/money/billing/usage");
   }
   async getUsageSummary(options) {
-    return this._get("/usage/summary", options);
+    void options;
+    return this.retiredSurface("/v1/money/billing/usage/summary");
   }
   // --------------------------------------------------------------------------
   // Invoices
@@ -4626,7 +4644,8 @@ var BillingService = class extends ServiceModule {
     return this.post(`/connected-accounts/${id}/onboarding-link`, data, options);
   }
   async getAccountBalance(id, options) {
-    return this._get(`/connected-accounts/${id}/balance`, options);
+    void options;
+    return this.retiredSurface(`/v1/money/billing/connected-accounts/${id}/balance`);
   }
   async createAccountSession(id, options) {
     return this.post(`/connected-accounts/${id}/account-session`, void 0, options);
@@ -4641,25 +4660,34 @@ var BillingService = class extends ServiceModule {
   // Payments (Marketplace)
   // --------------------------------------------------------------------------
   async createPayment(data, options) {
-    return this.post("/payments", data, options);
+    void data;
+    void options;
+    return this.retiredSurface("/v1/money/billing/payments");
   }
   async getPayment(id, options) {
-    return this._get(`/payments/${id}`, options);
+    void options;
+    return this.retiredSurface(`/v1/money/billing/payments/${id}`);
   }
   async listPayments(params, options) {
-    return this._list("/payments", params, options);
+    void params;
+    void options;
+    return this.retiredSurface("/v1/money/billing/payments");
   }
   // --------------------------------------------------------------------------
   // Refunds
   // --------------------------------------------------------------------------
   async refundPayment(id, data, options) {
-    return this.post(`/payments/${id}/refund`, data, options);
+    void data;
+    void options;
+    return this.retiredSurface(`/v1/money/billing/payments/${id}/refund`);
   }
   // --------------------------------------------------------------------------
   // Payouts
   // --------------------------------------------------------------------------
   async getPayoutHistory(accountId, params, options) {
-    return this._list(`/connected-accounts/${accountId}/payouts`, params, options);
+    void params;
+    void options;
+    return this.retiredSurface(`/v1/money/billing/connected-accounts/${accountId}/payouts`);
   }
   async getPayoutSchedule(accountId, options) {
     return this._get(`/connected-accounts/${accountId}/payout-schedule`, options);
@@ -4671,13 +4699,14 @@ var BillingService = class extends ServiceModule {
   // Ledger
   // --------------------------------------------------------------------------
   async getTransactions(params, options) {
-    return this._list("/transactions", params, options);
+    void params;
+    void options;
+    return this.retiredSurface("/v1/money/billing/transactions");
   }
   async getTransactionSummary(params, options) {
-    return this._get(
-      this.withQuery("/transactions/summary", params),
-      options
-    );
+    void params;
+    void options;
+    return this.retiredSurface("/v1/money/billing/transactions/summary");
   }
   // --------------------------------------------------------------------------
   // Setup Sessions
@@ -4689,35 +4718,47 @@ var BillingService = class extends ServiceModule {
   // Connected Account Operations: Products, Prices, Subscriptions, Transfers
   // --------------------------------------------------------------------------
   async createProduct(data, options) {
-    return this.post("/products", data, options);
+    void data;
+    void options;
+    return this.retiredSurface("/v1/money/billing/products");
   }
   async createPrice(data, options) {
-    return this.post("/prices", data, options);
+    void data;
+    void options;
+    return this.retiredSurface("/v1/money/billing/prices");
   }
   async deactivatePrice(id, options) {
-    return this.post(`/prices/${id}/deactivate`, void 0, options);
+    void options;
+    return this.retiredSurface(`/v1/money/billing/prices/${id}/deactivate`);
   }
   async createConnectedSubscription(data, options) {
-    return this.post("/connected-subscriptions", data, options);
+    void data;
+    void options;
+    return this.retiredSurface("/v1/money/billing/connected-subscriptions");
   }
   async cancelConnectedSubscription(id, data, options) {
-    return this.post(`/connected-subscriptions/${id}/cancel`, data, options);
+    void data;
+    void options;
+    return this.retiredSurface(`/v1/money/billing/connected-subscriptions/${id}/cancel`);
   }
   async listConnectedSubscriptions(params, options) {
-    return this._list(
-      "/connected-subscriptions",
-      params,
-      options
-    );
+    void params;
+    void options;
+    return this.retiredSurface("/v1/money/billing/connected-subscriptions");
   }
   async createConnectedSetupIntent(data, options) {
-    return this.post("/connected-setup-intents", data, options);
+    void data;
+    void options;
+    return this.retiredSurface("/v1/money/billing/connected-setup-intents");
   }
   async createTransfer(data, options) {
-    return this.post("/transfers", data, options);
+    void data;
+    void options;
+    return this.retiredSurface("/v1/money/billing/transfers");
   }
   async syncPaymentStatus(id, options) {
-    return this.post(`/payments/${id}/sync`, void 0, options);
+    void options;
+    return this.retiredSurface(`/v1/money/billing/payments/${id}/sync`);
   }
   // --------------------------------------------------------------------------
   // Legacy methods (backward compat)

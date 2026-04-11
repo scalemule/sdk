@@ -1,18 +1,11 @@
 /**
  * Billing Service Module
  *
- * Customers, subscriptions, usage, invoices, marketplace payments, payouts.
+ * Compatibility wrapper for the remaining `/v1/money/billing/*` endpoints.
  *
  * Routes:
  *   POST   /customers                    → create customer
  *   POST   /payment-methods              → add payment method
- *   POST   /subscriptions                → create subscription
- *   GET    /subscriptions                 → list subscriptions
- *   POST   /subscriptions/{id}/cancel     → cancel subscription
- *   POST   /subscriptions/{id}/resume     → resume subscription
- *   PATCH  /subscriptions/{id}/upgrade    → upgrade plan
- *   POST   /usage                         → report usage
- *   GET    /usage/summary                 → usage summary
  *   GET    /invoices                       → list invoices
  *   GET    /invoices/{id}                  → get invoice
  *   POST   /invoices/{id}/pay              → pay invoice
@@ -21,18 +14,14 @@
  *   GET    /connected-accounts/me          → get own connected account
  *   GET    /connected-accounts/{id}        → get connected account
  *   POST   /connected-accounts/{id}/onboarding-link → create onboarding link
- *   GET    /connected-accounts/{id}/balance → get account balance
  *   POST   /connected-accounts/{id}/account-session → create account session (embedded onboarding)
- *   POST   /payments                       → create payment
- *   GET    /payments                       → list payments
- *   GET    /payments/{id}                  → get payment
- *   POST   /payments/{id}/refund           → refund payment
- *   GET    /connected-accounts/{id}/payouts → payout history
  *   GET    /connected-accounts/{id}/payout-schedule → get payout schedule
  *   PUT    /connected-accounts/{id}/payout-schedule → set payout schedule
- *   GET    /transactions                   → ledger transactions
- *   GET    /transactions/summary           → transaction summary
  *   POST   /setup-sessions                 → create setup session
+ *
+ * Subscription lifecycle, usage, ledger, payment creation, and marketplace
+ * settlement moved out of `money-billing` during the April 10, 2026 cutover.
+ * Use `@scalemule/money` for the full money-service family.
  */
 
 import { ServiceModule } from '../service';
@@ -272,7 +261,15 @@ export interface ConnectedSubscriptionListParams extends PaginationParams {
 // ============================================================================
 
 export class BillingService extends ServiceModule {
-  protected basePath = '/v1/billing';
+  protected basePath = '/v1/money/billing';
+
+  private retiredSurface<T>(route: string): Promise<T> {
+    return Promise.reject(
+      new Error(
+        `${route} was retired after the money-services cutover. Use the dedicated money services instead of BillingService for this operation.`
+      )
+    );
+  }
 
   // --------------------------------------------------------------------------
   // Customers
@@ -300,22 +297,28 @@ export class BillingService extends ServiceModule {
     data: { customer_id: string; plan_id: string },
     options?: RequestOptions
   ): Promise<ApiResponse<Subscription>> {
-    return this.post<Subscription>('/subscriptions', data, options);
+    void data;
+    void options;
+    return this.retiredSurface<ApiResponse<Subscription>>('/v1/money/billing/subscriptions');
   }
 
   async listSubscriptions(
     params?: PaginationParams,
     options?: RequestOptions
   ): Promise<PaginatedResponse<Subscription>> {
-    return this._list<Subscription>('/subscriptions', params, options);
+    void params;
+    void options;
+    return this.retiredSurface<PaginatedResponse<Subscription>>('/v1/money/billing/subscriptions');
   }
 
   async cancelSubscription(id: string, options?: RequestOptions): Promise<ApiResponse<Subscription>> {
-    return this.post<Subscription>(`/subscriptions/${id}/cancel`, undefined, options);
+    void options;
+    return this.retiredSurface<ApiResponse<Subscription>>(`/v1/money/billing/subscriptions/${id}/cancel`);
   }
 
   async resumeSubscription(id: string, options?: RequestOptions): Promise<ApiResponse<Subscription>> {
-    return this.post<Subscription>(`/subscriptions/${id}/resume`, undefined, options);
+    void options;
+    return this.retiredSurface<ApiResponse<Subscription>>(`/v1/money/billing/subscriptions/${id}/resume`);
   }
 
   async upgradeSubscription(
@@ -323,7 +326,9 @@ export class BillingService extends ServiceModule {
     data: { plan_id: string },
     options?: RequestOptions
   ): Promise<ApiResponse<Subscription>> {
-    return this.patch<Subscription>(`/subscriptions/${id}/upgrade`, data, options);
+    void data;
+    void options;
+    return this.retiredSurface<ApiResponse<Subscription>>(`/v1/money/billing/subscriptions/${id}/upgrade`);
   }
 
   // --------------------------------------------------------------------------
@@ -334,11 +339,14 @@ export class BillingService extends ServiceModule {
     data: { metric: string; quantity: number },
     options?: RequestOptions
   ): Promise<ApiResponse<{ recorded: boolean }>> {
-    return this.post<{ recorded: boolean }>('/usage', data, options);
+    void data;
+    void options;
+    return this.retiredSurface<ApiResponse<{ recorded: boolean }>>('/v1/money/billing/usage');
   }
 
   async getUsageSummary(options?: RequestOptions): Promise<ApiResponse<UsageSummary[]>> {
-    return this._get<UsageSummary[]>('/usage/summary', options);
+    void options;
+    return this.retiredSurface<ApiResponse<UsageSummary[]>>('/v1/money/billing/usage/summary');
   }
 
   // --------------------------------------------------------------------------
@@ -392,7 +400,8 @@ export class BillingService extends ServiceModule {
   }
 
   async getAccountBalance(id: string, options?: RequestOptions): Promise<ApiResponse<AccountBalance>> {
-    return this._get<AccountBalance>(`/connected-accounts/${id}/balance`, options);
+    void options;
+    return this.retiredSurface<ApiResponse<AccountBalance>>(`/v1/money/billing/connected-accounts/${id}/balance`);
   }
 
   async createAccountSession(id: string, options?: RequestOptions): Promise<ApiResponse<{ client_secret: string }>> {
@@ -423,15 +432,20 @@ export class BillingService extends ServiceModule {
     },
     options?: RequestOptions
   ): Promise<ApiResponse<Payment>> {
-    return this.post<Payment>('/payments', data, options);
+    void data;
+    void options;
+    return this.retiredSurface<ApiResponse<Payment>>('/v1/money/billing/payments');
   }
 
   async getPayment(id: string, options?: RequestOptions): Promise<ApiResponse<Payment>> {
-    return this._get<Payment>(`/payments/${id}`, options);
+    void options;
+    return this.retiredSurface<ApiResponse<Payment>>(`/v1/money/billing/payments/${id}`);
   }
 
   async listPayments(params?: PaymentListParams, options?: RequestOptions): Promise<PaginatedResponse<Payment>> {
-    return this._list<Payment>('/payments', params as Record<string, unknown>, options);
+    void params;
+    void options;
+    return this.retiredSurface<PaginatedResponse<Payment>>('/v1/money/billing/payments');
   }
 
   // --------------------------------------------------------------------------
@@ -443,7 +457,9 @@ export class BillingService extends ServiceModule {
     data?: { amount_cents?: number; reason?: string },
     options?: RequestOptions
   ): Promise<ApiResponse<Refund>> {
-    return this.post<Refund>(`/payments/${id}/refund`, data, options);
+    void data;
+    void options;
+    return this.retiredSurface<ApiResponse<Refund>>(`/v1/money/billing/payments/${id}/refund`);
   }
 
   // --------------------------------------------------------------------------
@@ -455,7 +471,9 @@ export class BillingService extends ServiceModule {
     params?: PaginationParams,
     options?: RequestOptions
   ): Promise<PaginatedResponse<Payout>> {
-    return this._list<Payout>(`/connected-accounts/${accountId}/payouts`, params, options);
+    void params;
+    void options;
+    return this.retiredSurface<PaginatedResponse<Payout>>(`/v1/money/billing/connected-accounts/${accountId}/payouts`);
   }
 
   async getPayoutSchedule(accountId: string, options?: RequestOptions): Promise<ApiResponse<PayoutSchedule>> {
@@ -483,17 +501,18 @@ export class BillingService extends ServiceModule {
     params?: TransactionListParams,
     options?: RequestOptions
   ): Promise<PaginatedResponse<Transaction>> {
-    return this._list<Transaction>('/transactions', params as Record<string, unknown>, options);
+    void params;
+    void options;
+    return this.retiredSurface<PaginatedResponse<Transaction>>('/v1/money/billing/transactions');
   }
 
   async getTransactionSummary(
     params?: TransactionSummaryParams,
     options?: RequestOptions
   ): Promise<ApiResponse<TransactionSummary>> {
-    return this._get<TransactionSummary>(
-      this.withQuery('/transactions/summary', params as Record<string, unknown>),
-      options
-    );
+    void params;
+    void options;
+    return this.retiredSurface<ApiResponse<TransactionSummary>>('/v1/money/billing/transactions/summary');
   }
 
   // --------------------------------------------------------------------------
@@ -523,7 +542,9 @@ export class BillingService extends ServiceModule {
     },
     options?: RequestOptions
   ): Promise<ApiResponse<Product>> {
-    return this.post<Product>('/products', data, options);
+    void data;
+    void options;
+    return this.retiredSurface<ApiResponse<Product>>('/v1/money/billing/products');
   }
 
   async createPrice(
@@ -536,11 +557,14 @@ export class BillingService extends ServiceModule {
     },
     options?: RequestOptions
   ): Promise<ApiResponse<Price>> {
-    return this.post<Price>('/prices', data, options);
+    void data;
+    void options;
+    return this.retiredSurface<ApiResponse<Price>>('/v1/money/billing/prices');
   }
 
   async deactivatePrice(id: string, options?: RequestOptions): Promise<ApiResponse<Price>> {
-    return this.post<Price>(`/prices/${id}/deactivate`, undefined, options);
+    void options;
+    return this.retiredSurface<ApiResponse<Price>>(`/v1/money/billing/prices/${id}/deactivate`);
   }
 
   async createConnectedSubscription(
@@ -553,7 +577,9 @@ export class BillingService extends ServiceModule {
     },
     options?: RequestOptions
   ): Promise<ApiResponse<ConnectedAccountSubscription>> {
-    return this.post<ConnectedAccountSubscription>('/connected-subscriptions', data, options);
+    void data;
+    void options;
+    return this.retiredSurface<ApiResponse<ConnectedAccountSubscription>>('/v1/money/billing/connected-subscriptions');
   }
 
   async cancelConnectedSubscription(
@@ -561,18 +587,18 @@ export class BillingService extends ServiceModule {
     data?: { at_period_end?: boolean },
     options?: RequestOptions
   ): Promise<ApiResponse<ConnectedAccountSubscription>> {
-    return this.post<ConnectedAccountSubscription>(`/connected-subscriptions/${id}/cancel`, data, options);
+    void data;
+    void options;
+    return this.retiredSurface<ApiResponse<ConnectedAccountSubscription>>(`/v1/money/billing/connected-subscriptions/${id}/cancel`);
   }
 
   async listConnectedSubscriptions(
     params?: ConnectedSubscriptionListParams,
     options?: RequestOptions
   ): Promise<PaginatedResponse<ConnectedAccountSubscription>> {
-    return this._list<ConnectedAccountSubscription>(
-      '/connected-subscriptions',
-      params as Record<string, unknown>,
-      options
-    );
+    void params;
+    void options;
+    return this.retiredSurface<PaginatedResponse<ConnectedAccountSubscription>>('/v1/money/billing/connected-subscriptions');
   }
 
   async createConnectedSetupIntent(
@@ -582,7 +608,9 @@ export class BillingService extends ServiceModule {
     },
     options?: RequestOptions
   ): Promise<ApiResponse<ConnectedSetupIntentResponse>> {
-    return this.post<ConnectedSetupIntentResponse>('/connected-setup-intents', data, options);
+    void data;
+    void options;
+    return this.retiredSurface<ApiResponse<ConnectedSetupIntentResponse>>('/v1/money/billing/connected-setup-intents');
   }
 
   async createTransfer(
@@ -596,11 +624,14 @@ export class BillingService extends ServiceModule {
     },
     options?: RequestOptions
   ): Promise<ApiResponse<Transfer>> {
-    return this.post<Transfer>('/transfers', data, options);
+    void data;
+    void options;
+    return this.retiredSurface<ApiResponse<Transfer>>('/v1/money/billing/transfers');
   }
 
   async syncPaymentStatus(id: string, options?: RequestOptions): Promise<ApiResponse<PaymentStatusResponse>> {
-    return this.post<PaymentStatusResponse>(`/payments/${id}/sync`, undefined, options);
+    void options;
+    return this.retiredSurface<ApiResponse<PaymentStatusResponse>>(`/v1/money/billing/payments/${id}/sync`);
   }
 
   // --------------------------------------------------------------------------
