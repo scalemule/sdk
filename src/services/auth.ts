@@ -523,10 +523,7 @@ export class AuthService extends ServiceModule {
       query.phone_verified = params.phone_verified ? 'true' : 'false';
     }
     if (params?.page !== undefined) query.page = params.page;
-    return this._get<DirectoryUsersListResponse>(
-      this.withQuery('/users', query),
-      options
-    );
+    return this._get<DirectoryUsersListResponse>(this.withQuery('/users', query), options);
   }
 
   /**
@@ -535,14 +532,8 @@ export class AuthService extends ServiceModule {
    * Returns 404 if the user is not in the caller's application — cross-tenant
    * reads are blocked at the gateway via the x-app-id header scope.
    */
-  async getUser(
-    userId: string,
-    options?: RequestOptions
-  ): Promise<ApiResponse<DirectoryUserDetail>> {
-    return this._get<DirectoryUserDetail>(
-      `/users/${encodeURIComponent(userId)}`,
-      options
-    );
+  async getUser(userId: string, options?: RequestOptions): Promise<ApiResponse<DirectoryUserDetail>> {
+    return this._get<DirectoryUserDetail>(`/users/${encodeURIComponent(userId)}`, options);
   }
 
   /** Refresh the session. Alias: refreshToken() */
