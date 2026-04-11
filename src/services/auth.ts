@@ -191,6 +191,72 @@ export interface DataExport {
   exported_at: string;
 }
 
+// ----------------------------------------------------------------------------
+// User directory (customer-scoped)
+// ----------------------------------------------------------------------------
+//
+// These types model the customer-scoped user directory endpoints at
+//   GET /v1/auth/users
+//   GET /v1/auth/users/{id}
+//
+// They are scoped by the gateway-injected x-app-id header when called with
+// a customer API key + user session, and must NEVER be called with platform
+// admin credentials from a customer-facing application.
+
+/** Summary fields returned by the user-directory list endpoint. */
+export interface DirectoryUser {
+  id: string;
+  sm_application_id: string;
+  email?: string;
+  email_verified: boolean;
+  phone?: string;
+  phone_verified: boolean;
+  full_name?: string;
+  avatar_url?: string;
+  status: string;
+  created_at: string;
+  last_login_at?: string;
+  login_count: number;
+  auth_methods: string[];
+}
+
+/** Detailed user record returned by the user-directory get-by-id endpoint. */
+export interface DirectoryUserDetail {
+  id: string;
+  sm_application_id: string;
+  email?: string;
+  email_verified: boolean;
+  phone?: string;
+  phone_verified: boolean;
+  full_name?: string;
+  username?: string;
+  avatar_url?: string;
+  status: string;
+  created_at: string;
+  locale?: string;
+  time_zone?: string;
+  external_role?: string;
+  auth_methods: string[];
+}
+
+export interface DirectoryUsersListResponse {
+  users: DirectoryUser[];
+  total: number;
+}
+
+export interface SearchUsersParams {
+  /** Substring match against email or full_name. */
+  search?: string;
+  /** Filter by user status (e.g. "active"). */
+  status?: string;
+  /** Filter by email verification state. */
+  email_verified?: boolean;
+  /** Filter by phone verification state. */
+  phone_verified?: boolean;
+  /** 1-indexed page. Server returns 50 results per page (non-configurable). */
+  page?: number;
+}
+
 // ============================================================================
 // Nested Sub-API Classes
 // ============================================================================
@@ -416,6 +482,67 @@ export class AuthService extends ServiceModule {
 
   async me(options?: RequestOptions): Promise<ApiResponse<AuthUser>> {
     return this._get<AuthUser>('/me', options);
+  }
+
+  // --------------------------------------------------------------------------
+  // User directory (customer-scoped)
+  // --------------------------------------------------------------------------
+  //
+  // Search / fetch users within the caller's application. These endpoints are
+  // scoped by the gateway-injected x-app-id header, so when invoked with a
+  // customer API key + user session they will only return users belonging to
+  // the caller's application. They replace the prior pattern of customer apps
+  // reaching for platform admin credentials to hit admin-only user routes.
+  //
+  // DO NOT call these with platform admin credentials from customer-facing
+  // applications. Use the standard customer auth path (API key + user session)
+  // and let the gateway inject x-app-id on your behalf.
+
+  /**
+   * Search users within the caller's application.
+   *
+   * Results are automatically scoped to the caller's application via the
+   * x-app-id header injected by the gateway. Server-side page size is fixed
+   * at 50 (the `per_page` query param is not honored upstream).
+   *
+   * @example
+   *   const res = await sm.auth.searchUsers({ search: 'alice' });
+   *   res.data?.users.forEach(u => console.log(u.email));
+   */
+  async searchUsers(
+    params?: SearchUsersParams,
+    options?: RequestOptions
+  ): Promise<ApiResponse<DirectoryUsersListResponse>> {
+    const query: Record<string, unknown> = {};
+    if (params?.search !== undefined) query.search = params.search;
+    if (params?.status !== undefined) query.status = params.status;
+    if (params?.email_verified !== undefined) {
+      query.email_verified = params.email_verified ? 'true' : 'false';
+    }
+    if (params?.phone_verified !== undefined) {
+      query.phone_verified = params.phone_verified ? 'true' : 'false';
+    }
+    if (params?.page !== undefined) query.page = params.page;
+    return this._get<DirectoryUsersListResponse>(
+      this.withQuery('/users', query),
+      options
+    );
+  }
+
+  /**
+   * Fetch a single user by ID within the caller's application.
+   *
+   * Returns 404 if the user is not in the caller's application — cross-tenant
+   * reads are blocked at the gateway via the x-app-id header scope.
+   */
+  async getUser(
+    userId: string,
+    options?: RequestOptions
+  ): Promise<ApiResponse<DirectoryUserDetail>> {
+    return this._get<DirectoryUserDetail>(
+      `/users/${encodeURIComponent(userId)}`,
+      options
+    );
   }
 
   /** Refresh the session. Alias: refreshToken() */
