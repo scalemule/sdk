@@ -3945,6 +3945,68 @@ var ChatService = class extends ServiceModule {
   }
 };
 
+// src/services/conference.ts
+var ConferenceService = class extends ServiceModule {
+  constructor() {
+    super(...arguments);
+    this.basePath = "/v1/conference";
+  }
+  // --------------------------------------------------------------------------
+  // Call Lifecycle
+  // --------------------------------------------------------------------------
+  async createCall(data, options) {
+    return this.post("/calls", data, options);
+  }
+  async getCall(callId, options) {
+    return this._get(`/calls/${callId}`, options);
+  }
+  async listCalls(params, options) {
+    return this._get(this.withQuery("/calls", params), options);
+  }
+  async endCall(callId, options) {
+    return this.post(`/calls/${callId}/end`, void 0, options);
+  }
+  // --------------------------------------------------------------------------
+  // Participants
+  // --------------------------------------------------------------------------
+  async joinCall(callId, options) {
+    return this.post(`/calls/${callId}/join`, void 0, options);
+  }
+  async leaveCall(callId, options) {
+    return this.post(`/calls/${callId}/leave`, void 0, options);
+  }
+  async listParticipants(callId, options) {
+    return this._get(`/calls/${callId}/participants`, options);
+  }
+  // --------------------------------------------------------------------------
+  // Recording
+  // --------------------------------------------------------------------------
+  async startRecording(callId, options) {
+    return this.post(`/calls/${callId}/recording/start`, void 0, options);
+  }
+  async stopRecording(callId, options) {
+    return this.post(`/calls/${callId}/recording/stop`, void 0, options);
+  }
+  async consentToRecording(callId, options) {
+    return this.post(`/calls/${callId}/recording/consent`, void 0, options);
+  }
+  // --------------------------------------------------------------------------
+  // Settings
+  // --------------------------------------------------------------------------
+  async getSettings(options) {
+    return this._get("/settings", options);
+  }
+  async updateSettings(data, options) {
+    return this.put("/settings", data, options);
+  }
+  // --------------------------------------------------------------------------
+  // Stats
+  // --------------------------------------------------------------------------
+  async submitStats(callId, stats, options) {
+    return this.post(`/calls/${callId}/stats`, stats, options);
+  }
+};
+
 // src/services/social.ts
 var SocialService = class extends ServiceModule {
   constructor() {
@@ -6401,6 +6463,7 @@ var ScaleMule = class {
     this.video = new VideoService(this._client);
     this.data = new DataService(this._client);
     this.chat = new ChatService(this._client);
+    this.conference = new ConferenceService(this._client);
     this.social = new SocialService(this._client);
     this.referrals = new ReferralsService(this._client);
     this.billing = new BillingService(this._client);
@@ -6574,6 +6637,7 @@ export {
   ChatService,
   CommunicationService,
   ComplianceService,
+  ConferenceService,
   CreatorMakerService,
   DataService,
   ErrorCodes,
