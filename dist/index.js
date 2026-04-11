@@ -1790,6 +1790,58 @@ var AuthService = class extends ServiceModule {
   async me(options) {
     return this._get("/me", options);
   }
+  // --------------------------------------------------------------------------
+  // User directory (customer-scoped)
+  // --------------------------------------------------------------------------
+  //
+  // Search / fetch users within the caller's application. These endpoints are
+  // scoped by the gateway-injected x-app-id header, so when invoked with a
+  // customer API key + user session they will only return users belonging to
+  // the caller's application. They replace the prior pattern of customer apps
+  // reaching for platform admin credentials to hit admin-only user routes.
+  //
+  // DO NOT call these with platform admin credentials from customer-facing
+  // applications. Use the standard customer auth path (API key + user session)
+  // and let the gateway inject x-app-id on your behalf.
+  /**
+   * Search users within the caller's application.
+   *
+   * Results are automatically scoped to the caller's application via the
+   * x-app-id header injected by the gateway. Server-side page size is fixed
+   * at 50 (the `per_page` query param is not honored upstream).
+   *
+   * @example
+   *   const res = await sm.auth.searchUsers({ search: 'alice' });
+   *   res.data?.users.forEach(u => console.log(u.email));
+   */
+  async searchUsers(params, options) {
+    const query = {};
+    if (params?.search !== void 0) query.search = params.search;
+    if (params?.status !== void 0) query.status = params.status;
+    if (params?.email_verified !== void 0) {
+      query.email_verified = params.email_verified ? "true" : "false";
+    }
+    if (params?.phone_verified !== void 0) {
+      query.phone_verified = params.phone_verified ? "true" : "false";
+    }
+    if (params?.page !== void 0) query.page = params.page;
+    return this._get(
+      this.withQuery("/users", query),
+      options
+    );
+  }
+  /**
+   * Fetch a single user by ID within the caller's application.
+   *
+   * Returns 404 if the user is not in the caller's application — cross-tenant
+   * reads are blocked at the gateway via the x-app-id header scope.
+   */
+  async getUser(userId, options) {
+    return this._get(
+      `/users/${encodeURIComponent(userId)}`,
+      options
+    );
+  }
   /** Refresh the session. Alias: refreshToken() */
   async refreshSession(data, options) {
     return this.post("/refresh", data ?? {}, options);

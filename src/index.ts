@@ -64,7 +64,11 @@ export type {
   LoginActivitySummary,
   OAuthUrl,
   OAuthProvider,
-  DataExport
+  DataExport,
+  DirectoryUser,
+  DirectoryUserDetail,
+  DirectoryUsersListResponse,
+  SearchUsersParams
 } from './services/auth';
 export type {
   UploadOptions,
