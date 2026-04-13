@@ -1870,6 +1870,11 @@ interface ChatMessage {
     attachments?: Attachment[];
     is_edited: boolean;
     created_at: string;
+    thread_id?: string;
+    reply_count?: number;
+    latest_reply_at?: string;
+    reply_user_ids?: string[];
+    is_thread_broadcast?: boolean;
 }
 interface ReadStatus {
     user_id: string;
@@ -1898,7 +1903,14 @@ declare class ChatService extends ServiceModule {
     sendMessage(conversationId: string, data: {
         content: string;
         type?: string;
+        thread_id?: string;
+        is_thread_broadcast?: boolean;
     }, options?: RequestOptions): Promise<ApiResponse<ChatMessage>>;
+    getThreadReplies(messageId: string, params?: {
+        limit?: number;
+        before?: string;
+        after?: string;
+    }, requestOptions?: RequestOptions): Promise<ApiResponse<ChatMessage[]>>;
     getMessages(conversationId: string, options?: {
         limit?: number;
         before?: string;

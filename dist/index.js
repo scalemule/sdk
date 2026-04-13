@@ -4333,6 +4333,12 @@ var ChatService = class extends ServiceModule {
   async sendMessage(conversationId, data, options) {
     return this.post(`/conversations/${conversationId}/messages`, data, options);
   }
+  async getThreadReplies(messageId, params, requestOptions) {
+    return this._get(
+      this.withQuery(`/messages/${messageId}/replies`, params),
+      requestOptions
+    );
+  }
   async getMessages(conversationId, options, requestOptions) {
     return this._get(
       this.withQuery(`/conversations/${conversationId}/messages`, options),
