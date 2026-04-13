@@ -62,6 +62,11 @@ export interface ChatMessage {
   attachments?: Attachment[];
   is_edited: boolean;
   created_at: string;
+  thread_id?: string;
+  reply_count?: number;
+  latest_reply_at?: string;
+  reply_user_ids?: string[];
+  is_thread_broadcast?: boolean;
 }
 
 export interface ReadStatus {
@@ -127,10 +132,21 @@ export class ChatService extends ServiceModule {
 
   async sendMessage(
     conversationId: string,
-    data: { content: string; type?: string },
+    data: { content: string; type?: string; thread_id?: string; is_thread_broadcast?: boolean },
     options?: RequestOptions
   ): Promise<ApiResponse<ChatMessage>> {
     return this.post<ChatMessage>(`/conversations/${conversationId}/messages`, data, options);
+  }
+
+  async getThreadReplies(
+    messageId: string,
+    params?: { limit?: number; before?: string; after?: string },
+    requestOptions?: RequestOptions
+  ): Promise<ApiResponse<ChatMessage[]>> {
+    return this._get<ChatMessage[]>(
+      this.withQuery(`/messages/${messageId}/replies`, params),
+      requestOptions
+    );
   }
 
   async getMessages(
