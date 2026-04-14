@@ -4152,7 +4152,7 @@ interface TransformOptions {
  * Pre-generated square crop sizes (px).
  * URLs built with these sizes + fit=cover get instant cache hits (no server-side transform).
  */
-declare const PHOTO_BREAKPOINTS: readonly [150, 320, 640, 1080];
+declare const PHOTO_BREAKPOINTS: readonly [36, 150, 320, 640, 1080];
 declare class PhotoService extends ServiceModule {
     protected basePath: string;
     upload(file: File | Blob, uploadOptions?: {
@@ -4191,6 +4191,9 @@ declare class PhotoService extends ServiceModule {
      *
      * // Profile avatar at 48px -> snaps to 150px
      * const url = sm.photo.getOptimalUrl(photoId, 48)
+     *
+     * // Tiny avatar at 36px -> exact cache hit on 36px micro-thumbnail
+     * const url = sm.photo.getOptimalUrl(photoId, 36)
      * ```
      */
     getOptimalUrl(photoId: string, displayWidth: number, options?: {

@@ -53,7 +53,7 @@ export interface TransformOptions {
  * Pre-generated square crop sizes (px).
  * URLs built with these sizes + fit=cover get instant cache hits (no server-side transform).
  */
-export const PHOTO_BREAKPOINTS = [150, 320, 640, 1080] as const;
+export const PHOTO_BREAKPOINTS = [36, 150, 320, 640, 1080] as const;
 
 // ============================================================================
 // Photo Service
@@ -133,6 +133,9 @@ export class PhotoService extends ServiceModule {
    *
    * // Profile avatar at 48px -> snaps to 150px
    * const url = sm.photo.getOptimalUrl(photoId, 48)
+   *
+   * // Tiny avatar at 36px -> exact cache hit on 36px micro-thumbnail
+   * const url = sm.photo.getOptimalUrl(photoId, 36)
    * ```
    */
   getOptimalUrl(photoId: string, displayWidth: number, options?: { dpr?: number }): string {

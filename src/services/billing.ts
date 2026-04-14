@@ -589,7 +589,9 @@ export class BillingService extends ServiceModule {
   ): Promise<ApiResponse<ConnectedAccountSubscription>> {
     void data;
     void options;
-    return this.retiredSurface<ApiResponse<ConnectedAccountSubscription>>(`/v1/money/billing/connected-subscriptions/${id}/cancel`);
+    return this.retiredSurface<ApiResponse<ConnectedAccountSubscription>>(
+      `/v1/money/billing/connected-subscriptions/${id}/cancel`
+    );
   }
 
   async listConnectedSubscriptions(
@@ -598,7 +600,9 @@ export class BillingService extends ServiceModule {
   ): Promise<PaginatedResponse<ConnectedAccountSubscription>> {
     void params;
     void options;
-    return this.retiredSurface<PaginatedResponse<ConnectedAccountSubscription>>('/v1/money/billing/connected-subscriptions');
+    return this.retiredSurface<PaginatedResponse<ConnectedAccountSubscription>>(
+      '/v1/money/billing/connected-subscriptions'
+    );
   }
 
   async createConnectedSetupIntent(

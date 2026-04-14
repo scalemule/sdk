@@ -3962,10 +3962,7 @@ var ChatService = class extends ServiceModule {
     return this.post(`/conversations/${conversationId}/messages`, data, options);
   }
   async getThreadReplies(messageId, params, requestOptions) {
-    return this._get(
-      this.withQuery(`/messages/${messageId}/replies`, params),
-      requestOptions
-    );
+    return this._get(this.withQuery(`/messages/${messageId}/replies`, params), requestOptions);
   }
   async getMessages(conversationId, options, requestOptions) {
     return this._get(
@@ -4373,12 +4370,16 @@ var BillingService = class extends ServiceModule {
   async cancelConnectedSubscription(id, data, options) {
     void data;
     void options;
-    return this.retiredSurface(`/v1/money/billing/connected-subscriptions/${id}/cancel`);
+    return this.retiredSurface(
+      `/v1/money/billing/connected-subscriptions/${id}/cancel`
+    );
   }
   async listConnectedSubscriptions(params, options) {
     void params;
     void options;
-    return this.retiredSurface("/v1/money/billing/connected-subscriptions");
+    return this.retiredSurface(
+      "/v1/money/billing/connected-subscriptions"
+    );
   }
   async createConnectedSetupIntent(data, options) {
     void data;
@@ -5590,7 +5591,7 @@ var SearchService = class extends ServiceModule {
 };
 
 // src/services/photo.ts
-var PHOTO_BREAKPOINTS = [150, 320, 640, 1080];
+var PHOTO_BREAKPOINTS = [36, 150, 320, 640, 1080];
 var PhotoService = class extends ServiceModule {
   constructor() {
     super(...arguments);
@@ -5649,6 +5650,9 @@ var PhotoService = class extends ServiceModule {
    *
    * // Profile avatar at 48px -> snaps to 150px
    * const url = sm.photo.getOptimalUrl(photoId, 48)
+   *
+   * // Tiny avatar at 36px -> exact cache hit on 36px micro-thumbnail
+   * const url = sm.photo.getOptimalUrl(photoId, 36)
    * ```
    */
   getOptimalUrl(photoId, displayWidth, options) {
