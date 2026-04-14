@@ -8,7 +8,7 @@ describe('PhotoService sizing helpers', () => {
   } as unknown as ScaleMuleClient)
 
   it('exports pre-generated breakpoints', () => {
-    expect(PHOTO_BREAKPOINTS).toEqual([150, 320, 640, 1080])
+    expect(PHOTO_BREAKPOINTS).toEqual([36, 150, 320, 640, 1080])
   })
 
   it('snaps up to nearest breakpoint for retina displays', () => {
