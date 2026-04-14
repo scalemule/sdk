@@ -143,10 +143,7 @@ export class ChatService extends ServiceModule {
     params?: { limit?: number; before?: string; after?: string },
     requestOptions?: RequestOptions
   ): Promise<ApiResponse<ChatMessage[]>> {
-    return this._get<ChatMessage[]>(
-      this.withQuery(`/messages/${messageId}/replies`, params),
-      requestOptions
-    );
+    return this._get<ChatMessage[]>(this.withQuery(`/messages/${messageId}/replies`, params), requestOptions);
   }
 
   async getMessages(
