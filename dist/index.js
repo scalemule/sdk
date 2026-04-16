@@ -6036,6 +6036,13 @@ var PhotoService = class extends ServiceModule {
     return this.getTransformUrl(photoId, { width: size, height: size, fit: "cover" });
   }
   /**
+   * Get the 36px avatar micro-thumbnail URL for a photo.
+   * Hits the pre-generated 36x36 bicubic-resized cached variant.
+   */
+  getAvatarThumbnailUrl(photoId) {
+    return this.getOptimalUrl(photoId, 36);
+  }
+  /**
    * Generate an HTML srcset string for responsive square photo display.
    *
    * Returns all pre-generated breakpoints as width descriptors. Pair with
