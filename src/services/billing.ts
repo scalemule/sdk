@@ -33,7 +33,12 @@ import type { ApiResponse, PaginatedResponse, PaginationParams, RequestOptions }
 
 export interface Customer {
   id: string;
+  sm_application_id?: string;
+  account_id?: string;
+  sm_user_id?: string;
+  billing_mode?: 'test' | 'live';
   stripe_customer_id?: string;
+  stripe_account_id?: string | null;
   email: string;
   metadata?: Record<string, unknown>;
   created_at: string;
@@ -55,6 +60,10 @@ export interface Subscription {
 export interface Invoice {
   id: string;
   customer_id: string;
+  sm_application_id?: string;
+  account_id?: string;
+  billing_mode?: 'test' | 'live';
+  stripe_account_id?: string | null;
   stripe_invoice_id?: string;
   amount_due: number;
   amount_paid: number;
@@ -76,6 +85,10 @@ export interface UsageSummary {
 export interface PaymentMethod {
   id: string;
   customer_id: string;
+  sm_application_id?: string;
+  account_id?: string;
+  billing_mode?: 'test' | 'live';
+  stripe_account_id?: string | null;
   stripe_payment_method_id?: string;
   type: string;
   last4?: string;
@@ -84,6 +97,39 @@ export interface PaymentMethod {
   exp_year?: number;
   is_default: boolean;
   created_at: string;
+}
+
+// ============================================================================
+// Account-Scoped Billing (v2 — ADR-2026-04-25)
+// ============================================================================
+
+/**
+ * Identifies the target account for an account-scoped billing call.
+ * `billing_mode` defaults to the application's configured mode if omitted.
+ */
+export interface AccountScopedBillingRequest {
+  account_id: string;
+  billing_mode?: 'test' | 'live';
+}
+
+export interface PortalSession {
+  url: string;
+  expires_at: string;
+}
+
+export interface AttachPaymentMethodRequest {
+  stripe_payment_method_id: string;
+  set_default?: boolean;
+}
+
+export interface InvoiceListParams {
+  limit?: number;
+  cursor?: string;
+}
+
+export interface InvoiceListResponse {
+  data: Invoice[];
+  next_cursor?: string | null;
 }
 
 // ============================================================================
@@ -272,9 +318,10 @@ export class BillingService extends ServiceModule {
   }
 
   // --------------------------------------------------------------------------
-  // Customers
+  // Customers (legacy user-scoped — deprecated in favor of account-scoped)
   // --------------------------------------------------------------------------
 
+  /** @deprecated Use `getAccountCustomer({ account_id })`. Targets the user-scoped legacy endpoint. */
   async createCustomer(
     data: { email: string; name?: string },
     options?: RequestOptions
@@ -282,11 +329,117 @@ export class BillingService extends ServiceModule {
     return this.post<Customer>('/customers', data, options);
   }
 
+  /** @deprecated Use `attachAccountPaymentMethod({ account_id }, ...)`. Targets the user-scoped legacy endpoint. */
   async addPaymentMethod(
     data: { type: string; token: string },
     options?: RequestOptions
   ): Promise<ApiResponse<PaymentMethod>> {
     return this.post<PaymentMethod>('/payment-methods', data, options);
+  }
+
+  // --------------------------------------------------------------------------
+  // Account-Scoped Billing (v2 — ADR-2026-04-25)
+  //
+  // The customer/payment-method/invoice record set belongs to an `app_account`
+  // (typically a `customer_org`), not to a single user. These methods target
+  // the `/v1/billing/accounts/{account_id}/*` endpoints described in
+  // openapi/scalemule-money-billing-v1.yaml.
+  // --------------------------------------------------------------------------
+
+  private accountBase(accountId: string): string {
+    return `/v1/billing/accounts/${encodeURIComponent(accountId)}`;
+  }
+
+  async getAccountCustomer(
+    req: AccountScopedBillingRequest,
+    options?: RequestOptions
+  ): Promise<ApiResponse<Customer>> {
+    const path = this.withQuery(`${this.accountBase(req.account_id)}/customer`, {
+      billing_mode: req.billing_mode,
+    });
+    return this.client.get<Customer>(path, options);
+  }
+
+  async listAccountPaymentMethods(
+    req: AccountScopedBillingRequest,
+    options?: RequestOptions
+  ): Promise<ApiResponse<PaymentMethod[]>> {
+    const path = this.withQuery(`${this.accountBase(req.account_id)}/payment-methods`, {
+      billing_mode: req.billing_mode,
+    });
+    return this.client.get<PaymentMethod[]>(path, options);
+  }
+
+  async attachAccountPaymentMethod(
+    req: AccountScopedBillingRequest,
+    body: AttachPaymentMethodRequest,
+    options?: RequestOptions
+  ): Promise<ApiResponse<PaymentMethod>> {
+    const path = this.withQuery(`${this.accountBase(req.account_id)}/payment-methods`, {
+      billing_mode: req.billing_mode,
+    });
+    return this.client.post<PaymentMethod>(path, body, options);
+  }
+
+  async detachAccountPaymentMethod(
+    req: AccountScopedBillingRequest,
+    paymentMethodId: string,
+    options?: RequestOptions
+  ): Promise<ApiResponse<void>> {
+    const path = this.withQuery(
+      `${this.accountBase(req.account_id)}/payment-methods/${encodeURIComponent(paymentMethodId)}`,
+      { billing_mode: req.billing_mode }
+    );
+    return this.client.del<void>(path, options);
+  }
+
+  async setDefaultAccountPaymentMethod(
+    req: AccountScopedBillingRequest,
+    paymentMethodId: string,
+    options?: RequestOptions
+  ): Promise<ApiResponse<PaymentMethod>> {
+    const path = this.withQuery(
+      `${this.accountBase(req.account_id)}/payment-methods/${encodeURIComponent(paymentMethodId)}/default`,
+      { billing_mode: req.billing_mode }
+    );
+    return this.client.put<PaymentMethod>(path, undefined, options);
+  }
+
+  async listAccountInvoices(
+    req: AccountScopedBillingRequest,
+    params?: InvoiceListParams,
+    options?: RequestOptions
+  ): Promise<ApiResponse<InvoiceListResponse>> {
+    const path = this.withQuery(`${this.accountBase(req.account_id)}/invoices`, {
+      billing_mode: req.billing_mode,
+      limit: params?.limit,
+      cursor: params?.cursor,
+    });
+    return this.client.get<InvoiceListResponse>(path, options);
+  }
+
+  async getAccountInvoice(
+    req: AccountScopedBillingRequest,
+    invoiceId: string,
+    options?: RequestOptions
+  ): Promise<ApiResponse<Invoice>> {
+    const path = this.withQuery(
+      `${this.accountBase(req.account_id)}/invoices/${encodeURIComponent(invoiceId)}`,
+      { billing_mode: req.billing_mode }
+    );
+    return this.client.get<Invoice>(path, options);
+  }
+
+  async createAccountPortalSession(
+    req: AccountScopedBillingRequest,
+    body?: { return_url?: string },
+    options?: RequestOptions
+  ): Promise<ApiResponse<PortalSession>> {
+    const path = this.withQuery(
+      `${this.accountBase(req.account_id)}/portal-session`,
+      { billing_mode: req.billing_mode }
+    );
+    return this.client.post<PortalSession>(path, body ?? {}, options);
   }
 
   // --------------------------------------------------------------------------
