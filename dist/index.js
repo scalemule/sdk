@@ -6257,10 +6257,7 @@ var PhotoService = class extends ServiceModule {
     const fileInfo = uploadResult.data;
     const fileId = fileInfo.id;
     const originalViewUrl = fileInfo.url ?? null;
-    const registerResult = await this.register(
-      { fileId, userId: uploadOptions?.userId },
-      requestOptions
-    );
+    const registerResult = await this.register({ fileId, userId: uploadOptions?.userId }, requestOptions);
     if (registerResult.error || !registerResult.data) {
       console.warn(
         "[scalemule-sdk] photo.register() failed after storage upload; optimized variants unavailable.",
