@@ -2089,14 +2089,25 @@ var StorageService = class extends ServiceModule {
         },
         requestOpts
       );
-    } else {
-      telemetry?.emit(sessionId, "upload.completed", {
-        file_id,
-        size_bytes: file.size,
-        duration_ms: Date.now() - directStart
-      });
+      return { data: null, error: completeResult.error };
     }
-    return completeResult;
+    telemetry?.emit(sessionId, "upload.completed", {
+      file_id,
+      size_bytes: file.size,
+      duration_ms: Date.now() - directStart
+    });
+    const d = completeResult.data;
+    return {
+      data: {
+        id: d.file_id,
+        filename: d.filename,
+        content_type: d.content_type,
+        size_bytes: d.size_bytes,
+        url: d.url,
+        created_at: (/* @__PURE__ */ new Date()).toISOString()
+      },
+      error: null
+    };
   }
   // --------------------------------------------------------------------------
   // Multipart Upload
@@ -2617,6 +2628,20 @@ var StorageService = class extends ServiceModule {
    */
   async getFileStatus(fileId, options) {
     return this._get(`/files/${fileId}/status`, options);
+  }
+  /**
+   * Read the application's active media policy. Lightweight endpoint
+   * (`GET /v1/storage/policy`) used by the SDK on boot to pick up the
+   * platform-default `media_policy` without requiring app-admin auth.
+   *
+   * @example
+   * ```ts
+   * const { data } = await client.storage.getPolicy();
+   * console.log(data?.media_policy); // 'safe_visible'
+   * ```
+   */
+  async getPolicy(options) {
+    return this._get(`/policy`, options);
   }
   /**
    * Get a signed view URL for inline display (img src, thumbnails).
@@ -4665,15 +4690,21 @@ var BillingService = class extends ServiceModule {
     return this.retiredSurface(`/v1/money/billing/payments/${id}/sync`);
   }
   // --------------------------------------------------------------------------
-  // Legacy methods (backward compat)
+  // Removed aliases (Phase 6 — billing-v2 retirement)
+  //
+  // These were soft-deprecated wrappers in earlier SDK versions. They now
+  // throw at runtime so any caller still using them gets an immediate signal.
+  // Replacements: createSubscription → subscribe(); getInvoices → listInvoices().
   // --------------------------------------------------------------------------
-  /** @deprecated Use subscribe() instead */
+  /** @removed Use subscribe() instead. */
   async createSubscription(data) {
-    return this.subscribe(data);
+    void data;
+    throw new Error("BillingService.createSubscription was removed in Phase 6. Use subscribe() instead.");
   }
-  /** @deprecated Use listInvoices() instead */
+  /** @removed Use listInvoices() instead. */
   async getInvoices(params) {
-    return this.listInvoices(params);
+    void params;
+    throw new Error("BillingService.getInvoices was removed in Phase 6. Use listInvoices() instead.");
   }
 };
 

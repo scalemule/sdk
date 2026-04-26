@@ -1170,11 +1170,18 @@ interface FileStatus {
         manifest_url?: string;
     } | null;
     urls: {
-        /** Gateway path for the original bytes — `/v1/storage/files/{id}` */
-        original: string;
-        /** Gateway path for the photo transform — image MIME types only */
+        /**
+         * Direct-to-CDN view URL (CloudFront-signed where configured,
+         * S3-presigned otherwise). Absent when scan is `threat` /
+         * `quarantined` / `error` — consumers render a blocked
+         * placeholder when this is null + scan is non-clean.
+         */
+        original?: string;
+        /** Gateway path for the photo transform — present only when the
+         *  photo pipeline reports `optimize.status === 'done'` (image only). */
         optimized?: string;
-        /** Gateway path for the HLS master playlist — video MIME types only */
+        /** Gateway path for the HLS master playlist — present only when the
+         *  transcode worker reports `transcode.status === 'done'` (video only). */
         hls?: string;
     };
 }
@@ -1301,6 +1308,20 @@ declare class StorageService extends ServiceModule {
      * ```
      */
     getFileStatus(fileId: string, options?: RequestOptions): Promise<ApiResponse<FileStatus>>;
+    /**
+     * Read the application's active media policy. Lightweight endpoint
+     * (`GET /v1/storage/policy`) used by the SDK on boot to pick up the
+     * platform-default `media_policy` without requiring app-admin auth.
+     *
+     * @example
+     * ```ts
+     * const { data } = await client.storage.getPolicy();
+     * console.log(data?.media_policy); // 'safe_visible'
+     * ```
+     */
+    getPolicy(options?: RequestOptions): Promise<ApiResponse<{
+        media_policy: MediaPolicy;
+    }>>;
     /**
      * Get a signed view URL for inline display (img src, thumbnails).
      * Returns CloudFront signed URL (fast, ~1us) or S3 presigned fallback.
@@ -2859,13 +2880,13 @@ declare class BillingService extends ServiceModule {
         metadata?: Record<string, unknown>;
     }, options?: RequestOptions): Promise<ApiResponse<Transfer>>;
     syncPaymentStatus(id: string, options?: RequestOptions): Promise<ApiResponse<PaymentStatusResponse>>;
-    /** @deprecated Use subscribe() instead */
+    /** @removed Use subscribe() instead. */
     createSubscription(data: {
         customer_id: string;
         plan_id: string;
-    }): Promise<ApiResponse<Subscription>>;
-    /** @deprecated Use listInvoices() instead */
-    getInvoices(params?: PaginationParams): Promise<PaginatedResponse<Invoice>>;
+    }): Promise<never>;
+    /** @removed Use listInvoices() instead. */
+    getInvoices(params?: PaginationParams): Promise<never>;
 }
 
 /**
