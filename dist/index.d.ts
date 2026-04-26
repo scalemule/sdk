@@ -1134,6 +1134,23 @@ declare class StorageService extends ServiceModule {
      * @returns The completed file record with id, url, etc.
      */
     upload(file: File | Blob, options?: UploadOptions): Promise<ApiResponse<FileInfo>>;
+    /**
+     * Upload a file as a private attachment (e.g. chat / DM attachment).
+     *
+     * Same browser→S3 pipeline as {@link upload}, but enforces:
+     *   - `is_public: false` — caller cannot opt out
+     *   - no client-side compression — preserve the original bytes
+     *   - fail-closed if storage returns `is_public: true` for any reason
+     *
+     * The shared primitive used by `@scalemule/chat`'s chat-attachment uploader
+     * and by `@scalemule/nextjs`'s `useMedia()` when an app's media policy is
+     * `fast_trusted`. Both packages call this method via `@scalemule/sdk` —
+     * `@scalemule/nextjs` does not depend on `@scalemule/chat`.
+     *
+     * See ADR-2026-04-26 (realtime-chat media pipeline) and
+     * docs/MEDIA-UPLOADS.md for the full pattern.
+     */
+    uploadPrivate(file: File | Blob, options?: Omit<UploadOptions, 'isPublic' | 'skipCompression'>): Promise<ApiResponse<FileInfo>>;
     private uploadDirect;
     private uploadMultipart;
     private abortMultipart;
@@ -1832,6 +1849,9 @@ declare class DataService extends ServiceModule {
  *   PATCH  /messages/{id}                            → edit message
  *   DELETE /messages/{id}                            → delete message
  *   POST   /messages/{id}/reactions                  → add reaction
+ *   POST   /messages/{id}/pin                        → pin message
+ *   DELETE /messages/{id}/pin                        → unpin message
+ *   GET    /conversations/{id}/pins                  → list pinned messages
  *   POST   /conversations/{id}/typing                → send typing indicator
  *   POST   /conversations/{id}/read                  → mark as read
  *   GET    /conversations/{id}/read-status            → get read status
@@ -1875,6 +1895,8 @@ interface ChatMessage {
     latest_reply_at?: string;
     reply_user_ids?: string[];
     is_thread_broadcast?: boolean;
+    is_pinned?: boolean;
+    pinned_at?: string;
 }
 interface ReadStatus {
     user_id: string;
@@ -1885,6 +1907,15 @@ interface ChatReaction {
     user_id: string;
     message_id: string;
     created_at: string;
+}
+interface MessagePin {
+    message_id: string;
+    conversation_id: string;
+    pinned_by_user_id: string;
+    pinned_at: string;
+}
+interface PinnedMessagesResponse {
+    pins: MessagePin[];
 }
 declare class ChatService extends ServiceModule {
     protected basePath: string;
@@ -1924,6 +1955,11 @@ declare class ChatService extends ServiceModule {
     addReaction(messageId: string, data: {
         emoji: string;
     }, options?: RequestOptions): Promise<ApiResponse<ChatReaction>>;
+    pinMessage(messageId: string, options?: RequestOptions): Promise<ApiResponse<MessagePin>>;
+    unpinMessage(messageId: string, options?: RequestOptions): Promise<ApiResponse<{
+        unpinned: boolean;
+    }>>;
+    getPinnedMessages(conversationId: string, options?: RequestOptions): Promise<ApiResponse<PinnedMessagesResponse>>;
     sendTyping(conversationId: string, options?: RequestOptions): Promise<ApiResponse<{
         sent: boolean;
     }>>;
@@ -2271,7 +2307,12 @@ declare class ReferralsService extends ServiceModule {
 
 interface Customer {
     id: string;
+    sm_application_id?: string;
+    account_id?: string;
+    sm_user_id?: string;
+    billing_mode?: 'test' | 'live';
     stripe_customer_id?: string;
+    stripe_account_id?: string | null;
     email: string;
     metadata?: Record<string, unknown>;
     created_at: string;
@@ -2291,6 +2332,10 @@ interface Subscription {
 interface Invoice {
     id: string;
     customer_id: string;
+    sm_application_id?: string;
+    account_id?: string;
+    billing_mode?: 'test' | 'live';
+    stripe_account_id?: string | null;
     stripe_invoice_id?: string;
     amount_due: number;
     amount_paid: number;
@@ -2310,6 +2355,10 @@ interface UsageSummary$1 {
 interface PaymentMethod {
     id: string;
     customer_id: string;
+    sm_application_id?: string;
+    account_id?: string;
+    billing_mode?: 'test' | 'live';
+    stripe_account_id?: string | null;
     stripe_payment_method_id?: string;
     type: string;
     last4?: string;
@@ -2318,6 +2367,30 @@ interface PaymentMethod {
     exp_year?: number;
     is_default: boolean;
     created_at: string;
+}
+/**
+ * Identifies the target account for an account-scoped billing call.
+ * `billing_mode` defaults to the application's configured mode if omitted.
+ */
+interface AccountScopedBillingRequest {
+    account_id: string;
+    billing_mode?: 'test' | 'live';
+}
+interface PortalSession {
+    url: string;
+    expires_at: string;
+}
+interface AttachPaymentMethodRequest {
+    stripe_payment_method_id: string;
+    set_default?: boolean;
+}
+interface InvoiceListParams {
+    limit?: number;
+    cursor?: string;
+}
+interface InvoiceListResponse {
+    data: Invoice[];
+    next_cursor?: string | null;
 }
 interface ConnectedAccount {
     id: string;
@@ -2466,14 +2539,27 @@ interface ConnectedSubscriptionListParams extends PaginationParams {
 declare class BillingService extends ServiceModule {
     protected basePath: string;
     private retiredSurface;
+    /** @deprecated Use `getAccountCustomer({ account_id })`. Targets the user-scoped legacy endpoint. */
     createCustomer(data: {
         email: string;
         name?: string;
     }, options?: RequestOptions): Promise<ApiResponse<Customer>>;
+    /** @deprecated Use `attachAccountPaymentMethod({ account_id }, ...)`. Targets the user-scoped legacy endpoint. */
     addPaymentMethod(data: {
         type: string;
         token: string;
     }, options?: RequestOptions): Promise<ApiResponse<PaymentMethod>>;
+    private accountBase;
+    getAccountCustomer(req: AccountScopedBillingRequest, options?: RequestOptions): Promise<ApiResponse<Customer>>;
+    listAccountPaymentMethods(req: AccountScopedBillingRequest, options?: RequestOptions): Promise<ApiResponse<PaymentMethod[]>>;
+    attachAccountPaymentMethod(req: AccountScopedBillingRequest, body: AttachPaymentMethodRequest, options?: RequestOptions): Promise<ApiResponse<PaymentMethod>>;
+    detachAccountPaymentMethod(req: AccountScopedBillingRequest, paymentMethodId: string, options?: RequestOptions): Promise<ApiResponse<void>>;
+    setDefaultAccountPaymentMethod(req: AccountScopedBillingRequest, paymentMethodId: string, options?: RequestOptions): Promise<ApiResponse<PaymentMethod>>;
+    listAccountInvoices(req: AccountScopedBillingRequest, params?: InvoiceListParams, options?: RequestOptions): Promise<ApiResponse<InvoiceListResponse>>;
+    getAccountInvoice(req: AccountScopedBillingRequest, invoiceId: string, options?: RequestOptions): Promise<ApiResponse<Invoice>>;
+    createAccountPortalSession(req: AccountScopedBillingRequest, body?: {
+        return_url?: string;
+    }, options?: RequestOptions): Promise<ApiResponse<PortalSession>>;
     subscribe(data: {
         customer_id: string;
         plan_id: string;
@@ -4153,8 +4239,39 @@ interface TransformOptions {
  * URLs built with these sizes + fit=cover get instant cache hits (no server-side transform).
  */
 declare const PHOTO_BREAKPOINTS: readonly [36, 150, 320, 640, 1080];
+/** Result of {@link PhotoService.uploadViaStorage}. */
+interface UploadViaStorageResult {
+    /** Storage file_id — pass this to chat-message attachment metadata. */
+    file_id: string;
+    /**
+     * Photo service's photo_id. Use with `getTransformUrl()` /
+     * `getOptimalUrl()` to fetch responsive variants. `null` when register
+     * failed after a successful storage upload (the file_id is still usable
+     * as a generic storage file).
+     */
+    photo_id: string | null;
+    /**
+     * Short-lived signed URL to the original bytes — usable immediately on the
+     * recipient side, before optimization completes.
+     */
+    original_view_url: string | null;
+    /**
+     * Resolves once the optimization worker finishes (or times out at 10s).
+     * On resolution: a transform URL pointing at the largest pre-cached
+     * breakpoint. On timeout: `null` — caller should fall back to
+     * `getTransformUrl()` which uses the on-demand transform path.
+     */
+    optimized_url_promise: Promise<string | null>;
+}
 declare class PhotoService extends ServiceModule {
+    private readonly storage;
     protected basePath: string;
+    /**
+     * @param storage Required for {@link uploadViaStorage}. Wired up by the
+     *   top-level {@link ScaleMule} constructor — most call sites should not
+     *   instantiate `PhotoService` directly.
+     */
+    constructor(client: ScaleMuleClient, storage: StorageService);
     upload(file: File | Blob, uploadOptions?: {
         metadata?: Record<string, unknown>;
         onProgress?: (progress: number) => void;
@@ -4242,6 +4359,41 @@ declare class PhotoService extends ServiceModule {
         fileId: string;
         userId?: string;
     }, requestOptions?: RequestOptions): Promise<ApiResponse<PhotoInfo>>;
+    /**
+     * Upload a file to storage (browser → S3 direct, private, uncompressed) and
+     * register it with the photo service so optimization + transform URLs work.
+     *
+     * The canonical chat-attachment / progressive-image upload primitive. Same
+     * presigned-direct-to-S3 path as `storage.uploadPrivate()`, plus a follow-up
+     * `photo.register()` call so `getTransformUrl()` / `getOptimalUrl()` return
+     * usable URLs.
+     *
+     * The returned `optimized_url_promise` resolves once the photo's
+     * `optimization_status` flips to `completed` (or once a 10s timeout fires;
+     * the caller can still use `getTransformUrl()` directly — the on-demand
+     * transform path produces a variant even before pre-rendered breakpoints
+     * are cached). Phase 3 of ADR-2026-04-26 replaces the poll with a realtime
+     * subscription.
+     *
+     * If `register()` fails after a successful storage upload (e.g. scan times
+     * out), the file is *not* lost: the returned `file_id` is still valid as a
+     * generic storage file. The SDK logs a warning and resolves
+     * `optimized_url_promise` to `null`.
+     */
+    uploadViaStorage(file: File | Blob, uploadOptions?: {
+        userId?: string;
+        filename?: string;
+        metadata?: Record<string, unknown>;
+        onProgress?: (progress: number) => void;
+        signal?: AbortSignal;
+    }, requestOptions?: RequestOptions): Promise<ApiResponse<UploadViaStorageResult>>;
+    /**
+     * Poll {@link get} until the photo's `optimization_status` is `completed`
+     * or the 10s timeout fires. Resolves to a usable transform URL on success;
+     * `null` on timeout (caller should fall back to {@link getTransformUrl}
+     * which uses the on-demand transform path).
+     */
+    private pollOptimizationComplete;
     /** @deprecated Use upload() instead */
     uploadPhoto(file: File | Blob, options?: {
         metadata?: Record<string, unknown>;
@@ -6052,4 +6204,4 @@ declare class ScaleMule {
     getClient(): ScaleMuleClient;
 }
 
-export { type AccountBalance, type AccountSwitcherPrivacy, AccountsService, type ActiveUsers, type ActivityItem, AgentAuthService, AgentModelsService, type AgentProfile, AgentProjectsService, type AgentResponse, type AgentSecurityPolicy, AgentSessionsService, type AgentSigningKey, type AgentToken, type AgentToolEntitlement, AgentToolsService, type Workspace as AgentWorkspace, AgentsService, type AggregateOptions, type AggregateResult, type AnalyticsEvent, AnalyticsService, type ApiError, type ApiKey, type ApiResponse, type Appeal, type Application, type Attachment, type Attendee, type AuditLog, type AuthRegisterAgentRequest, type AuthRegisterAgentResponse, AuthService, type AuthSession, type AuthUser, type BackupCodes, BillingService, type CacheEntry, CacheService, type CalendarEvent, type CallParticipant, type CallSession, type CatalogEntry, CatalogService, type ChatMessage, type ChatReaction, ChatService, type ClaimResult, type Client, type ClientContext, type Collection, type Comment, CommunicationService, type CompletedPart, ComplianceService, type CompressionConfig, ConferenceService, type ConferenceSettings, type ConnectedAccount, type ConnectedAccountSubscription, type ConnectedSetupIntentResponse, type ConnectedSubscriptionListParams, type ConnectionStatus, type ContentFlag, type Conversation, type CostReportDay, type CreateProjectInput as CreateCreatorProjectInput, type CreateFlagRequest, type CreateRuleRequest, type CreateSegmentRequest, type CreateSessionResponse, type CreateVariantRequest, type GenerationJob as CreatorJob, CreatorMakerService, type GenerationOutput as CreatorOutput, type CreatorProject, type CreatorUsage, type Credential, type CredentialScope, type Customer, type DataAccessPolicy, type DataExport, DataService, type DataSource, type DeadLetterJob, type DeviceInfo, type DirectoryUser, type DirectoryUserDetail, type DirectoryUsersListResponse, type Document, type ErrorCode, ErrorCodes, type EventAggregation, EventsService, type FileInfo, type FlagAuditEntry, type FlagCheck, type FlagCondition, FlagContentService, type FlagDefinition, type FlagDetail, type FlagEnvironment, type FlagEvaluation, type FlagSegment, type FlagVariant, FlagsService, type FollowStatus, type FunctionExecution, type FunctionMetrics, FunctionsService, type Funnel, type FunnelConversion, type GdprRequest, type GenerateInput, type GrantInfo, type GraphEdge, type GraphNode, GraphService, IdentityService, type IdentityType, type IncomingRequestLike, type Invoice, type JobExecution, type JobStats, type JoinCallResponse, type KnownAccount, type KnownAccountDisplay, type Leaderboard, type LeaderboardEntry, LeaderboardService, type Like, type ListNotificationsParams, type Listing, ListingsService, type LogEntry, type LogInput, type LogQueryParams, type LogQueryResponse, type LogRecord, LoggerService, type LoginActivitySummary, type LoginDeviceInfo, type LoginHistoryEntry, type LoginRiskInfo, type MessageCallback, type MessageStatus, type MetricDataPoint, type MfaStatus, type Model, type ModelEntitlement, type ModelPricing, type ModelProvider, type UsageSummary as ModelUsageSummary, type MultipartCompleteResponse, type MultipartConfig, type MultipartPartUrl, type MultipartPartUrlsResponse, type MultipartStartResponse, type NetworkClass, type Notification, type NotificationListResponse, NotificationsService, type OAuthProvider, type OAuthUrl, OrchestratorService, PHOTO_BREAKPOINTS, type PaginatedResponse, type PaginationMetadata, type PaginationParams, type PartResult, type PartUrl, type Participant, type Payment, type PaymentListParams, type PaymentMethod, type PaymentStatusResponse, type Payout, type PayoutSchedule, type PermissionCheck, type PermissionMatrix, PermissionsService, type PhotoInfo, PhotoService, type Pipeline, type PipelineVersion, type Policy, type PresenceCallback, type PresenceEvent, type PresignedUploadResponse, type Price, type Product, type Project, type ProjectDocument, type ProjectGrant, type ProjectMember, type PushApiFetcher, type PushPreferences, type PushSettings, type PushSubscriptionInfo, type PushToken, type PushTokenAssociationResult, type PushTopic, type QueryFilter, type QueryOptions, type QuerySort, type QueueJob, QueueService, type ReadStatus, RealtimeService, type RedeemResult, type ReferralAnalytics, type ReferralCampaign, type ReferralProfile, type ReferralStats, ReferralsService, type Refund, type RegisterAgentRequest, type RegisterAgentResponse, type RegisterPushTokenData, type RequestOptions, type ResolvedReferral, type ResumeSession, type Role, type RuntimeTemplate, type RuntimeTemplateVersion, type S3MultipartOptions, type S3MultipartResult, type S3SingleUploadOptions, type S3SingleUploadResult, type S3UploadProgress, ScaleMule, ScaleMuleClient, type ScaleMuleConfig, type SchedulerJob, SchedulerService, type SearchResult, SearchService, type SearchUsersParams, type SecurityLayers, type ServerlessFunction, type ServiceHealth, ServiceModule, type Session, type SessionArtifact, type SessionInfo, type SessionLog, type SessionPoolEntry, type Severity, type ShareLink, type ShortestPathResult, type SignedUrlResponse, type SocialPost, SocialService, type SocialUser, type SsoConfig, type StatusCallback, type StorageAdapter, StorageService, type StrategyResult, type StylePreset, type SubmitResult, type Subscription, type TargetingRule, type Task, type TaskAttempt, type TaskTransition, type Team, type TeamInvitation, type TeamMember, TeamsService, type TelemetryPayload, type Tool, type ToolCapability, type ToolIntegration, type TopEvent, type TotpSetup, type Transaction, type TransactionListParams, type TransactionSummary, type TransactionSummaryParams, type Transfer, type TransformOptions, type TransformResult, type TraversalResult, type UnreadCountResponse, type UpdateFlagRequest, type UpdateRuleRequest, type UpdateSegmentRequest, type UpdateVariantRequest, type UploadCompleteResponse, type UploadEngineConfig, type UploadFailureReport, type UploadFailureReportResponse, type UploadOptions, type UploadPlan, UploadResumeStore, type UploadStrategy, UploadTelemetry, type UploadTelemetryConfig, type UploadTelemetryEvent, type UpsertEnvironmentRequest, type UsageRecord, type UsageSummary$1 as UsageSummary, type UserRank, type VideoInfo, VideoService, type VideoUploadOptions, WEB_PUSH_SERVICE_WORKER, WebPushManager, type WebPushManagerOptions, type WebPushSubscriptionData, type Webhook, WebhooksService, type WebrtcStats, type Workflow, type WorkflowExecution, type Workspace$1 as Workspace, type WorkspaceInvitation, type WorkspaceMember, WorkspacesService, buildClientContextHeaders, calculateTotalParts, canPerform, createUploadPlan, ScaleMule as default, detectNetworkClass, extractClientContext, generateUploadSessionId, getMeasuredBandwidthMbps, getPartRange, hasMinRoleLevel, resolveStrategy, uploadMultipartToS3, uploadSingleToS3, validateIP };
+export { type AccountBalance, type AccountSwitcherPrivacy, AccountsService, type ActiveUsers, type ActivityItem, AgentAuthService, AgentModelsService, type AgentProfile, AgentProjectsService, type AgentResponse, type AgentSecurityPolicy, AgentSessionsService, type AgentSigningKey, type AgentToken, type AgentToolEntitlement, AgentToolsService, type Workspace as AgentWorkspace, AgentsService, type AggregateOptions, type AggregateResult, type AnalyticsEvent, AnalyticsService, type ApiError, type ApiKey, type ApiResponse, type Appeal, type Application, type Attachment, type Attendee, type AuditLog, type AuthRegisterAgentRequest, type AuthRegisterAgentResponse, AuthService, type AuthSession, type AuthUser, type BackupCodes, BillingService, type CacheEntry, CacheService, type CalendarEvent, type CallParticipant, type CallSession, type CatalogEntry, CatalogService, type ChatMessage, type ChatReaction, ChatService, type ClaimResult, type Client, type ClientContext, type Collection, type Comment, CommunicationService, type CompletedPart, ComplianceService, type CompressionConfig, ConferenceService, type ConferenceSettings, type ConnectedAccount, type ConnectedAccountSubscription, type ConnectedSetupIntentResponse, type ConnectedSubscriptionListParams, type ConnectionStatus, type ContentFlag, type Conversation, type CostReportDay, type CreateProjectInput as CreateCreatorProjectInput, type CreateFlagRequest, type CreateRuleRequest, type CreateSegmentRequest, type CreateSessionResponse, type CreateVariantRequest, type GenerationJob as CreatorJob, CreatorMakerService, type GenerationOutput as CreatorOutput, type CreatorProject, type CreatorUsage, type Credential, type CredentialScope, type Customer, type DataAccessPolicy, type DataExport, DataService, type DataSource, type DeadLetterJob, type DeviceInfo, type DirectoryUser, type DirectoryUserDetail, type DirectoryUsersListResponse, type Document, type ErrorCode, ErrorCodes, type EventAggregation, EventsService, type FileInfo, type FlagAuditEntry, type FlagCheck, type FlagCondition, FlagContentService, type FlagDefinition, type FlagDetail, type FlagEnvironment, type FlagEvaluation, type FlagSegment, type FlagVariant, FlagsService, type FollowStatus, type FunctionExecution, type FunctionMetrics, FunctionsService, type Funnel, type FunnelConversion, type GdprRequest, type GenerateInput, type GrantInfo, type GraphEdge, type GraphNode, GraphService, IdentityService, type IdentityType, type IncomingRequestLike, type Invoice, type JobExecution, type JobStats, type JoinCallResponse, type KnownAccount, type KnownAccountDisplay, type Leaderboard, type LeaderboardEntry, LeaderboardService, type Like, type ListNotificationsParams, type Listing, ListingsService, type LogEntry, type LogInput, type LogQueryParams, type LogQueryResponse, type LogRecord, LoggerService, type LoginActivitySummary, type LoginDeviceInfo, type LoginHistoryEntry, type LoginRiskInfo, type MessageCallback, type MessagePin, type MessageStatus, type MetricDataPoint, type MfaStatus, type Model, type ModelEntitlement, type ModelPricing, type ModelProvider, type UsageSummary as ModelUsageSummary, type MultipartCompleteResponse, type MultipartConfig, type MultipartPartUrl, type MultipartPartUrlsResponse, type MultipartStartResponse, type NetworkClass, type Notification, type NotificationListResponse, NotificationsService, type OAuthProvider, type OAuthUrl, OrchestratorService, PHOTO_BREAKPOINTS, type PaginatedResponse, type PaginationMetadata, type PaginationParams, type PartResult, type PartUrl, type Participant, type Payment, type PaymentListParams, type PaymentMethod, type PaymentStatusResponse, type Payout, type PayoutSchedule, type PermissionCheck, type PermissionMatrix, PermissionsService, type PhotoInfo, PhotoService, type PinnedMessagesResponse, type Pipeline, type PipelineVersion, type Policy, type PresenceCallback, type PresenceEvent, type PresignedUploadResponse, type Price, type Product, type Project, type ProjectDocument, type ProjectGrant, type ProjectMember, type PushApiFetcher, type PushPreferences, type PushSettings, type PushSubscriptionInfo, type PushToken, type PushTokenAssociationResult, type PushTopic, type QueryFilter, type QueryOptions, type QuerySort, type QueueJob, QueueService, type ReadStatus, RealtimeService, type RedeemResult, type ReferralAnalytics, type ReferralCampaign, type ReferralProfile, type ReferralStats, ReferralsService, type Refund, type RegisterAgentRequest, type RegisterAgentResponse, type RegisterPushTokenData, type RequestOptions, type ResolvedReferral, type ResumeSession, type Role, type RuntimeTemplate, type RuntimeTemplateVersion, type S3MultipartOptions, type S3MultipartResult, type S3SingleUploadOptions, type S3SingleUploadResult, type S3UploadProgress, ScaleMule, ScaleMuleClient, type ScaleMuleConfig, type SchedulerJob, SchedulerService, type SearchResult, SearchService, type SearchUsersParams, type SecurityLayers, type ServerlessFunction, type ServiceHealth, ServiceModule, type Session, type SessionArtifact, type SessionInfo, type SessionLog, type SessionPoolEntry, type Severity, type ShareLink, type ShortestPathResult, type SignedUrlResponse, type SocialPost, SocialService, type SocialUser, type SsoConfig, type StatusCallback, type StorageAdapter, StorageService, type StrategyResult, type StylePreset, type SubmitResult, type Subscription, type TargetingRule, type Task, type TaskAttempt, type TaskTransition, type Team, type TeamInvitation, type TeamMember, TeamsService, type TelemetryPayload, type Tool, type ToolCapability, type ToolIntegration, type TopEvent, type TotpSetup, type Transaction, type TransactionListParams, type TransactionSummary, type TransactionSummaryParams, type Transfer, type TransformOptions, type TransformResult, type TraversalResult, type UnreadCountResponse, type UpdateFlagRequest, type UpdateRuleRequest, type UpdateSegmentRequest, type UpdateVariantRequest, type UploadCompleteResponse, type UploadEngineConfig, type UploadFailureReport, type UploadFailureReportResponse, type UploadOptions, type UploadPlan, UploadResumeStore, type UploadStrategy, UploadTelemetry, type UploadTelemetryConfig, type UploadTelemetryEvent, type UpsertEnvironmentRequest, type UsageRecord, type UsageSummary$1 as UsageSummary, type UserRank, type VideoInfo, VideoService, type VideoUploadOptions, WEB_PUSH_SERVICE_WORKER, WebPushManager, type WebPushManagerOptions, type WebPushSubscriptionData, type Webhook, WebhooksService, type WebrtcStats, type Workflow, type WorkflowExecution, type Workspace$1 as Workspace, type WorkspaceInvitation, type WorkspaceMember, WorkspacesService, buildClientContextHeaders, calculateTotalParts, canPerform, createUploadPlan, ScaleMule as default, detectNetworkClass, extractClientContext, generateUploadSessionId, getMeasuredBandwidthMbps, getPartRange, hasMinRoleLevel, resolveStrategy, uploadMultipartToS3, uploadSingleToS3, validateIP };
