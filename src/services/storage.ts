@@ -253,7 +253,7 @@ export class StorageService extends ServiceModule {
     const result = await this.upload(file, {
       ...options,
       isPublic: false,
-      skipCompression: true,
+      skipCompression: true
     });
 
     // Defense-in-depth: never propagate a public file from this entry point,
@@ -267,8 +267,8 @@ export class StorageService extends ServiceModule {
             'Storage returned is_public=true for an uploadPrivate() call. ' +
             'This usually indicates a server-side bug or an admin override; ' +
             'the caller asked for a private upload.',
-          status: 0,
-        },
+          status: 0
+        }
       };
     }
 

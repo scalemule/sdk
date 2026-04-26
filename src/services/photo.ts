@@ -94,7 +94,10 @@ export class PhotoService extends ServiceModule {
    *   top-level {@link ScaleMule} constructor — most call sites should not
    *   instantiate `PhotoService` directly.
    */
-  constructor(client: ScaleMuleClient, private readonly storage: StorageService) {
+  constructor(
+    client: ScaleMuleClient,
+    private readonly storage: StorageService
+  ) {
     super(client);
   }
 
@@ -310,7 +313,7 @@ export class PhotoService extends ServiceModule {
       filename: uploadOptions?.filename,
       metadata: uploadOptions?.metadata,
       onProgress: uploadOptions?.onProgress,
-      signal: uploadOptions?.signal,
+      signal: uploadOptions?.signal
     });
 
     if (uploadResult.error || !uploadResult.data) {
@@ -324,10 +327,7 @@ export class PhotoService extends ServiceModule {
     // Step 2 — register with photo service. `register()` polls scan completion
     // internally (~5s server-side, retried up to ~17s). On success the photo
     // record exists; on failure the storage file is still usable as-is.
-    const registerResult = await this.register(
-      { fileId, userId: uploadOptions?.userId },
-      requestOptions
-    );
+    const registerResult = await this.register({ fileId, userId: uploadOptions?.userId }, requestOptions);
 
     if (registerResult.error || !registerResult.data) {
       // Surface as success — caller has a valid file_id — but no optimized variants.
@@ -341,9 +341,9 @@ export class PhotoService extends ServiceModule {
           file_id: fileId,
           photo_id: null,
           original_view_url: originalViewUrl,
-          optimized_url_promise: Promise.resolve(null),
+          optimized_url_promise: Promise.resolve(null)
         },
-        error: null,
+        error: null
       };
     }
 
@@ -358,9 +358,9 @@ export class PhotoService extends ServiceModule {
         file_id: fileId,
         photo_id: photoId,
         original_view_url: originalViewUrl,
-        optimized_url_promise: optimizedUrlPromise,
+        optimized_url_promise: optimizedUrlPromise
       },
-      error: null,
+      error: null
     };
   }
 
@@ -370,10 +370,7 @@ export class PhotoService extends ServiceModule {
    * `null` on timeout (caller should fall back to {@link getTransformUrl}
    * which uses the on-demand transform path).
    */
-  private async pollOptimizationComplete(
-    photoId: string,
-    requestOptions?: RequestOptions
-  ): Promise<string | null> {
+  private async pollOptimizationComplete(photoId: string, requestOptions?: RequestOptions): Promise<string | null> {
     const intervalMs = 250;
     const maxAttempts = 40; // 40 × 250ms = 10s
 
@@ -381,8 +378,7 @@ export class PhotoService extends ServiceModule {
       const result = await this.get(photoId, requestOptions);
       // optimization_status isn't in the typed PhotoInfo today; the photo
       // service emits it on GET. Read defensively.
-      const status = (result.data as (PhotoInfo & { optimization_status?: string }) | null)
-        ?.optimization_status;
+      const status = (result.data as (PhotoInfo & { optimization_status?: string }) | null)?.optimization_status;
       if (status === 'completed') {
         return this.getOptimalUrl(photoId, 1080);
       }
