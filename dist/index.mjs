@@ -6104,6 +6104,81 @@ var PhotoService = class extends ServiceModule {
   }
 };
 
+// src/services/audio.ts
+var AudioService = class extends ServiceModule {
+  /**
+   * @param storage Required for {@link uploadViaStorage}. Wired up by the
+   *   top-level {@link ScaleMule} constructor — most call sites should not
+   *   instantiate `AudioService` directly.
+   */
+  constructor(client, storage) {
+    super(client);
+    this.storage = storage;
+    this.basePath = "/v1/audios";
+  }
+  /**
+   * Register a storage-uploaded audio asset with the audio service.
+   * Idempotent — re-calling with the same `file_id` returns the existing
+   * record.
+   */
+  async register(args, options) {
+    return this.post(
+      "/register",
+      { file_id: args.fileId, sm_user_id: args.userId },
+      options
+    );
+  }
+  /**
+   * Upload a file to storage (browser → S3 direct, private, uncompressed)
+   * and register it with the audio service.
+   *
+   * Mirrors `photo.uploadViaStorage()` / `video.uploadViaStorage()`. If
+   * `register()` fails after a successful storage upload, the file is *not*
+   * lost — the returned `file_id` is still valid as a generic private storage
+   * file. The SDK logs a warning and returns `audio_id: null`.
+   */
+  async uploadViaStorage(file, uploadOptions, requestOptions) {
+    const uploadResult = await this.storage.uploadPrivate(file, {
+      filename: uploadOptions?.filename,
+      metadata: uploadOptions?.metadata,
+      onProgress: uploadOptions?.onProgress,
+      signal: uploadOptions?.signal
+    });
+    if (uploadResult.error || !uploadResult.data) {
+      return { data: null, error: uploadResult.error };
+    }
+    const fileInfo = uploadResult.data;
+    const fileId = fileInfo.id;
+    const originalViewUrl = fileInfo.url ?? null;
+    const registerResult = await this.register(
+      { fileId, userId: uploadOptions?.userId },
+      requestOptions
+    );
+    if (registerResult.error || !registerResult.data) {
+      console.warn(
+        "[scalemule-sdk] audio.register() failed after storage upload; typed audio metadata unavailable.",
+        registerResult.error
+      );
+      return {
+        data: {
+          file_id: fileId,
+          audio_id: null,
+          original_view_url: originalViewUrl
+        },
+        error: null
+      };
+    }
+    return {
+      data: {
+        file_id: fileId,
+        audio_id: registerResult.data.audio_id,
+        original_view_url: originalViewUrl
+      },
+      error: null
+    };
+  }
+};
+
 // src/services/queue.ts
 var DeadLetterApi = class extends ServiceModule {
   constructor() {
@@ -6954,6 +7029,7 @@ var ScaleMule = class {
     this.graph = new GraphService(this._client);
     this.functions = new FunctionsService(this._client);
     this.photo = new PhotoService(this._client, this.storage);
+    this.audio = new AudioService(this._client, this.storage);
     this.flagContent = new FlagContentService(this._client);
     this.creatorMaker = new CreatorMakerService(this._client);
     this.compliance = new ComplianceService(this._client);
@@ -7096,6 +7172,7 @@ export {
   AgentToolsService,
   AgentsService,
   AnalyticsService,
+  AudioService,
   AuthService,
   BillingService,
   CacheService,
