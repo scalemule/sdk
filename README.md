@@ -157,20 +157,25 @@ progressively enhance as the optimize / transcode workers finish.
 
 ```ts
 // Image — uploads private, registers for optimization, returns transform URL
-const { file_id, original_view_url, optimized_url_promise } =
-  await sm.photo.uploadViaStorage(file)
+const { data: photo } = await sm.photo.uploadViaStorage(file)
+// photo: { file_id, original_view_url, optimized_url_promise }
 
 // Video — uploads private, registers for HLS transcoding
-const { file_id, original_view_url, hls_url_promise } =
-  await sm.video.uploadViaStorage(file)
+const { data: video } = await sm.video.uploadViaStorage(file)
+// video: { file_id, original_view_url, hls_url_promise }
 
-// Audio — uploads private, registers for waveform / transcode
-const { file_id, original_view_url } = await sm.audio.uploadViaStorage(file)
+// Audio — uploads private + registers metadata. Waveform / transcode are
+// scheduled when the audio service ships its post-processing worker
+// (Phase 3B); until then this returns just the file_id and view URL.
+const { data: audio } = await sm.audio.uploadViaStorage(file)
 
 // One-shot status (use this for non-chat surfaces)
-const { data: status } = await sm.storage.getFileStatus(file_id)
+const { data: status } = await sm.storage.getFileStatus(photo!.file_id)
 //   { scan, optimize, transcode, urls: { original, optimized?, hls? } }
 ```
+
+Every method returns `{ data, error }` — destructure `data` (and check `error`)
+before reaching into the result.
 
 For Next.js apps, prefer `useMedia()` from `@scalemule/nextjs` — it routes by
 MIME type and exposes a single hook for chat composers. See
@@ -251,7 +256,8 @@ const { data } = await sm.data.aggregate('orders', {
 
 ```ts
 // Recommended: upload via storage and register for transcoding
-const { file_id, hls_url_promise } = await sm.video.uploadViaStorage(videoFile)
+const { data: video } = await sm.video.uploadViaStorage(videoFile)
+// video: { file_id, original_view_url, hls_url_promise }
 
 // Lookup an existing video
 const { data } = await sm.video.get(videoId)
