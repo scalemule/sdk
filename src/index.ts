@@ -73,6 +73,7 @@ export type {
 export type {
   UploadOptions,
   FileInfo,
+  FileStatus,
   SignedUrlResponse,
   PresignedUploadResponse,
   UploadCompleteResponse,
