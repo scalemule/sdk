@@ -230,6 +230,51 @@ export class StorageService extends ServiceModule {
     }
   }
 
+  /**
+   * Upload a file as a private attachment (e.g. chat / DM attachment).
+   *
+   * Same browser→S3 pipeline as {@link upload}, but enforces:
+   *   - `is_public: false` — caller cannot opt out
+   *   - no client-side compression — preserve the original bytes
+   *   - fail-closed if storage returns `is_public: true` for any reason
+   *
+   * The shared primitive used by `@scalemule/chat`'s chat-attachment uploader
+   * and by `@scalemule/nextjs`'s `useMedia()` when an app's media policy is
+   * `fast_trusted`. Both packages call this method via `@scalemule/sdk` —
+   * `@scalemule/nextjs` does not depend on `@scalemule/chat`.
+   *
+   * See ADR-2026-04-26 (realtime-chat media pipeline) and
+   * docs/MEDIA-UPLOADS.md for the full pattern.
+   */
+  async uploadPrivate(
+    file: File | Blob,
+    options?: Omit<UploadOptions, 'isPublic' | 'skipCompression'>
+  ): Promise<ApiResponse<FileInfo>> {
+    const result = await this.upload(file, {
+      ...options,
+      isPublic: false,
+      skipCompression: true,
+    });
+
+    // Defense-in-depth: never propagate a public file from this entry point,
+    // even if the service erroneously flips visibility somewhere downstream.
+    if (result.data && result.data.is_public === true) {
+      return {
+        data: null,
+        error: {
+          code: 'visibility_violation',
+          message:
+            'Storage returned is_public=true for an uploadPrivate() call. ' +
+            'This usually indicates a server-side bug or an admin override; ' +
+            'the caller asked for a private upload.',
+          status: 0,
+        },
+      };
+    }
+
+    return result;
+  }
+
   // --------------------------------------------------------------------------
   // Direct Upload (3-step with retry + stall)
   // --------------------------------------------------------------------------

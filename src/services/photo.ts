@@ -11,7 +11,9 @@
  */
 
 import { ServiceModule } from '../service';
+import type { ScaleMuleClient } from '../client';
 import type { ApiResponse, RequestOptions } from '../types';
+import type { StorageService, FileInfo } from './storage';
 
 // ============================================================================
 // Types
@@ -55,12 +57,46 @@ export interface TransformOptions {
  */
 export const PHOTO_BREAKPOINTS = [36, 150, 320, 640, 1080] as const;
 
+/** Result of {@link PhotoService.uploadViaStorage}. */
+export interface UploadViaStorageResult {
+  /** Storage file_id — pass this to chat-message attachment metadata. */
+  file_id: string;
+  /**
+   * Photo service's photo_id. Use with `getTransformUrl()` /
+   * `getOptimalUrl()` to fetch responsive variants. `null` when register
+   * failed after a successful storage upload (the file_id is still usable
+   * as a generic storage file).
+   */
+  photo_id: string | null;
+  /**
+   * Short-lived signed URL to the original bytes — usable immediately on the
+   * recipient side, before optimization completes.
+   */
+  original_view_url: string | null;
+  /**
+   * Resolves once the optimization worker finishes (or times out at 10s).
+   * On resolution: a transform URL pointing at the largest pre-cached
+   * breakpoint. On timeout: `null` — caller should fall back to
+   * `getTransformUrl()` which uses the on-demand transform path.
+   */
+  optimized_url_promise: Promise<string | null>;
+}
+
 // ============================================================================
 // Photo Service
 // ============================================================================
 
 export class PhotoService extends ServiceModule {
   protected basePath = '/v1/photos';
+
+  /**
+   * @param storage Required for {@link uploadViaStorage}. Wired up by the
+   *   top-level {@link ScaleMule} constructor — most call sites should not
+   *   instantiate `PhotoService` directly.
+   */
+  constructor(client: ScaleMuleClient, private readonly storage: StorageService) {
+    super(client);
+  }
 
   async upload(
     file: File | Blob,
@@ -235,6 +271,124 @@ export class PhotoService extends ServiceModule {
         status: 202
       }
     };
+  }
+
+  /**
+   * Upload a file to storage (browser → S3 direct, private, uncompressed) and
+   * register it with the photo service so optimization + transform URLs work.
+   *
+   * The canonical chat-attachment / progressive-image upload primitive. Same
+   * presigned-direct-to-S3 path as `storage.uploadPrivate()`, plus a follow-up
+   * `photo.register()` call so `getTransformUrl()` / `getOptimalUrl()` return
+   * usable URLs.
+   *
+   * The returned `optimized_url_promise` resolves once the photo's
+   * `optimization_status` flips to `completed` (or once a 10s timeout fires;
+   * the caller can still use `getTransformUrl()` directly — the on-demand
+   * transform path produces a variant even before pre-rendered breakpoints
+   * are cached). Phase 3 of ADR-2026-04-26 replaces the poll with a realtime
+   * subscription.
+   *
+   * If `register()` fails after a successful storage upload (e.g. scan times
+   * out), the file is *not* lost: the returned `file_id` is still valid as a
+   * generic storage file. The SDK logs a warning and resolves
+   * `optimized_url_promise` to `null`.
+   */
+  async uploadViaStorage(
+    file: File | Blob,
+    uploadOptions?: {
+      userId?: string;
+      filename?: string;
+      metadata?: Record<string, unknown>;
+      onProgress?: (progress: number) => void;
+      signal?: AbortSignal;
+    },
+    requestOptions?: RequestOptions
+  ): Promise<ApiResponse<UploadViaStorageResult>> {
+    // Step 1 — private direct-to-S3 upload via storage.
+    const uploadResult = await this.storage.uploadPrivate(file, {
+      filename: uploadOptions?.filename,
+      metadata: uploadOptions?.metadata,
+      onProgress: uploadOptions?.onProgress,
+      signal: uploadOptions?.signal,
+    });
+
+    if (uploadResult.error || !uploadResult.data) {
+      return { data: null, error: uploadResult.error };
+    }
+
+    const fileInfo: FileInfo = uploadResult.data;
+    const fileId = fileInfo.id;
+    const originalViewUrl = fileInfo.url ?? null;
+
+    // Step 2 — register with photo service. `register()` polls scan completion
+    // internally (~5s server-side, retried up to ~17s). On success the photo
+    // record exists; on failure the storage file is still usable as-is.
+    const registerResult = await this.register(
+      { fileId, userId: uploadOptions?.userId },
+      requestOptions
+    );
+
+    if (registerResult.error || !registerResult.data) {
+      // Surface as success — caller has a valid file_id — but no optimized variants.
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[scalemule-sdk] photo.register() failed after storage upload; optimized variants unavailable.',
+        registerResult.error
+      );
+      return {
+        data: {
+          file_id: fileId,
+          photo_id: null,
+          original_view_url: originalViewUrl,
+          optimized_url_promise: Promise.resolve(null),
+        },
+        error: null,
+      };
+    }
+
+    const photoId = registerResult.data.id;
+
+    // Step 3 — start polling for optimization completion in the background.
+    // Phase 1: poll every 250ms up to 10s. Phase 3 swaps for realtime.
+    const optimizedUrlPromise = this.pollOptimizationComplete(photoId, requestOptions);
+
+    return {
+      data: {
+        file_id: fileId,
+        photo_id: photoId,
+        original_view_url: originalViewUrl,
+        optimized_url_promise: optimizedUrlPromise,
+      },
+      error: null,
+    };
+  }
+
+  /**
+   * Poll {@link get} until the photo's `optimization_status` is `completed`
+   * or the 10s timeout fires. Resolves to a usable transform URL on success;
+   * `null` on timeout (caller should fall back to {@link getTransformUrl}
+   * which uses the on-demand transform path).
+   */
+  private async pollOptimizationComplete(
+    photoId: string,
+    requestOptions?: RequestOptions
+  ): Promise<string | null> {
+    const intervalMs = 250;
+    const maxAttempts = 40; // 40 × 250ms = 10s
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const result = await this.get(photoId, requestOptions);
+      // optimization_status isn't in the typed PhotoInfo today; the photo
+      // service emits it on GET. Read defensively.
+      const status = (result.data as (PhotoInfo & { optimization_status?: string }) | null)
+        ?.optimization_status;
+      if (status === 'completed') {
+        return this.getOptimalUrl(photoId, 1080);
+      }
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+    return null;
   }
 
   /** @deprecated Use upload() instead */
