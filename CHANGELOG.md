@@ -7,6 +7,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.0.40] - 2026-04-26
+
+### Added
+- `storage.getFileStatus(fileId)` — single-call status read for any file. Returns `{ scan, optimize, transcode, urls }` aggregating storage's local scan state with constructed URL paths for image (transform) and video (HLS playlist). Foundational primitive for the upcoming `useFileStatus()` hook + `<ScaleMuleMedia>` component (Phase 3 of the realtime-chat media pipeline ADR).
+- `FileStatus` exported type for the response shape.
+
 ## [0.0.39] - 2026-04-26
 
 ### Added

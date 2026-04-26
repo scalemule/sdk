@@ -1122,6 +1122,39 @@ interface SignedUrlResponse {
     url: string;
     expires_at: string;
 }
+/**
+ * Aggregate file status — returned by {@link StorageService.getFileStatus}.
+ *
+ * Foundational primitive for the chat / progressive media read side.
+ * `optimize` and `transcode` are reserved for Phase 3 enrichment; until
+ * filled, callers should attempt the constructed `urls.optimized` /
+ * `urls.hls` directly (404 means pipeline still running).
+ */
+interface FileStatus {
+    file_id: string;
+    mime_type: string;
+    scan: {
+        /** pending | scanning | clean | threat | error | quarantined */
+        status: string;
+        scanned_at?: string;
+    };
+    optimize: {
+        status: string;
+        breakpoints?: number[];
+    } | null;
+    transcode: {
+        status: string;
+        manifest_url?: string;
+    } | null;
+    urls: {
+        /** Gateway path for the original bytes — `/v1/storage/files/{id}` */
+        original: string;
+        /** Gateway path for the photo transform — image MIME types only */
+        optimized?: string;
+        /** Gateway path for the HLS master playlist — video MIME types only */
+        hls?: string;
+    };
+}
 declare class StorageService extends ServiceModule {
     protected basePath: string;
     private telemetry;
@@ -1207,6 +1240,29 @@ declare class StorageService extends ServiceModule {
     }>>;
     /** Get file metadata (no signed URL). */
     getInfo(fileId: string, options?: RequestOptions): Promise<ApiResponse<FileInfo>>;
+    /**
+     * Aggregate status for a file — single call returns scan + reserved
+     * optimize/transcode slots + the canonical view URL paths for image
+     * (transform endpoint) and video (HLS playlist) MIME types.
+     *
+     * Foundational primitive for the chat / progressive media read side.
+     * `useFileStatus()` (in `@scalemule/nextjs`) consumes this for both
+     * first-paint and refresh-on-demand scenarios.
+     *
+     * `optimize` and `transcode` are reserved for Phase 3 enrichment. Until
+     * the photo/video services expose internal status endpoints, callers
+     * should attempt the constructed URLs directly to discover readiness
+     * (404 means the pipeline is still running).
+     *
+     * @example
+     * ```ts
+     * const r = await client.storage.getFileStatus(fileId);
+     * if (r.data?.scan.status === 'clean' && r.data.urls.optimized) {
+     *   // image: try transform URL for an optimized variant
+     * }
+     * ```
+     */
+    getFileStatus(fileId: string, options?: RequestOptions): Promise<ApiResponse<FileStatus>>;
     /**
      * Get a signed view URL for inline display (img src, thumbnails).
      * Returns CloudFront signed URL (fast, ~1us) or S3 presigned fallback.
