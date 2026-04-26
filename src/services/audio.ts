@@ -68,11 +68,7 @@ export class AudioService extends ServiceModule {
     args: { fileId: string; userId?: string },
     options?: RequestOptions
   ): Promise<ApiResponse<AudioRegisterResult>> {
-    return this.post<AudioRegisterResult>(
-      '/register',
-      { file_id: args.fileId, sm_user_id: args.userId },
-      options
-    );
+    return this.post<AudioRegisterResult>('/register', { file_id: args.fileId, sm_user_id: args.userId }, options);
   }
 
   /**
@@ -112,10 +108,7 @@ export class AudioService extends ServiceModule {
     const originalViewUrl = fileInfo.url ?? null;
 
     // Step 2 — register with audio service.
-    const registerResult = await this.register(
-      { fileId, userId: uploadOptions?.userId },
-      requestOptions
-    );
+    const registerResult = await this.register({ fileId, userId: uploadOptions?.userId }, requestOptions);
 
     if (registerResult.error || !registerResult.data) {
       // Surface as success — caller has a valid file_id. Audio service

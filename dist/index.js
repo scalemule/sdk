@@ -6495,11 +6495,7 @@ var AudioService = class extends ServiceModule {
    * record.
    */
   async register(args, options) {
-    return this.post(
-      "/register",
-      { file_id: args.fileId, sm_user_id: args.userId },
-      options
-    );
+    return this.post("/register", { file_id: args.fileId, sm_user_id: args.userId }, options);
   }
   /**
    * Upload a file to storage (browser → S3 direct, private, uncompressed)
@@ -6523,10 +6519,7 @@ var AudioService = class extends ServiceModule {
     const fileInfo = uploadResult.data;
     const fileId = fileInfo.id;
     const originalViewUrl = fileInfo.url ?? null;
-    const registerResult = await this.register(
-      { fileId, userId: uploadOptions?.userId },
-      requestOptions
-    );
+    const registerResult = await this.register({ fileId, userId: uploadOptions?.userId }, requestOptions);
     if (registerResult.error || !registerResult.data) {
       console.warn(
         "[scalemule-sdk] audio.register() failed after storage upload; typed audio metadata unavailable.",

@@ -267,10 +267,7 @@ export type { SearchResult } from './services/search';
 export { PhotoService, PHOTO_BREAKPOINTS } from './services/photo';
 export type { PhotoInfo, TransformResult, TransformOptions } from './services/photo';
 export { AudioService } from './services/audio';
-export type {
-  AudioRegisterResult,
-  AudioUploadViaStorageResult
-} from './services/audio';
+export type { AudioRegisterResult, AudioUploadViaStorageResult } from './services/audio';
 export { QueueService } from './services/queue';
 export type { QueueJob, DeadLetterJob } from './services/queue';
 export { CacheService } from './services/cache';
