@@ -7,6 +7,16 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.0.39] - 2026-04-26
+
+### Added
+- `video.register({ fileId, userId? })` — synchronous handshake for storage-uploaded videos. Mirrors `photo.register()`. Verifies cross-app authz, reads scan status, and creates a video record with `id == file_id` (the storage-backed video invariant). Idempotent.
+- `video.uploadViaStorage(file, options)` — composes `storage.uploadPrivate()` with `video.register()`. Returns `{ file_id, video_id, original_view_url, hls_url_promise }`. The promise resolves to the HLS master playlist URL once transcoding completes (30s polling timeout for now).
+- `RegisterVideoRequest`, `RegisterVideoResponse`, `VideoUploadViaStorageResult` exported types.
+
+### Changed
+- `VideoService` constructor now takes `StorageService` as a second argument (wired up by the top-level `ScaleMule` constructor; existing call sites unchanged).
+
 ## [0.0.38] - 2026-04-26
 
 ### Added
