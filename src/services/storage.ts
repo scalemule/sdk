@@ -1111,9 +1111,7 @@ export class StorageService extends ServiceModule {
    * console.log(data?.media_policy); // 'safe_visible'
    * ```
    */
-  async getPolicy(
-    options?: RequestOptions
-  ): Promise<ApiResponse<{ media_policy: MediaPolicy }>> {
+  async getPolicy(options?: RequestOptions): Promise<ApiResponse<{ media_policy: MediaPolicy }>> {
     return this._get<{ media_policy: MediaPolicy }>(`/policy`, options);
   }
 
