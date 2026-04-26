@@ -2944,6 +2944,25 @@ var StorageService = class extends ServiceModule {
     return this._get(`/files/${fileId}/info`, options);
   }
   /**
+   * Get the calling app's storage + media settings — content policy,
+   * retention, max upload size, and the per-app `media_policy`.
+   *
+   * `media_policy` drives release-gating in the SDK upload helpers:
+   * `fast_trusted` / `safe_visible` resolve immediately on upload; the
+   * `safe_public` / `moderated` / `compliance` modes await pipeline
+   * completion before resolving the upload promise.
+   */
+  async getSettings(options) {
+    return this._get("/settings", options);
+  }
+  /**
+   * Update the calling app's storage + media settings. Admin-only on the
+   * platform side (callers without the right role get 403).
+   */
+  async updateSettings(settings, options) {
+    return this.put("/settings", settings, options);
+  }
+  /**
    * Aggregate status for a file — single call returns scan + reserved
    * optimize/transcode slots + the canonical view URL paths for image
    * (transform endpoint) and video (HLS playlist) MIME types.

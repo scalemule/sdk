@@ -173,6 +173,32 @@ export interface SignedUrlResponse {
 }
 
 /**
+ * Per-app media-pipeline policy. Drives release-gating + processing
+ * behavior. Orthogonal to `is_public`. Five modes — see
+ * `docs/MEDIA-UPLOADS.md` and ADR-2026-04-26 for the full taxonomy.
+ */
+export type MediaPolicy = 'fast_trusted' | 'safe_visible' | 'safe_public' | 'moderated' | 'compliance';
+
+/** Content-type allow/block policy for uploads. */
+export interface ContentPolicy {
+  mode: 'allow' | 'block' | 'none';
+  allowed_types?: string[];
+  blocked_extensions?: string[];
+}
+
+/**
+ * Per-app storage + media settings. Returned by {@link StorageService.getSettings}
+ * and accepted by {@link StorageService.updateSettings}.
+ */
+export interface StorageSettings {
+  content_policy?: ContentPolicy;
+  media_policy?: MediaPolicy;
+  default_retention_hours?: number | null;
+  max_retention_hours?: number | null;
+  max_file_size_bytes?: number | null;
+}
+
+/**
  * Aggregate file status — returned by {@link StorageService.getFileStatus}.
  *
  * Foundational primitive for the chat / progressive media read side.
@@ -1018,6 +1044,27 @@ export class StorageService extends ServiceModule {
   /** Get file metadata (no signed URL). */
   async getInfo(fileId: string, options?: RequestOptions): Promise<ApiResponse<FileInfo>> {
     return this._get<FileInfo>(`/files/${fileId}/info`, options);
+  }
+
+  /**
+   * Get the calling app's storage + media settings — content policy,
+   * retention, max upload size, and the per-app `media_policy`.
+   *
+   * `media_policy` drives release-gating in the SDK upload helpers:
+   * `fast_trusted` / `safe_visible` resolve immediately on upload; the
+   * `safe_public` / `moderated` / `compliance` modes await pipeline
+   * completion before resolving the upload promise.
+   */
+  async getSettings(options?: RequestOptions): Promise<ApiResponse<StorageSettings>> {
+    return this._get<StorageSettings>('/settings', options);
+  }
+
+  /**
+   * Update the calling app's storage + media settings. Admin-only on the
+   * platform side (callers without the right role get 403).
+   */
+  async updateSettings(settings: StorageSettings, options?: RequestOptions): Promise<ApiResponse<StorageSettings>> {
+    return this.put<StorageSettings>('/settings', settings, options);
   }
 
   /**

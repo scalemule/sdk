@@ -7,6 +7,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.0.42] - 2026-04-26
+
+### Added
+- `storage.getSettings()` / `storage.updateSettings(settings)` — wrappers over `GET / PUT /v1/storage/settings` (the per-app storage + media-pipeline config endpoint).
+- `MediaPolicy`, `StorageSettings`, `ContentPolicy` exported types.
+
 ## [0.0.41] - 2026-04-26
 
 ### Changed
