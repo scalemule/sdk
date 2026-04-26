@@ -350,12 +350,9 @@ export class BillingService extends ServiceModule {
     return `/v1/billing/accounts/${encodeURIComponent(accountId)}`;
   }
 
-  async getAccountCustomer(
-    req: AccountScopedBillingRequest,
-    options?: RequestOptions
-  ): Promise<ApiResponse<Customer>> {
+  async getAccountCustomer(req: AccountScopedBillingRequest, options?: RequestOptions): Promise<ApiResponse<Customer>> {
     const path = this.withQuery(`${this.accountBase(req.account_id)}/customer`, {
-      billing_mode: req.billing_mode,
+      billing_mode: req.billing_mode
     });
     return this.client.get<Customer>(path, options);
   }
@@ -365,7 +362,7 @@ export class BillingService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<PaymentMethod[]>> {
     const path = this.withQuery(`${this.accountBase(req.account_id)}/payment-methods`, {
-      billing_mode: req.billing_mode,
+      billing_mode: req.billing_mode
     });
     return this.client.get<PaymentMethod[]>(path, options);
   }
@@ -376,7 +373,7 @@ export class BillingService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<PaymentMethod>> {
     const path = this.withQuery(`${this.accountBase(req.account_id)}/payment-methods`, {
-      billing_mode: req.billing_mode,
+      billing_mode: req.billing_mode
     });
     return this.client.post<PaymentMethod>(path, body, options);
   }
@@ -413,7 +410,7 @@ export class BillingService extends ServiceModule {
     const path = this.withQuery(`${this.accountBase(req.account_id)}/invoices`, {
       billing_mode: req.billing_mode,
       limit: params?.limit,
-      cursor: params?.cursor,
+      cursor: params?.cursor
     });
     return this.client.get<InvoiceListResponse>(path, options);
   }
@@ -423,10 +420,9 @@ export class BillingService extends ServiceModule {
     invoiceId: string,
     options?: RequestOptions
   ): Promise<ApiResponse<Invoice>> {
-    const path = this.withQuery(
-      `${this.accountBase(req.account_id)}/invoices/${encodeURIComponent(invoiceId)}`,
-      { billing_mode: req.billing_mode }
-    );
+    const path = this.withQuery(`${this.accountBase(req.account_id)}/invoices/${encodeURIComponent(invoiceId)}`, {
+      billing_mode: req.billing_mode
+    });
     return this.client.get<Invoice>(path, options);
   }
 
@@ -435,10 +431,9 @@ export class BillingService extends ServiceModule {
     body?: { return_url?: string },
     options?: RequestOptions
   ): Promise<ApiResponse<PortalSession>> {
-    const path = this.withQuery(
-      `${this.accountBase(req.account_id)}/portal-session`,
-      { billing_mode: req.billing_mode }
-    );
+    const path = this.withQuery(`${this.accountBase(req.account_id)}/portal-session`, {
+      billing_mode: req.billing_mode
+    });
     return this.client.post<PortalSession>(path, body ?? {}, options);
   }
 

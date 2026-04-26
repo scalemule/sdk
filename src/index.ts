@@ -127,7 +127,16 @@ export type {
   AggregateResult
 } from './services/data';
 export { ChatService } from './services/chat';
-export type { Conversation, Participant, Attachment, ChatMessage, ReadStatus, ChatReaction } from './services/chat';
+export type {
+  Conversation,
+  Participant,
+  Attachment,
+  ChatMessage,
+  ReadStatus,
+  ChatReaction,
+  MessagePin,
+  PinnedMessagesResponse
+} from './services/chat';
 export { ConferenceService } from './services/conference';
 export type {
   CallSession,

@@ -14,6 +14,9 @@
  *   PATCH  /messages/{id}                            → edit message
  *   DELETE /messages/{id}                            → delete message
  *   POST   /messages/{id}/reactions                  → add reaction
+ *   POST   /messages/{id}/pin                        → pin message
+ *   DELETE /messages/{id}/pin                        → unpin message
+ *   GET    /conversations/{id}/pins                  → list pinned messages
  *   POST   /conversations/{id}/typing                → send typing indicator
  *   POST   /conversations/{id}/read                  → mark as read
  *   GET    /conversations/{id}/read-status            → get read status
@@ -67,6 +70,8 @@ export interface ChatMessage {
   latest_reply_at?: string;
   reply_user_ids?: string[];
   is_thread_broadcast?: boolean;
+  is_pinned?: boolean;
+  pinned_at?: string;
 }
 
 export interface ReadStatus {
@@ -79,6 +84,17 @@ export interface ChatReaction {
   user_id: string;
   message_id: string;
   created_at: string;
+}
+
+export interface MessagePin {
+  message_id: string;
+  conversation_id: string;
+  pinned_by_user_id: string;
+  pinned_at: string;
+}
+
+export interface PinnedMessagesResponse {
+  pins: MessagePin[];
 }
 
 // ============================================================================
@@ -175,6 +191,25 @@ export class ChatService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<ChatReaction>> {
     return this.post<ChatReaction>(`/messages/${messageId}/reactions`, data, options);
+  }
+
+  // --------------------------------------------------------------------------
+  // Pins
+  // --------------------------------------------------------------------------
+
+  async pinMessage(messageId: string, options?: RequestOptions): Promise<ApiResponse<MessagePin>> {
+    return this.post<MessagePin>(`/messages/${messageId}/pin`, undefined, options);
+  }
+
+  async unpinMessage(messageId: string, options?: RequestOptions): Promise<ApiResponse<{ unpinned: boolean }>> {
+    return this.del<{ unpinned: boolean }>(`/messages/${messageId}/pin`, options);
+  }
+
+  async getPinnedMessages(
+    conversationId: string,
+    options?: RequestOptions
+  ): Promise<ApiResponse<PinnedMessagesResponse>> {
+    return this._get<PinnedMessagesResponse>(`/conversations/${conversationId}/pins`, options);
   }
 
   // --------------------------------------------------------------------------
