@@ -544,7 +544,7 @@ export class ScaleMule {
     this.events = new EventsService(this._client);
     this.graph = new GraphService(this._client);
     this.functions = new FunctionsService(this._client);
-    this.photo = new PhotoService(this._client);
+    this.photo = new PhotoService(this._client, this.storage);
     this.flagContent = new FlagContentService(this._client);
     this.creatorMaker = new CreatorMakerService(this._client);
     this.compliance = new ComplianceService(this._client);
