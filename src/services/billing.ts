@@ -787,16 +787,22 @@ export class BillingService extends ServiceModule {
   }
 
   // --------------------------------------------------------------------------
-  // Legacy methods (backward compat)
+  // Removed aliases (Phase 6 — billing-v2 retirement)
+  //
+  // These were soft-deprecated wrappers in earlier SDK versions. They now
+  // throw at runtime so any caller still using them gets an immediate signal.
+  // Replacements: createSubscription → subscribe(); getInvoices → listInvoices().
   // --------------------------------------------------------------------------
 
-  /** @deprecated Use subscribe() instead */
-  async createSubscription(data: { customer_id: string; plan_id: string }) {
-    return this.subscribe(data);
+  /** @removed Use subscribe() instead. */
+  async createSubscription(data: { customer_id: string; plan_id: string }): Promise<never> {
+    void data;
+    throw new Error('BillingService.createSubscription was removed in Phase 6. Use subscribe() instead.');
   }
 
-  /** @deprecated Use listInvoices() instead */
-  async getInvoices(params?: PaginationParams) {
-    return this.listInvoices(params);
+  /** @removed Use listInvoices() instead. */
+  async getInvoices(params?: PaginationParams): Promise<never> {
+    void params;
+    throw new Error('BillingService.getInvoices was removed in Phase 6. Use listInvoices() instead.');
   }
 }
