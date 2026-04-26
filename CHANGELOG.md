@@ -7,6 +7,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.0.41] - 2026-04-26
+
+### Changed
+- `FileStatus` is now exported from the package root (oversight in 0.0.40 — the type existed but wasn't re-exported, so consumers couldn't import it).
+
 ## [0.0.40] - 2026-04-26
 
 ### Added
