@@ -513,7 +513,7 @@ export class ScaleMule {
     this.auth = new AuthService(this._client);
     this.storage = new StorageService(this._client);
     this.realtime = new RealtimeService(this._client);
-    this.video = new VideoService(this._client);
+    this.video = new VideoService(this._client, this.storage);
 
     // Application services
     this.data = new DataService(this._client);

@@ -1691,8 +1691,47 @@ interface VideoInfo {
     created_at: string;
     updated_at: string;
 }
+/** Request body for {@link VideoService.register}. */
+interface RegisterVideoRequest {
+    /** Storage file_id of the previously-uploaded video. */
+    fileId: string;
+    /** Optional override; defaults to the gateway-injected x-user-id. */
+    userId?: string;
+}
+/** Response shape from POST /v1/videos/register. */
+interface RegisterVideoResponse {
+    video_id: string;
+    file_id: string;
+    /** `registering` (scan was clean) | `pending_scan` (scan in progress) */
+    status: 'registering' | 'pending_scan';
+    original_view_url: string;
+}
+/** Result of {@link VideoService.uploadViaStorage}. */
+interface VideoUploadViaStorageResult {
+    /** Storage file_id — store this in chat-attachment metadata. */
+    file_id: string;
+    /** Video service id. Equals `file_id` for storage-backed videos. */
+    video_id: string;
+    /**
+     * Short-lived signed URL to the original bytes. Usable immediately on the
+     * recipient side, before HLS transcoding completes.
+     */
+    original_view_url: string | null;
+    /**
+     * Resolves once the transcode worker finishes (or times out at 30s).
+     * On resolution: an HLS master playlist URL. On timeout: `null` — caller
+     * should fall back to `original_view_url` and try the playlist later.
+     */
+    hls_url_promise: Promise<string | null>;
+}
 declare class VideoService extends ServiceModule {
+    private readonly storage;
     protected basePath: string;
+    /**
+     * @param storage Required for {@link uploadViaStorage}. Wired up by the
+     *   top-level {@link ScaleMule} constructor.
+     */
+    constructor(client: ScaleMuleClient, storage: StorageService);
     /**
      * Upload a video file using chunked multipart upload.
      *
@@ -1706,6 +1745,61 @@ declare class VideoService extends ServiceModule {
     upload(file: File | Blob, options?: VideoUploadOptions, requestOptions?: RequestOptions): Promise<ApiResponse<VideoInfo>>;
     /** Get video metadata and status. */
     get(videoId: string, options?: RequestOptions): Promise<ApiResponse<VideoInfo>>;
+    /**
+     * Register a video from a file already uploaded to scalemule-storage.
+     *
+     * The synchronous handshake for storage-uploaded videos. Verifies the
+     * caller's app owns the storage `file_id` and reads scan status:
+     *   - clean   → 201, video record created with status='uploading',
+     *               transcode worker advances on `scan.file.completed`
+     *   - pending → 202, video record created with status='pending_scan',
+     *               worker advances when scan completes
+     *   - threat  → 409 (rejected; row not created)
+     *
+     * Idempotent: calling twice with the same file_id returns the existing
+     * row's data (the underlying INSERT uses ON DUPLICATE KEY UPDATE).
+     *
+     * For storage-backed videos `video_id == file_id` — the response's
+     * `video_id` and `file_id` are identical, and either can be used with
+     * `getStreamUrl()` / `get()`.
+     *
+     * Most callers should use {@link uploadViaStorage} which composes
+     * `storage.uploadPrivate()` + `register()` in a single call.
+     */
+    register(request: RegisterVideoRequest, options?: RequestOptions): Promise<ApiResponse<RegisterVideoResponse>>;
+    /**
+     * Upload a video to storage (browser → S3 direct, private, no
+     * compression) and register it with the video service so transcoding
+     * + HLS streaming work.
+     *
+     * The canonical chat-attachment / progressive-video upload primitive.
+     * Same private-direct-to-S3 path as `storage.uploadPrivate()`, plus a
+     * follow-up `video.register()` call so HLS playback URLs become live
+     * once the transcoder finishes.
+     *
+     * The returned `hls_url_promise` resolves once the video's status
+     * flips to `ready` (or after a 30s timeout — caller can still serve
+     * `original_view_url` as the fallback). Phase 3 of the realtime-chat
+     * media pipeline ADR replaces the poll with a realtime subscription.
+     *
+     * If `register()` fails after a successful storage upload, the file
+     * is *not* lost: the returned `file_id` is still valid as a generic
+     * storage file. SDK logs a warning and resolves `hls_url_promise`
+     * to `null`.
+     */
+    uploadViaStorage(file: File | Blob, uploadOptions?: {
+        userId?: string;
+        filename?: string;
+        metadata?: Record<string, unknown>;
+        onProgress?: (progress: number) => void;
+        signal?: AbortSignal;
+    }, requestOptions?: RequestOptions): Promise<ApiResponse<VideoUploadViaStorageResult>>;
+    /**
+     * Poll {@link get} until the video's status is `ready` or the 30s
+     * timeout fires. Resolves to the HLS master playlist URL on success;
+     * `null` on timeout (caller should fall back to `original_view_url`).
+     */
+    private pollTranscodeComplete;
     /**
      * Get the HLS master playlist URL for streaming.
      * Returns the playlist URL that can be passed to a video player.
