@@ -149,7 +149,45 @@ if (!normalized.valid) {
 }
 ```
 
+## Media uploads (recommended for image / video / audio)
+
+Typed services upload directly to S3 (no body-size traps), register with the
+photo / video / audio service in the background, and return URLs that
+progressively enhance as the optimize / transcode workers finish.
+
+```ts
+// Image — uploads private, registers for optimization, returns transform URL
+const { data: photo } = await sm.photo.uploadViaStorage(file)
+// photo: { file_id, original_view_url, optimized_url_promise }
+
+// Video — uploads private, registers for HLS transcoding
+const { data: video } = await sm.video.uploadViaStorage(file)
+// video: { file_id, original_view_url, hls_url_promise }
+
+// Audio — uploads private + registers metadata. Waveform / transcode are
+// scheduled when the audio service ships its post-processing worker
+// (Phase 3B); until then this returns just the file_id and view URL.
+const { data: audio } = await sm.audio.uploadViaStorage(file)
+
+// One-shot status (use this for non-chat surfaces)
+const { data: status } = await sm.storage.getFileStatus(photo!.file_id)
+//   { scan, optimize, transcode, urls: { original, optimized?, hls? } }
+```
+
+Every method returns `{ data, error }` — destructure `data` (and check `error`)
+before reaching into the result.
+
+For Next.js apps, prefer `useMedia()` from `@scalemule/nextjs` — it routes by
+MIME type and exposes a single hook for chat composers. See
+[`docs/MEDIA-UPLOADS.md`](https://github.com/scalemule/scalemule-repos/blob/main/docs/MEDIA-UPLOADS.md)
+for the decision tree (fast vs safe policy modes, private vs public visibility,
+anti-patterns).
+
 ## Storage
+
+Use this for plain files that don't need image optimization or video
+transcoding (documents, downloads, exports). For media, prefer the typed
+services above.
 
 ```ts
 // Upload (3-step presigned URL flow, hidden from you)
@@ -160,6 +198,9 @@ const { data, error } = await sm.storage.upload(file, {
   signal: abortController.signal,
 })
 
+// Private upload primitive (no compression, is_public: false enforced)
+const { data } = await sm.storage.uploadPrivate(file)
+
 // Signed URLs for viewing/downloading
 const { data } = await sm.storage.getViewUrl(fileId)
 const { data: urls } = await sm.storage.getViewUrls(fileIds)  // batch, up to 100
@@ -169,6 +210,9 @@ const { data } = await sm.storage.getDownloadUrl(fileId)
 const { data: info } = await sm.storage.getInfo(fileId)
 const { data: files, metadata } = await sm.storage.list({ page: 1, perPage: 20 })
 await sm.storage.delete(fileId)
+
+// Aggregate file status (scan + optimize + transcode + urls)
+const { data: status } = await sm.storage.getFileStatus(fileId)
 
 // Split upload (server-side: get URL → client uploads to S3 → complete)
 const { data: upload } = await sm.storage.getUploadUrl('photo.jpg', 'image/jpeg')
@@ -211,9 +255,11 @@ const { data } = await sm.data.aggregate('orders', {
 ## Video
 
 ```ts
-const { data } = await sm.video.upload(videoFile, {
-  onProgress: (pct) => console.log(`${pct}%`),
-})
+// Recommended: upload via storage and register for transcoding
+const { data: video } = await sm.video.uploadViaStorage(videoFile)
+// video: { file_id, original_view_url, hls_url_promise }
+
+// Lookup an existing video
 const { data } = await sm.video.get(videoId)
 const { data } = await sm.video.getStreamUrl(videoId)
 await sm.video.trackPlayback(videoId, { event: 'play', position: 0 })
