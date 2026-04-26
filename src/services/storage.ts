@@ -217,11 +217,18 @@ export interface FileStatus {
   optimize: { status: string; breakpoints?: number[] } | null;
   transcode: { status: string; manifest_url?: string } | null;
   urls: {
-    /** Gateway path for the original bytes — `/v1/storage/files/{id}` */
-    original: string;
-    /** Gateway path for the photo transform — image MIME types only */
+    /**
+     * Direct-to-CDN view URL (CloudFront-signed where configured,
+     * S3-presigned otherwise). Absent when scan is `threat` /
+     * `quarantined` / `error` — consumers render a blocked
+     * placeholder when this is null + scan is non-clean.
+     */
+    original?: string;
+    /** Gateway path for the photo transform — present only when the
+     *  photo pipeline reports `optimize.status === 'done'` (image only). */
     optimized?: string;
-    /** Gateway path for the HLS master playlist — video MIME types only */
+    /** Gateway path for the HLS master playlist — present only when the
+     *  transcode worker reports `transcode.status === 'done'` (video only). */
     hls?: string;
   };
 }
@@ -1097,8 +1104,6 @@ export class StorageService extends ServiceModule {
    * Read the application's active media policy. Lightweight endpoint
    * (`GET /v1/storage/policy`) used by the SDK on boot to pick up the
    * platform-default `media_policy` without requiring app-admin auth.
-   * Returns the raw enum string the storage service stores; the
-   * `@scalemule/nextjs` provider maps it onto its `MediaPolicy` type.
    *
    * @example
    * ```ts
@@ -1108,8 +1113,8 @@ export class StorageService extends ServiceModule {
    */
   async getPolicy(
     options?: RequestOptions
-  ): Promise<ApiResponse<{ media_policy: string }>> {
-    return this._get<{ media_policy: string }>(`/policy`, options);
+  ): Promise<ApiResponse<{ media_policy: MediaPolicy }>> {
+    return this._get<{ media_policy: MediaPolicy }>(`/policy`, options);
   }
 
   /**

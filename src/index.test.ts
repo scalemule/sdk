@@ -720,6 +720,40 @@ describe('StorageService', () => {
       expect(url).toBe('https://api.scalemule.com/v1/storage/files/f1')
       expect(init.method).toBe('DELETE')
     })
+
+    it('should GET /policy for getPolicy', async () => {
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse({ data: { media_policy: 'safe_visible' } })
+      )
+
+      const result = await sm.storage.getPolicy()
+
+      const [url, init] = mockFetch.mock.calls[0]
+      expect(url).toBe('https://api.scalemule.com/v1/storage/policy')
+      expect(init.method).toBe('GET')
+      expect(result.data?.media_policy).toBe('safe_visible')
+    })
+
+    it('should GET /files/{id}/status for getFileStatus', async () => {
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse({
+          data: {
+            file_id: 'f1',
+            mime_type: 'image/jpeg',
+            scan: { status: 'clean' },
+            optimize: { status: 'pending' },
+            transcode: null,
+            urls: { original: 'https://cdn.example/f1' },
+          },
+        })
+      )
+
+      await sm.storage.getFileStatus('f1')
+
+      const [url, init] = mockFetch.mock.calls[0]
+      expect(url).toBe('https://api.scalemule.com/v1/storage/files/f1/status')
+      expect(init.method).toBe('GET')
+    })
   })
 })
 
