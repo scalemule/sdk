@@ -2944,6 +2944,31 @@ var StorageService = class extends ServiceModule {
     return this._get(`/files/${fileId}/info`, options);
   }
   /**
+   * Aggregate status for a file — single call returns scan + reserved
+   * optimize/transcode slots + the canonical view URL paths for image
+   * (transform endpoint) and video (HLS playlist) MIME types.
+   *
+   * Foundational primitive for the chat / progressive media read side.
+   * `useFileStatus()` (in `@scalemule/nextjs`) consumes this for both
+   * first-paint and refresh-on-demand scenarios.
+   *
+   * `optimize` and `transcode` are reserved for Phase 3 enrichment. Until
+   * the photo/video services expose internal status endpoints, callers
+   * should attempt the constructed URLs directly to discover readiness
+   * (404 means the pipeline is still running).
+   *
+   * @example
+   * ```ts
+   * const r = await client.storage.getFileStatus(fileId);
+   * if (r.data?.scan.status === 'clean' && r.data.urls.optimized) {
+   *   // image: try transform URL for an optimized variant
+   * }
+   * ```
+   */
+  async getFileStatus(fileId, options) {
+    return this._get(`/files/${fileId}/status`, options);
+  }
+  /**
    * Get a signed view URL for inline display (img src, thumbnails).
    * Returns CloudFront signed URL (fast, ~1us) or S3 presigned fallback.
    */
