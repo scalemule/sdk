@@ -2335,6 +2335,40 @@ var StorageService = class extends ServiceModule {
       return { data: null, error: { code: "upload_error", message, status: 0 } };
     }
   }
+  /**
+   * Upload a file as a private attachment (e.g. chat / DM attachment).
+   *
+   * Same browser→S3 pipeline as {@link upload}, but enforces:
+   *   - `is_public: false` — caller cannot opt out
+   *   - no client-side compression — preserve the original bytes
+   *   - fail-closed if storage returns `is_public: true` for any reason
+   *
+   * The shared primitive used by `@scalemule/chat`'s chat-attachment uploader
+   * and by `@scalemule/nextjs`'s `useMedia()` when an app's media policy is
+   * `fast_trusted`. Both packages call this method via `@scalemule/sdk` —
+   * `@scalemule/nextjs` does not depend on `@scalemule/chat`.
+   *
+   * See ADR-2026-04-26 (realtime-chat media pipeline) and
+   * docs/MEDIA-UPLOADS.md for the full pattern.
+   */
+  async uploadPrivate(file, options) {
+    const result = await this.upload(file, {
+      ...options,
+      isPublic: false,
+      skipCompression: true
+    });
+    if (result.data && result.data.is_public === true) {
+      return {
+        data: null,
+        error: {
+          code: "visibility_violation",
+          message: "Storage returned is_public=true for an uploadPrivate() call. This usually indicates a server-side bug or an admin override; the caller asked for a private upload.",
+          status: 0
+        }
+      };
+    }
+    return result;
+  }
   // --------------------------------------------------------------------------
   // Direct Upload (3-step with retry + stall)
   // --------------------------------------------------------------------------
@@ -4352,6 +4386,18 @@ var ChatService = class extends ServiceModule {
     return this.post(`/messages/${messageId}/reactions`, data, options);
   }
   // --------------------------------------------------------------------------
+  // Pins
+  // --------------------------------------------------------------------------
+  async pinMessage(messageId, options) {
+    return this.post(`/messages/${messageId}/pin`, void 0, options);
+  }
+  async unpinMessage(messageId, options) {
+    return this.del(`/messages/${messageId}/pin`, options);
+  }
+  async getPinnedMessages(conversationId, options) {
+    return this._get(`/conversations/${conversationId}/pins`, options);
+  }
+  // --------------------------------------------------------------------------
   // Typing & Read Receipts
   // --------------------------------------------------------------------------
   async sendTyping(conversationId, options) {
@@ -4570,13 +4616,78 @@ var BillingService = class extends ServiceModule {
     );
   }
   // --------------------------------------------------------------------------
-  // Customers
+  // Customers (legacy user-scoped — deprecated in favor of account-scoped)
   // --------------------------------------------------------------------------
+  /** @deprecated Use `getAccountCustomer({ account_id })`. Targets the user-scoped legacy endpoint. */
   async createCustomer(data, options) {
     return this.post("/customers", data, options);
   }
+  /** @deprecated Use `attachAccountPaymentMethod({ account_id }, ...)`. Targets the user-scoped legacy endpoint. */
   async addPaymentMethod(data, options) {
     return this.post("/payment-methods", data, options);
+  }
+  // --------------------------------------------------------------------------
+  // Account-Scoped Billing (v2 — ADR-2026-04-25)
+  //
+  // The customer/payment-method/invoice record set belongs to an `app_account`
+  // (typically a `customer_org`), not to a single user. These methods target
+  // the `/v1/billing/accounts/{account_id}/*` endpoints described in
+  // openapi/scalemule-money-billing-v1.yaml.
+  // --------------------------------------------------------------------------
+  accountBase(accountId) {
+    return `/v1/billing/accounts/${encodeURIComponent(accountId)}`;
+  }
+  async getAccountCustomer(req, options) {
+    const path = this.withQuery(`${this.accountBase(req.account_id)}/customer`, {
+      billing_mode: req.billing_mode
+    });
+    return this.client.get(path, options);
+  }
+  async listAccountPaymentMethods(req, options) {
+    const path = this.withQuery(`${this.accountBase(req.account_id)}/payment-methods`, {
+      billing_mode: req.billing_mode
+    });
+    return this.client.get(path, options);
+  }
+  async attachAccountPaymentMethod(req, body, options) {
+    const path = this.withQuery(`${this.accountBase(req.account_id)}/payment-methods`, {
+      billing_mode: req.billing_mode
+    });
+    return this.client.post(path, body, options);
+  }
+  async detachAccountPaymentMethod(req, paymentMethodId, options) {
+    const path = this.withQuery(
+      `${this.accountBase(req.account_id)}/payment-methods/${encodeURIComponent(paymentMethodId)}`,
+      { billing_mode: req.billing_mode }
+    );
+    return this.client.del(path, options);
+  }
+  async setDefaultAccountPaymentMethod(req, paymentMethodId, options) {
+    const path = this.withQuery(
+      `${this.accountBase(req.account_id)}/payment-methods/${encodeURIComponent(paymentMethodId)}/default`,
+      { billing_mode: req.billing_mode }
+    );
+    return this.client.put(path, void 0, options);
+  }
+  async listAccountInvoices(req, params, options) {
+    const path = this.withQuery(`${this.accountBase(req.account_id)}/invoices`, {
+      billing_mode: req.billing_mode,
+      limit: params?.limit,
+      cursor: params?.cursor
+    });
+    return this.client.get(path, options);
+  }
+  async getAccountInvoice(req, invoiceId, options) {
+    const path = this.withQuery(`${this.accountBase(req.account_id)}/invoices/${encodeURIComponent(invoiceId)}`, {
+      billing_mode: req.billing_mode
+    });
+    return this.client.get(path, options);
+  }
+  async createAccountPortalSession(req, body, options) {
+    const path = this.withQuery(`${this.accountBase(req.account_id)}/portal-session`, {
+      billing_mode: req.billing_mode
+    });
+    return this.client.post(path, body ?? {}, options);
   }
   // --------------------------------------------------------------------------
   // Subscriptions
@@ -5965,8 +6076,14 @@ var SearchService = class extends ServiceModule {
 // src/services/photo.ts
 var PHOTO_BREAKPOINTS = [36, 150, 320, 640, 1080];
 var PhotoService = class extends ServiceModule {
-  constructor() {
-    super(...arguments);
+  /**
+   * @param storage Required for {@link uploadViaStorage}. Wired up by the
+   *   top-level {@link ScaleMule} constructor — most call sites should not
+   *   instantiate `PhotoService` directly.
+   */
+  constructor(client, storage) {
+    super(client);
+    this.storage = storage;
     this.basePath = "/v1/photos";
   }
   async upload(file, uploadOptions, requestOptions) {
@@ -6105,6 +6222,90 @@ var PhotoService = class extends ServiceModule {
         status: 202
       }
     };
+  }
+  /**
+   * Upload a file to storage (browser → S3 direct, private, uncompressed) and
+   * register it with the photo service so optimization + transform URLs work.
+   *
+   * The canonical chat-attachment / progressive-image upload primitive. Same
+   * presigned-direct-to-S3 path as `storage.uploadPrivate()`, plus a follow-up
+   * `photo.register()` call so `getTransformUrl()` / `getOptimalUrl()` return
+   * usable URLs.
+   *
+   * The returned `optimized_url_promise` resolves once the photo's
+   * `optimization_status` flips to `completed` (or once a 10s timeout fires;
+   * the caller can still use `getTransformUrl()` directly — the on-demand
+   * transform path produces a variant even before pre-rendered breakpoints
+   * are cached). Phase 3 of ADR-2026-04-26 replaces the poll with a realtime
+   * subscription.
+   *
+   * If `register()` fails after a successful storage upload (e.g. scan times
+   * out), the file is *not* lost: the returned `file_id` is still valid as a
+   * generic storage file. The SDK logs a warning and resolves
+   * `optimized_url_promise` to `null`.
+   */
+  async uploadViaStorage(file, uploadOptions, requestOptions) {
+    const uploadResult = await this.storage.uploadPrivate(file, {
+      filename: uploadOptions?.filename,
+      metadata: uploadOptions?.metadata,
+      onProgress: uploadOptions?.onProgress,
+      signal: uploadOptions?.signal
+    });
+    if (uploadResult.error || !uploadResult.data) {
+      return { data: null, error: uploadResult.error };
+    }
+    const fileInfo = uploadResult.data;
+    const fileId = fileInfo.id;
+    const originalViewUrl = fileInfo.url ?? null;
+    const registerResult = await this.register(
+      { fileId, userId: uploadOptions?.userId },
+      requestOptions
+    );
+    if (registerResult.error || !registerResult.data) {
+      console.warn(
+        "[scalemule-sdk] photo.register() failed after storage upload; optimized variants unavailable.",
+        registerResult.error
+      );
+      return {
+        data: {
+          file_id: fileId,
+          photo_id: null,
+          original_view_url: originalViewUrl,
+          optimized_url_promise: Promise.resolve(null)
+        },
+        error: null
+      };
+    }
+    const photoId = registerResult.data.id;
+    const optimizedUrlPromise = this.pollOptimizationComplete(photoId, requestOptions);
+    return {
+      data: {
+        file_id: fileId,
+        photo_id: photoId,
+        original_view_url: originalViewUrl,
+        optimized_url_promise: optimizedUrlPromise
+      },
+      error: null
+    };
+  }
+  /**
+   * Poll {@link get} until the photo's `optimization_status` is `completed`
+   * or the 10s timeout fires. Resolves to a usable transform URL on success;
+   * `null` on timeout (caller should fall back to {@link getTransformUrl}
+   * which uses the on-demand transform path).
+   */
+  async pollOptimizationComplete(photoId, requestOptions) {
+    const intervalMs = 250;
+    const maxAttempts = 40;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const result = await this.get(photoId, requestOptions);
+      const status = result.data?.optimization_status;
+      if (status === "completed") {
+        return this.getOptimalUrl(photoId, 1080);
+      }
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+    return null;
   }
   /** @deprecated Use upload() instead */
   async uploadPhoto(file, options) {
@@ -6969,7 +7170,7 @@ var ScaleMule = class {
     this.events = new EventsService(this._client);
     this.graph = new GraphService(this._client);
     this.functions = new FunctionsService(this._client);
-    this.photo = new PhotoService(this._client);
+    this.photo = new PhotoService(this._client, this.storage);
     this.flagContent = new FlagContentService(this._client);
     this.creatorMaker = new CreatorMakerService(this._client);
     this.compliance = new ComplianceService(this._client);
