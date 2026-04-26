@@ -266,6 +266,11 @@ export { SearchService } from './services/search';
 export type { SearchResult } from './services/search';
 export { PhotoService, PHOTO_BREAKPOINTS } from './services/photo';
 export type { PhotoInfo, TransformResult, TransformOptions } from './services/photo';
+export { AudioService } from './services/audio';
+export type {
+  AudioRegisterResult,
+  AudioUploadViaStorageResult
+} from './services/audio';
 export { QueueService } from './services/queue';
 export type { QueueJob, DeadLetterJob } from './services/queue';
 export { CacheService } from './services/cache';
@@ -389,6 +394,7 @@ import { LeaderboardService } from './services/leaderboard';
 import { WebhooksService } from './services/webhooks';
 import { SearchService } from './services/search';
 import { PhotoService } from './services/photo';
+import { AudioService } from './services/audio';
 import { QueueService } from './services/queue';
 import { CacheService } from './services/cache';
 import { ComplianceService } from './services/compliance';
@@ -491,6 +497,7 @@ export class ScaleMule {
 
   // Media services
   public readonly photo: PhotoService;
+  public readonly audio: AudioService;
 
   // Content moderation
   public readonly flagContent: FlagContentService;
@@ -549,6 +556,7 @@ export class ScaleMule {
     this.graph = new GraphService(this._client);
     this.functions = new FunctionsService(this._client);
     this.photo = new PhotoService(this._client, this.storage);
+    this.audio = new AudioService(this._client, this.storage);
     this.flagContent = new FlagContentService(this._client);
     this.creatorMaker = new CreatorMakerService(this._client);
     this.compliance = new ComplianceService(this._client);
