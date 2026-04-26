@@ -623,6 +623,52 @@ describe('StorageService', () => {
       expect(result.data!.scan_queued).toBe(true)
     })
 
+    it('upload() normalizes /signed-url/complete file_id → FileInfo.id (regression)', async () => {
+      // Server returns `file_id` from /signed-url/complete; without normalization
+      // every direct upload's `result.data.id` was `undefined`, which propagated
+      // into photo.uploadViaStorage → photo.register({fileId: undefined}) → 422
+      // "missing field `file_id`" and broke chat image attachments end-to-end.
+      mockFetch
+        // 1. presigned upload URL
+        .mockResolvedValueOnce(
+          jsonResponse({
+            data: {
+              file_id: 'srv-file-id',
+              upload_url: 'https://s3.amazonaws.com/presigned',
+              completion_token: 'tok',
+              expires_at: '2026-03-01T00:00:00Z',
+              method: 'PUT',
+            },
+          }),
+        )
+        // 2. S3 PUT
+        .mockResolvedValueOnce(
+          new Response(null, { status: 200, headers: { ETag: '"abc"' } }),
+        )
+        // 3. /signed-url/complete returns server shape with file_id (NOT id)
+        .mockResolvedValueOnce(
+          jsonResponse({
+            data: {
+              file_id: 'srv-file-id',
+              filename: 'tiny.png',
+              size_bytes: 70,
+              content_type: 'image/png',
+              url: 'https://cdn.example.com/tiny.png',
+              already_completed: false,
+              scan_queued: true,
+            },
+          }),
+        )
+
+      const file = new File([new Uint8Array(70)], 'tiny.png', { type: 'image/png' })
+      const result = await sm.storage.upload(file, { skipCompression: true, telemetry: false })
+
+      expect(result.error).toBeNull()
+      expect(result.data!.id).toBe('srv-file-id')
+      expect(result.data!.filename).toBe('tiny.png')
+      expect(result.data!.content_type).toBe('image/png')
+    })
+
     it('should POST to /signed-url/report-failure for reportUploadFailure', async () => {
       mockFetch.mockResolvedValueOnce(jsonResponse({
         data: {

@@ -414,8 +414,16 @@ export class StorageService extends ServiceModule {
       return { data: null, error: uploadResult.error } as ApiResponse<FileInfo>;
     }
 
-    // Step 3: Complete the upload
-    const completeResult = await this.post<FileInfo>(
+    // Step 3: Complete the upload.
+    // The server returns `UploadCompleteResponse` (`file_id`, …); we
+    // normalize to `FileInfo` (`id`, …) so downstream callers — notably
+    // photo / video / audio `uploadViaStorage` which read `result.data.id`
+    // — get a usable id. The multipart path does the same normalization
+    // a few hundred lines below; without it here, every direct (small-file)
+    // upload returns `id: undefined`, which then propagates into a
+    // `photo.register({fileId: undefined})` POST that the photo service
+    // rejects with 422 "missing field `file_id`".
+    const completeResult = await this.post<UploadCompleteResponse>(
       '/signed-url/complete',
       {
         file_id,
@@ -446,15 +454,27 @@ export class StorageService extends ServiceModule {
         },
         requestOpts
       );
-    } else {
-      telemetry?.emit(sessionId, 'upload.completed', {
-        file_id,
-        size_bytes: file.size,
-        duration_ms: Date.now() - directStart
-      });
+      return { data: null, error: completeResult.error };
     }
 
-    return completeResult;
+    telemetry?.emit(sessionId, 'upload.completed', {
+      file_id,
+      size_bytes: file.size,
+      duration_ms: Date.now() - directStart
+    });
+
+    const d = completeResult.data!;
+    return {
+      data: {
+        id: d.file_id,
+        filename: d.filename,
+        content_type: d.content_type,
+        size_bytes: d.size_bytes,
+        url: d.url,
+        created_at: new Date().toISOString()
+      },
+      error: null
+    };
   }
 
   // --------------------------------------------------------------------------
