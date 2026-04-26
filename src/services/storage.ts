@@ -1094,6 +1094,25 @@ export class StorageService extends ServiceModule {
   }
 
   /**
+   * Read the application's active media policy. Lightweight endpoint
+   * (`GET /v1/storage/policy`) used by the SDK on boot to pick up the
+   * platform-default `media_policy` without requiring app-admin auth.
+   * Returns the raw enum string the storage service stores; the
+   * `@scalemule/nextjs` provider maps it onto its `MediaPolicy` type.
+   *
+   * @example
+   * ```ts
+   * const { data } = await client.storage.getPolicy();
+   * console.log(data?.media_policy); // 'safe_visible'
+   * ```
+   */
+  async getPolicy(
+    options?: RequestOptions
+  ): Promise<ApiResponse<{ media_policy: string }>> {
+    return this._get<{ media_policy: string }>(`/policy`, options);
+  }
+
+  /**
    * Get a signed view URL for inline display (img src, thumbnails).
    * Returns CloudFront signed URL (fast, ~1us) or S3 presigned fallback.
    */
