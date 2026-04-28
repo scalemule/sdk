@@ -399,6 +399,9 @@ export class ScaleMuleClient {
   private accountSwitcherEnabled: boolean;
   private accountSwitcherPrivacy: AccountSwitcherPrivacy;
   private knownAccounts: Map<string, KnownAccountDisplay> = new Map();
+  private refreshPromise: Promise<ApiResponse<unknown>> | null = null;
+  private onRefreshStart?: () => void;
+  private onRefreshEnd?: () => void;
 
   constructor(config: ScaleMuleConfig) {
     this.apiKey = config.apiKey;
@@ -420,6 +423,8 @@ export class ScaleMuleClient {
     this.multiSessionEnabled = config.enableMultiSession || false;
     this.accountSwitcherEnabled = config.enableAccountSwitcher || false;
     this.accountSwitcherPrivacy = config.accountSwitcherPrivacy || 'full';
+    this.onRefreshStart = config.onRefreshStart;
+    this.onRefreshEnd = config.onRefreshEnd;
   }
 
   // --------------------------------------------------------------------------
@@ -758,6 +763,8 @@ export class ScaleMuleClient {
       retries?: number;
       skipRetry?: boolean;
       signal?: AbortSignal;
+      isAutoRefresh?: boolean;
+      onAutoRefreshFailed?: (error: ApiError) => void;
     } = {}
   ): Promise<ApiResponse<T>> {
     const url = `${this.baseUrl}${path}`;
@@ -765,42 +772,26 @@ export class ScaleMuleClient {
     const timeout = init.timeout || this.defaultTimeout;
     const maxRetries = init.skipRetry ? 0 : (init.retries ?? this.maxRetries);
 
-    // Build headers
-    const headers: Record<string, string> = {
-      'x-api-key': this.apiKey,
-      'User-Agent': `ScaleMule-SDK-TypeScript/${SDK_VERSION}`,
-      ...init.headers
-    };
-    if (!init.skipAuth && this.sessionToken) {
-      headers['Authorization'] = `Bearer ${this.sessionToken}`;
-    }
-    if (this.workspaceId) {
-      headers['x-sm-workspace-id'] = this.workspaceId;
-    }
-    // Include anonymous_id header when not authenticated (for identity linking)
-    if (!this.sessionToken && this.anonymousId) {
-      headers['x-anonymous-id'] = this.anonymousId;
-    }
-
-    // Serialize body
-    let bodyStr: string | undefined;
-    if (init.body !== undefined && init.body !== null) {
-      bodyStr = typeof init.body === 'string' ? init.body : JSON.stringify(init.body);
-      if (!headers['Content-Type']) {
-        headers['Content-Type'] = 'application/json';
-      }
-    }
-
-    if (this.debug) {
-      console.log(`[ScaleMule] ${method} ${path}`);
-    }
-
-    // Generate idempotency key once per logical request (reused on retries)
-    const idempotencyKey = method === 'POST' ? generateIdempotencyKey() : undefined;
-
     let lastError: ApiError | null = null;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      // Build headers (inside loop so sessionToken updates between retries)
+      const headers: Record<string, string> = {
+        'x-api-key': this.apiKey,
+        'User-Agent': `ScaleMule-SDK-TypeScript/${SDK_VERSION}`,
+        ...init.headers
+      };
+      if (!init.skipAuth && this.sessionToken) {
+        headers['Authorization'] = `Bearer ${this.sessionToken}`;
+      }
+      if (this.workspaceId) {
+        headers['x-sm-workspace-id'] = this.workspaceId;
+      }
+      // Include anonymous_id header when not authenticated (for identity linking)
+      if (!this.sessionToken && this.anonymousId) {
+        headers['x-anonymous-id'] = this.anonymousId;
+      }
+
       // On retry for POST, attach the idempotency key
       if (attempt > 0 && idempotencyKey) {
         headers['x-idempotency-key'] = idempotencyKey;
@@ -829,6 +820,12 @@ export class ScaleMuleClient {
 
         clearTimeout(timeoutId);
 
+        // Consume rotated session token if present
+        const rotatedToken = response.headers.get('x-rotated-session-token');
+        if (rotatedToken && this.sessionToken && this.userId) {
+          this.setSession(rotatedToken, this.userId);
+        }
+
         // Update rate limit queue from response headers
         if (this.rateLimitQueue) {
           this.rateLimitQueue.updateFromHeaders(response.headers);
@@ -856,6 +853,45 @@ export class ScaleMuleClient {
             status: response.status,
             details: responseData?.error?.details || responseData?.details
           };
+
+          // Handle 401 Unauthorized — trigger auto-refresh unless this is already a refresh request
+          if (response.status === 401 && this.sessionToken && !init.isAutoRefresh) {
+            if (this.debug) console.log('[ScaleMule] 401 received, attempting auto-refresh...');
+
+            // Coalesce multiple 401s into a single refresh promise
+            if (!this.refreshPromise) {
+              this.onRefreshStart?.();
+              // @ts-ignore - auth.refreshSession is dynamic in some contexts
+              this.refreshPromise = (this as any).auth?.refreshSession
+                ? (this as any).auth.refreshSession()
+                : this.post('/auth/refresh', {}, { isAutoRefresh: true });
+            }
+
+            try {
+              const refreshResult = await this.refreshPromise;
+
+              if (refreshResult.error) {
+                if (this.debug) console.log('[ScaleMule] Auto-refresh failed:', refreshResult.error);
+                init.onAutoRefreshFailed?.(refreshResult.error);
+                return { data: null, error };
+              }
+
+              // Refresh succeeded — retry the original request once
+              if (this.debug) console.log('[ScaleMule] Auto-refresh succeeded, retrying original request...');
+              // Update headers with the new token
+              if (this.sessionToken) {
+                headers['Authorization'] = `Bearer ${this.sessionToken}`;
+              }
+              // Reset the for-loop but don't count this as a retry attempt
+              attempt--;
+              continue;
+            } finally {
+              // Only the "primary" refresh request that created the promise clears it
+              // We check if it's still our promise to avoid clearing a new one started later
+              this.refreshPromise = null;
+              this.onRefreshEnd?.();
+            }
+          }
 
           // Add retryAfter for rate limiting
           if (response.status === 429) {
