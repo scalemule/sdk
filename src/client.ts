@@ -399,10 +399,9 @@ export class ScaleMuleClient {
   private accountSwitcherEnabled: boolean;
   private accountSwitcherPrivacy: AccountSwitcherPrivacy;
   private knownAccounts: Map<string, KnownAccountDisplay> = new Map();
-  private refreshPromise: Promise<import('./types').ApiResponse<unknown>> | null = null;
+  private refreshPromise: Promise<ApiResponse<unknown>> | null = null;
   private onRefreshStart?: () => void;
   private onRefreshEnd?: () => void;
-  private onAutoRefreshFailed?: (error: import('./types').ApiError) => void;
 
   constructor(config: ScaleMuleConfig) {
     this.apiKey = config.apiKey;
@@ -426,7 +425,6 @@ export class ScaleMuleClient {
     this.accountSwitcherPrivacy = config.accountSwitcherPrivacy || 'full';
     this.onRefreshStart = config.onRefreshStart;
     this.onRefreshEnd = config.onRefreshEnd;
-    this.onAutoRefreshFailed = config.onAutoRefreshFailed;
   }
 
   // --------------------------------------------------------------------------
@@ -773,25 +771,13 @@ export class ScaleMuleClient {
     const method = (init.method || 'GET').toUpperCase();
     const timeout = init.timeout || this.defaultTimeout;
     const maxRetries = init.skipRetry ? 0 : (init.retries ?? this.maxRetries);
-
-    // Serialize body once (reused on retries)
-    let bodyStr: string | undefined;
-    if (init.body !== undefined && init.body !== null) {
-      bodyStr = typeof init.body === 'string' ? init.body : JSON.stringify(init.body);
-    }
-
-    if (this.debug) {
-      console.log(`[ScaleMule] ${method} ${path}`);
-    }
-
-    // Generate idempotency key once per logical request (reused on retries)
-    const idempotencyKey = method === 'POST' ? generateIdempotencyKey() : undefined;
+    const bodyStr = init.body ? JSON.stringify(init.body) : undefined;
 
     let lastError: ApiError | null = null;
-    let hasAutoRefreshed = false;
+    let idempotencyKey: string | null = null;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      // Build headers inside loop so sessionToken updates after refresh
+      // Build headers (inside loop so sessionToken updates between retries)
       const headers: Record<string, string> = {
         'x-api-key': this.apiKey,
         'User-Agent': `ScaleMule-SDK-TypeScript/${SDK_VERSION}`,
@@ -803,14 +789,16 @@ export class ScaleMuleClient {
       if (this.workspaceId) {
         headers['x-sm-workspace-id'] = this.workspaceId;
       }
+      // Include anonymous_id header when not authenticated (for identity linking)
       if (!this.sessionToken && this.anonymousId) {
         headers['x-anonymous-id'] = this.anonymousId;
       }
-      if (bodyStr && !headers['Content-Type']) {
-        headers['Content-Type'] = 'application/json';
-      }
 
-      if (attempt > 0 && idempotencyKey) {
+      // On retry for POST/PUT/PATCH, attach the idempotency key
+      if (attempt > 0 && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
+        if (!idempotencyKey) {
+          idempotencyKey = generateIdempotencyKey();
+        }
         headers['x-idempotency-key'] = idempotencyKey;
       }
 
@@ -836,6 +824,12 @@ export class ScaleMuleClient {
         });
 
         clearTimeout(timeoutId);
+
+        // Consume rotated session token if present
+        const rotatedToken = response.headers.get('x-rotated-session-token');
+        if (rotatedToken && this.sessionToken && this.userId) {
+          this.setSession(rotatedToken, this.userId);
+        }
 
         // Update rate limit queue from response headers
         if (this.rateLimitQueue) {
@@ -865,36 +859,49 @@ export class ScaleMuleClient {
             details: responseData?.error?.details || responseData?.details
           };
 
-          // 401 auto-refresh: try once per request call
-          if (response.status === 401 && this.sessionToken && !init.isAutoRefresh && !hasAutoRefreshed) {
-            hasAutoRefreshed = true;
+          // Handle 401 Unauthorized — trigger auto-refresh unless this is already a refresh request
+          if (response.status === 401 && this.sessionToken && !init.isAutoRefresh) {
             if (this.debug) console.log('[ScaleMule] 401 received, attempting auto-refresh...');
 
+            // Coalesce multiple 401s into a single refresh promise
+            let isPrimaryRefresh = false;
             if (!this.refreshPromise) {
+              isPrimaryRefresh = true;
               this.onRefreshStart?.();
-              this.refreshPromise = this.post('/auth/refresh', {}, { isAutoRefresh: true });
+              // @ts-ignore - auth.refreshSession is dynamic in some contexts
+              this.refreshPromise = (this as any).auth?.refreshSession
+                ? (this as any).auth.refreshSession()
+                : this.post('/auth/refresh', {}, { isAutoRefresh: true });
             }
 
             const currentRefreshPromise = this.refreshPromise;
-            try {
-              const refreshResult = await currentRefreshPromise;
 
-              if (refreshResult.error) {
-                if (this.debug) console.log('[ScaleMule] Auto-refresh failed:', refreshResult.error);
-                (init.onAutoRefreshFailed ?? this.onAutoRefreshFailed)?.(refreshResult.error);
+            try {
+              const refreshResult = await (currentRefreshPromise as Promise<ApiResponse<any>>);
+
+              if (!refreshResult || refreshResult.error) {
+                if (this.debug) console.log('[ScaleMule] Auto-refresh failed:', refreshResult?.error);
+                const apiError = refreshResult?.error || { code: 'refresh_failed', message: 'Auto-refresh failed', status: 400 };
+                init.onAutoRefreshFailed?.(apiError);
+                this.onAutoRefreshFailed?.(apiError);
                 return { data: null, error };
               }
 
-              const newToken = (refreshResult.data as any)?.access_token || (refreshResult.data as any)?.session_token;
+              // Refresh succeeded — update session and retry the original request once
+              if (this.debug) console.log('[ScaleMule] Auto-refresh succeeded, retrying original request...');
+              const newToken = refreshResult.data?.session_token || refreshResult.data?.access_token;
               if (newToken) {
-                this.setAccessToken(newToken);
+                this.sessionToken = newToken;
+                if (this.userId) {
+                  await this.storage.setItem(SESSION_STORAGE_KEY, newToken);
+                }
               }
-
-              if (this.debug) console.log('[ScaleMule] Auto-refresh succeeded, retrying...');
+              // Reset the for-loop but don't count this as a retry attempt
               attempt--;
               continue;
             } finally {
-              if (this.refreshPromise === currentRefreshPromise) {
+              // Only the "primary" refresh request that created the promise clears it
+              if (isPrimaryRefresh && this.refreshPromise === currentRefreshPromise) {
                 this.refreshPromise = null;
                 this.onRefreshEnd?.();
               }
