@@ -195,6 +195,8 @@ export interface ScaleMuleConfig {
   onRefreshStart?: () => void;
   /** Callback when a 401 auto-refresh finishes */
   onRefreshEnd?: () => void;
+  /** Callback when a 401 auto-refresh fails */
+  onAutoRefreshFailed?: (error: ApiError) => void;
 }
 
 /**

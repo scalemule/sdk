@@ -864,7 +864,9 @@ export class ScaleMuleClient {
             if (this.debug) console.log('[ScaleMule] 401 received, attempting auto-refresh...');
 
             // Coalesce multiple 401s into a single refresh promise
+            let isPrimaryRefresh = false;
             if (!this.refreshPromise) {
+              isPrimaryRefresh = true;
               this.onRefreshStart?.();
               // @ts-ignore - auth.refreshSession is dynamic in some contexts
               this.refreshPromise = (this as any).auth?.refreshSession
@@ -872,31 +874,37 @@ export class ScaleMuleClient {
                 : this.post('/auth/refresh', {}, { isAutoRefresh: true });
             }
 
+            const currentRefreshPromise = this.refreshPromise;
+
             try {
-              const refreshResult = await (this.refreshPromise as Promise<ApiResponse<any>>);
+              const refreshResult = await (currentRefreshPromise as Promise<ApiResponse<any>>);
 
               if (!refreshResult || refreshResult.error) {
                 if (this.debug) console.log('[ScaleMule] Auto-refresh failed:', refreshResult?.error);
-                if (refreshResult?.error) {
-                  init.onAutoRefreshFailed?.(refreshResult.error);
-                }
+                const apiError = refreshResult?.error || { code: 'refresh_failed', message: 'Auto-refresh failed', status: 400 };
+                init.onAutoRefreshFailed?.(apiError);
+                this.onAutoRefreshFailed?.(apiError);
                 return { data: null, error };
               }
 
-              // Refresh succeeded — retry the original request once
+              // Refresh succeeded — update session and retry the original request once
               if (this.debug) console.log('[ScaleMule] Auto-refresh succeeded, retrying original request...');
-              // Update headers with the new token
-              if (this.sessionToken) {
-                headers['Authorization'] = `Bearer ${this.sessionToken}`;
+              const newToken = refreshResult.data?.session_token || refreshResult.data?.access_token;
+              if (newToken) {
+                this.sessionToken = newToken;
+                if (this.userId) {
+                  await this.storage.setItem(SESSION_STORAGE_KEY, newToken);
+                }
               }
               // Reset the for-loop but don't count this as a retry attempt
               attempt--;
               continue;
             } finally {
               // Only the "primary" refresh request that created the promise clears it
-              // We check if it's still our promise to avoid clearing a new one started later
-              this.refreshPromise = null;
-              this.onRefreshEnd?.();
+              if (isPrimaryRefresh && this.refreshPromise === currentRefreshPromise) {
+                this.refreshPromise = null;
+                this.onRefreshEnd?.();
+              }
             }
           }
 
