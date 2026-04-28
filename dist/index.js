@@ -722,6 +722,7 @@ var ScaleMuleClient = class {
     this.anonymousId = null;
     this.sessionPool = /* @__PURE__ */ new Map();
     this.knownAccounts = /* @__PURE__ */ new Map();
+    this.refreshPromise = null;
     this.apiKey = config.apiKey;
     this.applicationId = config.applicationId || null;
     this.baseUrl = config.baseUrl || GATEWAY_URLS[config.environment || "prod"];
@@ -740,6 +741,9 @@ var ScaleMuleClient = class {
     this.multiSessionEnabled = config.enableMultiSession || false;
     this.accountSwitcherEnabled = config.enableAccountSwitcher || false;
     this.accountSwitcherPrivacy = config.accountSwitcherPrivacy || "full";
+    this.onRefreshStart = config.onRefreshStart;
+    this.onRefreshEnd = config.onRefreshEnd;
+    this.onAutoRefreshFailed = config.onAutoRefreshFailed;
   }
   // --------------------------------------------------------------------------
   // Session Management
@@ -1025,34 +1029,28 @@ var ScaleMuleClient = class {
     const method = (init.method || "GET").toUpperCase();
     const timeout = init.timeout || this.defaultTimeout;
     const maxRetries = init.skipRetry ? 0 : init.retries ?? this.maxRetries;
-    const headers = {
-      "x-api-key": this.apiKey,
-      "User-Agent": `ScaleMule-SDK-TypeScript/${SDK_VERSION}`,
-      ...init.headers
-    };
-    if (!init.skipAuth && this.sessionToken) {
-      headers["Authorization"] = `Bearer ${this.sessionToken}`;
-    }
-    if (this.workspaceId) {
-      headers["x-sm-workspace-id"] = this.workspaceId;
-    }
-    if (!this.sessionToken && this.anonymousId) {
-      headers["x-anonymous-id"] = this.anonymousId;
-    }
-    let bodyStr;
-    if (init.body !== void 0 && init.body !== null) {
-      bodyStr = typeof init.body === "string" ? init.body : JSON.stringify(init.body);
-      if (!headers["Content-Type"]) {
-        headers["Content-Type"] = "application/json";
-      }
-    }
-    if (this.debug) {
-      console.log(`[ScaleMule] ${method} ${path}`);
-    }
-    const idempotencyKey = method === "POST" ? generateIdempotencyKey() : void 0;
+    const bodyStr = init.body ? JSON.stringify(init.body) : void 0;
     let lastError = null;
+    let idempotencyKey = null;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      if (attempt > 0 && idempotencyKey) {
+      const headers = {
+        "x-api-key": this.apiKey,
+        "User-Agent": `ScaleMule-SDK-TypeScript/${SDK_VERSION}`,
+        ...init.headers
+      };
+      if (!init.skipAuth && this.sessionToken) {
+        headers["Authorization"] = `Bearer ${this.sessionToken}`;
+      }
+      if (this.workspaceId) {
+        headers["x-sm-workspace-id"] = this.workspaceId;
+      }
+      if (!this.sessionToken && this.anonymousId) {
+        headers["x-anonymous-id"] = this.anonymousId;
+      }
+      if (attempt > 0 && (method === "POST" || method === "PUT" || method === "PATCH")) {
+        if (!idempotencyKey) {
+          idempotencyKey = generateIdempotencyKey();
+        }
         headers["x-idempotency-key"] = idempotencyKey;
       }
       const controller = new AbortController();
@@ -1072,6 +1070,10 @@ var ScaleMuleClient = class {
           signal: controller.signal
         });
         clearTimeout(timeoutId);
+        const rotatedToken = response.headers.get("x-rotated-session-token");
+        if (rotatedToken && this.sessionToken && this.userId) {
+          this.setSession(rotatedToken, this.userId);
+        }
         if (this.rateLimitQueue) {
           this.rateLimitQueue.updateFromHeaders(response.headers);
         }
@@ -1094,6 +1096,41 @@ var ScaleMuleClient = class {
             status: response.status,
             details: responseData?.error?.details || responseData?.details
           };
+          if (response.status === 401 && this.sessionToken && !init.isAutoRefresh) {
+            if (this.debug) console.log("[ScaleMule] 401 received, attempting auto-refresh...");
+            let isPrimaryRefresh = false;
+            if (!this.refreshPromise) {
+              isPrimaryRefresh = true;
+              this.onRefreshStart?.();
+              this.refreshPromise = this.auth?.refreshSession ? this.auth.refreshSession() : this.post("/auth/refresh", {}, { isAutoRefresh: true });
+            }
+            const currentRefreshPromise = this.refreshPromise;
+            try {
+              const refreshResult = await currentRefreshPromise;
+              if (!refreshResult || refreshResult.error) {
+                if (this.debug) console.log("[ScaleMule] Auto-refresh failed:", refreshResult?.error);
+                const apiError = refreshResult?.error || { code: "refresh_failed", message: "Auto-refresh failed", status: 400 };
+                init.onAutoRefreshFailed?.(apiError);
+                this.onAutoRefreshFailed?.(apiError);
+                return { data: null, error };
+              }
+              if (this.debug) console.log("[ScaleMule] Auto-refresh succeeded, retrying original request...");
+              const newToken = refreshResult.data?.session_token || refreshResult.data?.access_token;
+              if (newToken) {
+                this.sessionToken = newToken;
+                if (this.userId) {
+                  await this.storage.setItem(SESSION_STORAGE_KEY, newToken);
+                }
+              }
+              attempt--;
+              continue;
+            } finally {
+              if (isPrimaryRefresh && this.refreshPromise === currentRefreshPromise) {
+                this.refreshPromise = null;
+                this.onRefreshEnd?.();
+              }
+            }
+          }
           if (response.status === 429) {
             const retryAfter = response.headers.get("Retry-After");
             if (retryAfter) {

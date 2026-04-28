@@ -402,6 +402,7 @@ export class ScaleMuleClient {
   private refreshPromise: Promise<ApiResponse<unknown>> | null = null;
   private onRefreshStart?: () => void;
   private onRefreshEnd?: () => void;
+  private onAutoRefreshFailed?: (error: ApiError) => void;
 
   constructor(config: ScaleMuleConfig) {
     this.apiKey = config.apiKey;
@@ -425,6 +426,7 @@ export class ScaleMuleClient {
     this.accountSwitcherPrivacy = config.accountSwitcherPrivacy || 'full';
     this.onRefreshStart = config.onRefreshStart;
     this.onRefreshEnd = config.onRefreshEnd;
+    this.onAutoRefreshFailed = config.onAutoRefreshFailed;
   }
 
   // --------------------------------------------------------------------------

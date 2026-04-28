@@ -153,6 +153,12 @@ interface ScaleMuleConfig {
      * recover stripped fields for existing entries until those accounts log in again.
      */
     accountSwitcherPrivacy?: AccountSwitcherPrivacy;
+    /** Callback when a 401 auto-refresh starts */
+    onRefreshStart?: () => void;
+    /** Callback when a 401 auto-refresh finishes */
+    onRefreshEnd?: () => void;
+    /** Callback when a 401 auto-refresh fails */
+    onAutoRefreshFailed?: (error: ApiError) => void;
 }
 /**
  * A session entry in the multi-account session pool.
@@ -233,6 +239,8 @@ interface RequestOptions {
     headers?: Record<string, string>;
     /** Client context to forward end-user info (IP, UA, etc.) in server-to-server calls */
     clientContext?: ClientContext;
+    /** Internal flag to prevent infinite refresh loops */
+    isAutoRefresh?: boolean;
 }
 /**
  * End-user context for server-to-server calls.
@@ -343,6 +351,10 @@ declare class ScaleMuleClient {
     private accountSwitcherEnabled;
     private accountSwitcherPrivacy;
     private knownAccounts;
+    private refreshPromise;
+    private onRefreshStart?;
+    private onRefreshEnd?;
+    private onAutoRefreshFailed?;
     constructor(config: ScaleMuleConfig);
     initialize(): Promise<void>;
     setSession(token: string, userId: string): Promise<void>;
@@ -403,6 +415,8 @@ declare class ScaleMuleClient {
         retries?: number;
         skipRetry?: boolean;
         signal?: AbortSignal;
+        isAutoRefresh?: boolean;
+        onAutoRefreshFailed?: (error: ApiError) => void;
     }): Promise<ApiResponse<T>>;
     get<T>(path: string, options?: RequestOptions): Promise<ApiResponse<T>>;
     post<T>(path: string, body?: unknown, options?: RequestOptions): Promise<ApiResponse<T>>;
