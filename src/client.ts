@@ -771,8 +771,10 @@ export class ScaleMuleClient {
     const method = (init.method || 'GET').toUpperCase();
     const timeout = init.timeout || this.defaultTimeout;
     const maxRetries = init.skipRetry ? 0 : (init.retries ?? this.maxRetries);
+    const bodyStr = init.body ? JSON.stringify(init.body) : undefined;
 
     let lastError: ApiError | null = null;
+    let idempotencyKey: string | null = null;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       // Build headers (inside loop so sessionToken updates between retries)
@@ -792,8 +794,11 @@ export class ScaleMuleClient {
         headers['x-anonymous-id'] = this.anonymousId;
       }
 
-      // On retry for POST, attach the idempotency key
-      if (attempt > 0 && idempotencyKey) {
+      // On retry for POST/PUT/PATCH, attach the idempotency key
+      if (attempt > 0 && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
+        if (!idempotencyKey) {
+          idempotencyKey = generateIdempotencyKey();
+        }
         headers['x-idempotency-key'] = idempotencyKey;
       }
 
@@ -868,11 +873,13 @@ export class ScaleMuleClient {
             }
 
             try {
-              const refreshResult = await this.refreshPromise;
+              const refreshResult = await (this.refreshPromise as Promise<ApiResponse<any>>);
 
-              if (refreshResult.error) {
-                if (this.debug) console.log('[ScaleMule] Auto-refresh failed:', refreshResult.error);
-                init.onAutoRefreshFailed?.(refreshResult.error);
+              if (!refreshResult || refreshResult.error) {
+                if (this.debug) console.log('[ScaleMule] Auto-refresh failed:', refreshResult?.error);
+                if (refreshResult?.error) {
+                  init.onAutoRefreshFailed?.(refreshResult.error);
+                }
                 return { data: null, error };
               }
 
