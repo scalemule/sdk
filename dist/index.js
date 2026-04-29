@@ -6629,6 +6629,7 @@ var TtsService = class extends ServiceModule {
       "/synthesize",
       {
         text: params.text,
+        speech_profile: params.speechProfile,
         voice: params.voice,
         model: params.model,
         provider: params.provider,
