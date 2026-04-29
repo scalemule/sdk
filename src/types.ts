@@ -191,6 +191,12 @@ export interface ScaleMuleConfig {
    * recover stripped fields for existing entries until those accounts log in again.
    */
   accountSwitcherPrivacy?: AccountSwitcherPrivacy;
+  /** Callback when a 401 auto-refresh starts */
+  onRefreshStart?: () => void;
+  /** Callback when a 401 auto-refresh finishes */
+  onRefreshEnd?: () => void;
+  /** Callback when a 401 auto-refresh fails */
+  onAutoRefreshFailed?: (error: ApiError) => void;
 }
 
 /**
@@ -280,6 +286,8 @@ export interface RequestOptions {
   headers?: Record<string, string>;
   /** Client context to forward end-user info (IP, UA, etc.) in server-to-server calls */
   clientContext?: ClientContext;
+  /** Internal flag to prevent infinite refresh loops */
+  isAutoRefresh?: boolean;
 }
 
 // ============================================================================
