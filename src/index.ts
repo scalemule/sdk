@@ -279,7 +279,7 @@ export type {
   TtsJobStatus,
   TtsVoice,
   TtsVoicesResponse,
-  TtsListVoicesParams,
+  TtsListVoicesParams
 } from './services/tts';
 export { QueueService } from './services/queue';
 export type { QueueJob, DeadLetterJob } from './services/queue';
