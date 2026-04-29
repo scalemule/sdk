@@ -2,6 +2,7 @@ import { ServiceModule } from '../service';
 import type { ApiResponse, RequestOptions } from '../types';
 
 export type TtsAccessMode = 'owner_private' | 'tenant_shared' | 'public';
+export type TtsSpeechProfile = 'private_default' | 'developer_summary' | 'public_blog' | 'enterprise_strict';
 
 export interface TtsAudioInfo {
   id: string;
@@ -15,12 +16,21 @@ export interface TtsAudioInfo {
   expires_at?: string | null;
 }
 
+export interface TtsSpeechMetadata {
+  speech_profile: TtsSpeechProfile;
+  speech_profile_version: string;
+  prepared_char_count: number;
+}
+
 export interface TtsSynthesizeReadyResult {
   status: 'ready';
   audio_id: string;
   cached: boolean;
   provider: string;
   chunks: number;
+  speech_profile: TtsSpeechMetadata['speech_profile'];
+  speech_profile_version: TtsSpeechMetadata['speech_profile_version'];
+  prepared_char_count: TtsSpeechMetadata['prepared_char_count'];
   access_mode: TtsAccessMode;
   audio: TtsAudioInfo;
 }
@@ -28,6 +38,9 @@ export interface TtsSynthesizeReadyResult {
 export interface TtsSynthesizeQueuedResult {
   status: 'queued';
   job_id: string;
+  speech_profile: TtsSpeechMetadata['speech_profile'];
+  speech_profile_version: TtsSpeechMetadata['speech_profile_version'];
+  prepared_char_count: TtsSpeechMetadata['prepared_char_count'];
 }
 
 export type TtsSynthesizeResult = TtsSynthesizeReadyResult | TtsSynthesizeQueuedResult;
@@ -65,6 +78,14 @@ export interface TtsVoicesResponse {
 
 export interface TtsSynthesizeParams {
   text: string;
+  /**
+   * Built-in narration profile:
+   * - private_default: pasted prose and private summaries
+   * - developer_summary: technical summaries with safe spoken rewrites
+   * - public_blog: public article narration
+   * - enterprise_strict: stricter redaction for sensitive identifiers
+   */
+  speechProfile?: TtsSpeechProfile;
   voice?: string;
   model?: string;
   provider?: string;
@@ -84,6 +105,7 @@ export class TtsService extends ServiceModule {
       '/synthesize',
       {
         text: params.text,
+        speech_profile: params.speechProfile,
         voice: params.voice,
         model: params.model,
         provider: params.provider,

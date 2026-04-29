@@ -7,6 +7,16 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.0.50] - 2026-04-29
+
+### Added
+- `tts.synthesize({ text, speechProfile?, voice?, model?, provider?, async?, accessMode? })`, `tts.getJob(id)`, and `tts.listVoices({ provider? })` on the public SDK surface.
+- Built-in TTS speech-profile types and response metadata exports for `private_default`, `developer_summary`, `public_blog`, and `enterprise_strict`.
+
+### Changed
+- `audio.register()` now targets `/v1/audio/register`, matching the gateway route.
+- `storage.upload()` normalizes `/signed-url/complete` responses from `{ file_id, ... }` into the public `FileInfo` shape so `result.data.id` is stable for direct uploads.
+
 ## [0.0.42] - 2026-04-26
 
 ### Added

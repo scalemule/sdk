@@ -272,6 +272,8 @@ export { TtsService } from './services/tts';
 export type {
   TtsAccessMode,
   TtsAudioInfo,
+  TtsSpeechMetadata,
+  TtsSpeechProfile,
   TtsSynthesizeParams,
   TtsSynthesizeQueuedResult,
   TtsSynthesizeReadyResult,
