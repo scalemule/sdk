@@ -739,7 +739,11 @@ var ScaleMuleClient = class {
               const refreshResult = await currentRefreshPromise;
               if (!refreshResult || refreshResult.error) {
                 if (this.debug) console.log("[ScaleMule] Auto-refresh failed:", refreshResult?.error);
-                const apiError = refreshResult?.error || { code: "refresh_failed", message: "Auto-refresh failed", status: 400 };
+                const apiError = refreshResult?.error || {
+                  code: "refresh_failed",
+                  message: "Auto-refresh failed",
+                  status: 400
+                };
                 init.onAutoRefreshFailed?.(apiError);
                 this.onAutoRefreshFailed?.(apiError);
                 return { data: null, error };

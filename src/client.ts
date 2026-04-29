@@ -870,7 +870,6 @@ export class ScaleMuleClient {
             if (!this.refreshPromise) {
               isPrimaryRefresh = true;
               this.onRefreshStart?.();
-              // @ts-ignore - auth.refreshSession is dynamic in some contexts
               this.refreshPromise = (this as any).auth?.refreshSession
                 ? (this as any).auth.refreshSession()
                 : this.post('/auth/refresh', {}, { isAutoRefresh: true });
@@ -883,7 +882,11 @@ export class ScaleMuleClient {
 
               if (!refreshResult || refreshResult.error) {
                 if (this.debug) console.log('[ScaleMule] Auto-refresh failed:', refreshResult?.error);
-                const apiError = refreshResult?.error || { code: 'refresh_failed', message: 'Auto-refresh failed', status: 400 };
+                const apiError = refreshResult?.error || {
+                  code: 'refresh_failed',
+                  message: 'Auto-refresh failed',
+                  status: 400
+                };
                 init.onAutoRefreshFailed?.(apiError);
                 this.onAutoRefreshFailed?.(apiError);
                 return { data: null, error };
