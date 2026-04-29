@@ -1,5 +1,5 @@
 /**
- * Audio service — typed wrapper over `/v1/audios`.
+ * Audio service — typed wrapper over `/v1/audio`.
  *
  * Phase 5 MVP scope:
  *   - `uploadViaStorage()` — presigned-direct-to-S3 upload + register flow,
@@ -45,7 +45,7 @@ export interface AudioUploadViaStorageResult {
 }
 
 export class AudioService extends ServiceModule {
-  protected basePath = '/v1/audios';
+  protected basePath = '/v1/audio';
 
   /**
    * @param storage Required for {@link uploadViaStorage}. Wired up by the

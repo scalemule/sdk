@@ -268,6 +268,19 @@ export { PhotoService, PHOTO_BREAKPOINTS } from './services/photo';
 export type { PhotoInfo, TransformResult, TransformOptions } from './services/photo';
 export { AudioService } from './services/audio';
 export type { AudioRegisterResult, AudioUploadViaStorageResult } from './services/audio';
+export { TtsService } from './services/tts';
+export type {
+  TtsAccessMode,
+  TtsAudioInfo,
+  TtsSynthesizeParams,
+  TtsSynthesizeQueuedResult,
+  TtsSynthesizeReadyResult,
+  TtsSynthesizeResult,
+  TtsJobStatus,
+  TtsVoice,
+  TtsVoicesResponse,
+  TtsListVoicesParams,
+} from './services/tts';
 export { QueueService } from './services/queue';
 export type { QueueJob, DeadLetterJob } from './services/queue';
 export { CacheService } from './services/cache';
@@ -392,6 +405,7 @@ import { WebhooksService } from './services/webhooks';
 import { SearchService } from './services/search';
 import { PhotoService } from './services/photo';
 import { AudioService } from './services/audio';
+import { TtsService } from './services/tts';
 import { QueueService } from './services/queue';
 import { CacheService } from './services/cache';
 import { ComplianceService } from './services/compliance';
@@ -495,6 +509,7 @@ export class ScaleMule {
   // Media services
   public readonly photo: PhotoService;
   public readonly audio: AudioService;
+  public readonly tts: TtsService;
 
   // Content moderation
   public readonly flagContent: FlagContentService;
@@ -554,6 +569,7 @@ export class ScaleMule {
     this.functions = new FunctionsService(this._client);
     this.photo = new PhotoService(this._client, this.storage);
     this.audio = new AudioService(this._client, this.storage);
+    this.tts = new TtsService(this._client);
     this.flagContent = new FlagContentService(this._client);
     this.creatorMaker = new CreatorMakerService(this._client);
     this.compliance = new ComplianceService(this._client);

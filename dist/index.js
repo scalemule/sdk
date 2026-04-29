@@ -339,6 +339,7 @@ __export(index_exports, {
   SocialService: () => SocialService,
   StorageService: () => StorageService,
   TeamsService: () => TeamsService,
+  TtsService: () => TtsService,
   UploadResumeStore: () => UploadResumeStore,
   UploadTelemetry: () => UploadTelemetry,
   VideoService: () => VideoService,
@@ -6559,7 +6560,7 @@ var AudioService = class extends ServiceModule {
   constructor(client, storage) {
     super(client);
     this.storage = storage;
-    this.basePath = "/v1/audios";
+    this.basePath = "/v1/audio";
   }
   /**
    * Register a storage-uploaded audio asset with the audio service.
@@ -6614,6 +6615,34 @@ var AudioService = class extends ServiceModule {
       },
       error: null
     };
+  }
+};
+
+// src/services/tts.ts
+var TtsService = class extends ServiceModule {
+  constructor() {
+    super(...arguments);
+    this.basePath = "/v1/tts";
+  }
+  async synthesize(params, options) {
+    return this.post(
+      "/synthesize",
+      {
+        text: params.text,
+        voice: params.voice,
+        model: params.model,
+        provider: params.provider,
+        async: params.async,
+        access_mode: params.accessMode
+      },
+      options
+    );
+  }
+  async getJob(id, options) {
+    return this._get(`/jobs/${id}`, options);
+  }
+  async listVoices(params, options) {
+    return this._get(this.withQuery("/voices", { provider: params?.provider }), options);
   }
 };
 
@@ -7468,6 +7497,7 @@ var ScaleMule = class {
     this.functions = new FunctionsService(this._client);
     this.photo = new PhotoService(this._client, this.storage);
     this.audio = new AudioService(this._client, this.storage);
+    this.tts = new TtsService(this._client);
     this.flagContent = new FlagContentService(this._client);
     this.creatorMaker = new CreatorMakerService(this._client);
     this.compliance = new ComplianceService(this._client);
@@ -7649,6 +7679,7 @@ var index_default = ScaleMule;
   SocialService,
   StorageService,
   TeamsService,
+  TtsService,
   UploadResumeStore,
   UploadTelemetry,
   VideoService,
