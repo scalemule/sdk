@@ -100,7 +100,7 @@ describe('Client Initialization', () => {
     expect(client.getBaseUrl()).toBe('https://custom.api.com')
   })
 
-  it('should initialize all 31 services', () => {
+  it('should initialize all 32 services', () => {
     expect(sm.auth).toBeDefined()
     expect(sm.storage).toBeDefined()
     expect(sm.data).toBeDefined()
@@ -127,11 +127,77 @@ describe('Client Initialization', () => {
     expect(sm.events).toBeDefined()
     expect(sm.leaderboard).toBeDefined()
     expect(sm.photo).toBeDefined()
+    expect(sm.audio).toBeDefined()
+    expect(sm.tts).toBeDefined()
     expect(sm.flagContent).toBeDefined()
     expect(sm.compliance).toBeDefined()
     expect(sm.orchestrator).toBeDefined()
     expect(sm.logger).toBeDefined()
     expect(sm.catalog).toBeDefined()
+  })
+})
+
+describe('Audio and TTS routes', () => {
+  it('uses /v1/audio/register for audio registration', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ data: { audio_id: 'a1', file_id: 'f1', status: 'ready' } }))
+
+    await sm.audio.register({ fileId: 'f1' })
+
+    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/audio/register')
+  })
+
+  it('posts synthesis requests to /v1/tts/synthesize with access_mode', async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({
+        data: {
+          status: 'ready',
+          audio_id: 'audio_1',
+          cached: false,
+          provider: 'openai',
+          chunks: 1,
+          access_mode: 'owner_private',
+          audio: {
+            id: 'audio_1',
+            status: 'ready',
+            access_mode: 'owner_private',
+            url: 'https://example.com/audio.mp3',
+          },
+        },
+      })
+    )
+
+    await sm.tts.synthesize({ text: 'Hello world', accessMode: 'owner_private' })
+
+    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/tts/synthesize')
+    const body = JSON.parse(mockFetch.mock.calls[0][1]!.body as string)
+    expect(body).toMatchObject({
+      text: 'Hello world',
+      access_mode: 'owner_private',
+    })
+  })
+
+  it('gets TTS jobs from /v1/tts/jobs/{id}', async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({
+        data: {
+          id: 'job_1',
+          status: 'queued',
+          access_mode: 'owner_private',
+          provider: 'openai',
+          voice: 'alloy',
+          model: 'gpt-4o-mini-tts',
+          format: 'mp3',
+          chunk_total: 4,
+          chunk_done: 0,
+          created_at: '2026-04-29T00:00:00Z',
+          updated_at: '2026-04-29T00:00:00Z',
+        },
+      })
+    )
+
+    await sm.tts.getJob('job_1')
+
+    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/tts/jobs/job_1')
   })
 })
 
