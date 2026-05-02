@@ -28,9 +28,27 @@ export interface S3SingleUploadOptions {
   stallTimeoutMs?: number;
 }
 
+/** Structured failure code emitted by uploadSingleToS3 / uploadMultipartToS3. */
+export type S3UploadErrorCode =
+  | 's3_signature_error' // 403 — presigned URL invalid/expired/Content-Type mismatch
+  | 's3_client_error' // other 4xx (400/404/411/412/413/415) — request shape rejected by S3
+  | 's3_server_error' // 5xx — transient S3 failure
+  | 's3_transient_error' // 408/429/other retryable status
+  | 's3_missing_etag' // 2xx but ETag header missing on a part PUT (multipart only)
+  | 'network_error' // browser network error / DNS / TLS
+  | 'stalled' // no progress events for stallTimeoutMs
+  | 'aborted' // caller's AbortSignal fired
+  | 'aborted_unexpected'; // xhr abort fired without a known cause (treated as retryable)
+
 export interface S3SingleUploadResult {
   success: boolean;
   error?: string;
+  /** S3 HTTP status (when failure originated from S3) */
+  status?: number;
+  /** Structured failure code — see S3UploadErrorCode for the full enum. */
+  code?: S3UploadErrorCode;
+  /** Truncated S3 response body — invaluable for diagnosing SignatureDoesNotMatch vs RequestTimeout etc. */
+  s3ErrorBody?: string;
 }
 
 export interface MultipartPartUrl {
@@ -66,6 +84,10 @@ export interface S3MultipartResult {
   success: boolean;
   parts?: PartResult[];
   error?: string;
+  status?: number;
+  /** Structured failure code — see S3UploadErrorCode for the full enum. */
+  code?: S3UploadErrorCode;
+  s3ErrorBody?: string;
 }
 
 // ============================================================================
@@ -75,6 +97,13 @@ export interface S3MultipartResult {
 const DEFAULT_RETRY_DELAYS = [0, 1000, 3000];
 const DEFAULT_STALL_TIMEOUT_MS = 45_000;
 const DEFAULT_CONCURRENCY = 3;
+
+// 4xx codes from S3 that indicate a permanent problem with this request
+// (signature, content-length, validation). Retrying the same URL won't help.
+// 408 (timeout) and 429 (throttle) are intentionally NOT here — those should retry.
+const FATAL_S3_STATUS = new Set([400, 403, 404, 411, 412, 413, 415]);
+
+const MAX_ERROR_BODY_BYTES = 1024;
 
 // ============================================================================
 // Single PUT Upload
@@ -93,24 +122,64 @@ export async function uploadSingleToS3(
   const retryDelays = DEFAULT_RETRY_DELAYS.slice(0, maxRetries);
   const stallTimeout: number = options?.stallTimeoutMs ?? DEFAULT_STALL_TIMEOUT_MS;
 
+  let lastFailure: PutResult | null = null;
+
   for (let attempt = 0; attempt < retryDelays.length; attempt++) {
     if (attempt > 0) {
       await sleep(retryDelays[attempt] || 1000);
     }
     if (options?.signal?.aborted) {
-      return { success: false, error: 'Upload aborted' };
+      return { success: false, error: 'Upload aborted', code: 'aborted' };
     }
 
     const result = await doSinglePut(url, file, options?.onProgress, options?.signal, stallTimeout);
-    if (result === 'success') return { success: true };
-    if (result === 'abort') return { success: false, error: 'Upload aborted' };
+    if (result.kind === 'success') return { success: true };
+    if (result.kind === 'abort') return { success: false, error: 'Upload aborted', code: 'aborted' };
+
+    lastFailure = result;
+
+    // Fatal S3 status — retrying the same presigned URL cannot succeed.
+    // The caller (e.g. multipart wrapper) needs the structured info to refresh the URL or fail fast.
+    if (result.kind === 'fatal') {
+      return {
+        success: false,
+        error: `S3 rejected upload: ${result.status} ${result.code}`,
+        status: result.status,
+        code: result.code,
+        s3ErrorBody: result.body
+      };
+    }
     // 'retry' or 'stall' — continue loop
   }
 
-  return { success: false, error: 'Upload failed after retries' };
+  return {
+    success: false,
+    error: lastFailure?.kind === 'stall' ? 'Upload stalled after retries' : 'Upload failed after retries',
+    status: lastFailure && 'status' in lastFailure ? lastFailure.status : undefined,
+    code:
+      lastFailure?.kind === 'stall'
+        ? 'stalled'
+        : lastFailure && 'code' in lastFailure
+          ? lastFailure.code
+          : 'network_error',
+    s3ErrorBody: lastFailure && 'body' in lastFailure ? lastFailure.body : undefined
+  };
 }
 
-type PutResult = 'success' | 'retry' | 'abort' | 'stall';
+type PutResult =
+  | { kind: 'success' }
+  | { kind: 'abort' }
+  | { kind: 'stall' }
+  | { kind: 'retry'; status?: number; code?: S3UploadErrorCode; body?: string }
+  | { kind: 'fatal'; status: number; code: S3UploadErrorCode; body?: string };
+
+function classifyS3Status(status: number): { fatal: boolean; code: S3UploadErrorCode } {
+  if (status === 403) return { fatal: true, code: 's3_signature_error' };
+  if (FATAL_S3_STATUS.has(status)) return { fatal: true, code: 's3_client_error' };
+  if (status >= 500) return { fatal: false, code: 's3_server_error' };
+  // 408 timeout, 429 throttle, anything else → retry
+  return { fatal: false, code: 's3_transient_error' };
+}
 
 function doSinglePut(
   url: string,
@@ -122,13 +191,20 @@ function doSinglePut(
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
     let stallTimer: ReturnType<typeof setTimeout> | null = null;
+    let resolved = false;
+    const settle = (r: PutResult) => {
+      if (resolved) return;
+      resolved = true;
+      if (stallTimer) clearTimeout(stallTimer);
+      resolve(r);
+    };
 
     const resetStallTimer = () => {
       if (stallTimer) clearTimeout(stallTimer);
       if (stallTimeoutMs) {
         stallTimer = setTimeout(() => {
           xhr.abort();
-          resolve('stall');
+          settle({ kind: 'stall' });
         }, stallTimeoutMs);
       }
     };
@@ -145,39 +221,41 @@ function doSinglePut(
     });
 
     xhr.addEventListener('load', () => {
-      if (stallTimer) clearTimeout(stallTimer);
       if (xhr.status >= 200 && xhr.status < 300) {
-        resolve('success');
-      } else if (xhr.status >= 500) {
-        resolve('retry');
-      } else {
-        resolve('retry'); // 4xx could be transient presigned URL issue
+        settle({ kind: 'success' });
+        return;
       }
+      const body = (xhr.responseText || '').slice(0, MAX_ERROR_BODY_BYTES);
+      const { fatal, code } = classifyS3Status(xhr.status);
+      settle({ kind: fatal ? 'fatal' : 'retry', status: xhr.status, code, body });
     });
 
-    xhr.addEventListener('error', () => {
-      if (stallTimer) clearTimeout(stallTimer);
-      resolve('retry');
-    });
+    xhr.addEventListener('error', () => settle({ kind: 'retry', code: 'network_error' }));
 
     xhr.addEventListener('abort', () => {
-      if (stallTimer) clearTimeout(stallTimer);
-      // Only resolve 'abort' if it was user-initiated, not stall
+      // If neither user-abort nor stall has resolved yet, treat as transient retry.
+      if (!resolved) settle({ kind: 'retry', code: 'aborted_unexpected' });
     });
 
     if (signal) {
       signal.addEventListener(
         'abort',
         () => {
-          xhr.abort();
-          if (stallTimer) clearTimeout(stallTimer);
-          resolve('abort');
+          // Cancel the in-flight request — without this the upload keeps consuming
+          // bandwidth in the background after the caller has aborted.
+          try {
+            xhr.abort();
+          } catch {
+            // xhr.abort() can throw if the request is already done; ignore.
+          }
+          settle({ kind: 'abort' });
         },
         { once: true }
       );
     }
 
     xhr.open('PUT', url);
+    // Server signs single-PUT URLs WITH Content-Type (s3_client.rs:309). Must match.
     xhr.setRequestHeader('Content-Type', (file as File).type || 'application/octet-stream');
     resetStallTimer();
     xhr.send(file);
@@ -245,8 +323,9 @@ export async function uploadMultipartToS3(
 
         let result = await uploadPartWithRetry(url, blob, partNum, maxRetries, options?.signal, stallTimeoutMs);
 
-        // On failure, try refreshing URL (signature may have expired)
-        if (!result && fetchMoreUrls) {
+        // On URL-expired (403) or any failure, try refreshing the presigned URL once.
+        // 403 is reported back fast (no retries burned) so this kicks in within ~0s instead of ~4s.
+        if ('error' in result && fetchMoreUrls && (result.code === 's3_signature_error' || result.refreshable)) {
           const freshUrls = await fetchMoreUrls([partNum]);
           if (freshUrls?.[0]) {
             availableUrls.set(partNum, freshUrls[0].url);
@@ -261,7 +340,7 @@ export async function uploadMultipartToS3(
           }
         }
 
-        if (result) {
+        if ('etag' in result) {
           totalUploaded += end - start;
           options?.onProgress?.({
             loaded: totalUploaded,
@@ -271,13 +350,26 @@ export async function uploadMultipartToS3(
           return { partNum, etag: result.etag } as const;
         }
 
-        return { partNum, error: 'Part upload failed after retries' } as const;
+        return {
+          partNum,
+          error: result.error,
+          status: result.status,
+          code: result.code,
+          body: result.body
+        } as const;
       })
     );
 
     for (const result of results) {
       if ('error' in result) {
-        return { success: false, error: `Part ${result.partNum}: ${result.error}` };
+        const detail = result.status ? ` (HTTP ${result.status} ${result.code ?? ''})` : '';
+        return {
+          success: false,
+          error: `Part ${result.partNum}: ${result.error}${detail}`,
+          status: result.status,
+          code: result.code,
+          s3ErrorBody: result.body
+        };
       }
       completedParts.push({ partNumber: result.partNum, etag: result.etag });
     }
@@ -293,6 +385,15 @@ export async function uploadMultipartToS3(
 // Part Upload with Retry
 // ============================================================================
 
+type PartFailure = {
+  error: string;
+  status?: number;
+  code: S3UploadErrorCode;
+  body?: string;
+  /** True when caller should refresh the presigned URL and retry (e.g. 403, expired signature). */
+  refreshable: boolean;
+};
+
 async function uploadPartWithRetry(
   url: string,
   blob: Blob,
@@ -300,24 +401,56 @@ async function uploadPartWithRetry(
   maxRetries: number,
   signal?: AbortSignal,
   stallTimeoutMs?: number
-): Promise<{ etag: string } | null> {
+): Promise<{ etag: string } | PartFailure> {
   const retryDelays = DEFAULT_RETRY_DELAYS.slice(0, maxRetries);
+  let lastFailure: PartFailure = {
+    error: 'Part upload failed',
+    code: 'network_error',
+    refreshable: false
+  };
 
   for (let attempt = 0; attempt < retryDelays.length; attempt++) {
     if (attempt > 0) await sleep(retryDelays[attempt] || 1000);
-    if (signal?.aborted) return null;
+    if (signal?.aborted) {
+      return { error: 'Upload aborted', code: 'aborted', refreshable: false };
+    }
 
     const result = await doPartPut(url, blob, signal, stallTimeoutMs);
 
-    if (result === 'abort') return null;
-    if (typeof result === 'object') return result; // { etag }
-    // 'retry' — continue (includes stall)
+    if (result.kind === 'success') return { etag: result.etag };
+    if (result.kind === 'abort') {
+      return { error: 'Upload aborted', code: 'aborted', refreshable: false };
+    }
+
+    if (result.kind === 'stall') {
+      lastFailure = { error: 'Part stalled', code: 'stalled', refreshable: false };
+      continue;
+    }
+
+    // Both 'retry' and 'fatal' carry status/code/body/refreshable
+    lastFailure = {
+      error: `Part HTTP ${result.status ?? 'network'}`,
+      status: result.status,
+      code: result.code ?? 'network_error',
+      body: result.body,
+      refreshable: !!result.refreshable
+    };
+
+    // Don't waste retries on a permanently broken signature — bubble up so the caller refreshes the URL.
+    if (result.refreshable) return lastFailure;
+    // Don't retry on other fatal client errors either.
+    if (result.kind === 'fatal') return lastFailure;
   }
 
-  return null;
+  return { ...lastFailure, error: `Part upload failed after retries: ${lastFailure.error}` };
 }
 
-type PartPutResult = { etag: string } | 'retry' | 'abort';
+type PartPutResult =
+  | { kind: 'success'; etag: string }
+  | { kind: 'abort' }
+  | { kind: 'stall' }
+  | { kind: 'retry'; status?: number; code?: S3UploadErrorCode; body?: string; refreshable?: boolean }
+  | { kind: 'fatal'; status: number; code: S3UploadErrorCode; body?: string; refreshable?: boolean };
 
 function doPartPut(url: string, blob: Blob, signal?: AbortSignal, stallTimeoutMs?: number): Promise<PartPutResult> {
   return new Promise((resolve) => {
@@ -337,51 +470,66 @@ function doPartPut(url: string, blob: Blob, signal?: AbortSignal, stallTimeoutMs
       if (stallTimeoutMs) {
         stallTimer = setTimeout(() => {
           xhr.abort();
-          settle('retry'); // Stalled parts are retryable
+          settle({ kind: 'stall' });
         }, stallTimeoutMs);
       }
     };
 
-    xhr.upload.addEventListener('progress', () => {
-      resetStallTimer();
-    });
+    xhr.upload.addEventListener('progress', () => resetStallTimer());
 
     xhr.addEventListener('load', () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         const etag = xhr.getResponseHeader('etag');
         if (etag) {
-          settle({ etag });
+          settle({ kind: 'success', etag });
         } else {
-          settle('retry'); // Missing ETag
+          // Missing ETag — retry, but capture body for diagnostics
+          settle({
+            kind: 'retry',
+            status: xhr.status,
+            code: 's3_missing_etag',
+            body: (xhr.responseText || '').slice(0, MAX_ERROR_BODY_BYTES)
+          });
         }
-      } else if (xhr.status === 403) {
-        // Signature expired — caller should refresh URL
-        settle('retry');
-      } else if (xhr.status >= 500) {
-        settle('retry');
-      } else {
-        settle('retry');
+        return;
       }
+      const body = (xhr.responseText || '').slice(0, MAX_ERROR_BODY_BYTES);
+      const { fatal, code } = classifyS3Status(xhr.status);
+      // 403 on a part is almost always an expired/mismatched signature — surface as refreshable
+      // so the wrapper can fetch a fresh URL instead of burning the retry budget.
+      const refreshable = xhr.status === 403;
+      settle({
+        kind: refreshable ? 'retry' : fatal ? 'fatal' : 'retry',
+        status: xhr.status,
+        code,
+        body,
+        refreshable
+      });
     });
 
-    xhr.addEventListener('error', () => settle('retry'));
+    xhr.addEventListener('error', () => settle({ kind: 'retry', code: 'network_error' }));
     xhr.addEventListener('abort', () => {
-      // Only resolve abort if it wasn't a stall-triggered abort
-      if (!resolved) settle('abort');
+      if (!resolved) settle({ kind: 'abort' });
     });
 
     if (signal) {
       signal.addEventListener(
         'abort',
         () => {
-          xhr.abort();
-          settle('abort');
+          // Cancel the in-flight request so the part stops uploading immediately.
+          try {
+            xhr.abort();
+          } catch {
+            // Already done; ignore.
+          }
+          settle({ kind: 'abort' });
         },
         { once: true }
       );
     }
 
     xhr.open('PUT', url);
+    // Server signs part URLs WITHOUT Content-Type (s3_client.rs:391-398). Do not send one here.
     resetStallTimer();
     xhr.send(blob);
   });

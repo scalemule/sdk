@@ -7,6 +7,24 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.0.51] - 2026-05-02
+
+### Fixed
+- **S3 upload retry logic** (`upload-to-s3.ts`): 4xx responses (esp. 403 SignatureDoesNotMatch) are
+  now classified as fatal instead of being retried as if transient. This stops burning the retry
+  budget on permanent failures and surfaces a structured `s3_signature_error` code so callers can
+  refresh URLs or fail fast.
+- **Multipart part 403 handling** (`upload-to-s3.ts`): 403 on a part PUT now short-circuits the
+  per-part retry loop and bubbles `refreshable: true`, letting the multipart wrapper fetch a fresh
+  presigned URL within ~0s instead of after exhausting ~4s of retries.
+- **AbortSignal handlers actually abort the XHR** (`upload-to-s3.ts`): both `doSinglePut` and
+  `doPartPut` now call `xhr.abort()` when the caller's AbortSignal fires, instead of just resolving
+  the promise. Previously the request kept consuming bandwidth in the background.
+- **S3 error visibility** (`storage.ts`, `upload-to-s3.ts`): on any S3 PUT failure, the response
+  body is now captured (truncated to 1KB) and the AWS error code (e.g. `SignatureDoesNotMatch`,
+  `RequestTimeout`) is extracted and included in `upload_diagnostics`. Previously every failure
+  looked identical in our logs.
+
 ## [0.0.50] - 2026-04-29
 
 ### Added
