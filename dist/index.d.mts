@@ -1628,9 +1628,17 @@ interface S3SingleUploadOptions {
     /** Stall timeout in ms — abort if no progress for this long (default: 45000) */
     stallTimeoutMs?: number;
 }
+/** Structured failure code emitted by uploadSingleToS3 / uploadMultipartToS3. */
+type S3UploadErrorCode = 's3_signature_error' | 's3_client_error' | 's3_server_error' | 's3_transient_error' | 's3_missing_etag' | 'network_error' | 'stalled' | 'aborted' | 'aborted_unexpected';
 interface S3SingleUploadResult {
     success: boolean;
     error?: string;
+    /** S3 HTTP status (when failure originated from S3) */
+    status?: number;
+    /** Structured failure code — see S3UploadErrorCode for the full enum. */
+    code?: S3UploadErrorCode;
+    /** Truncated S3 response body — invaluable for diagnosing SignatureDoesNotMatch vs RequestTimeout etc. */
+    s3ErrorBody?: string;
 }
 interface MultipartPartUrl {
     partNumber: number;
@@ -1661,6 +1669,10 @@ interface S3MultipartResult {
     success: boolean;
     parts?: PartResult[];
     error?: string;
+    status?: number;
+    /** Structured failure code — see S3UploadErrorCode for the full enum. */
+    code?: S3UploadErrorCode;
+    s3ErrorBody?: string;
 }
 /**
  * Upload a file to S3 via a single presigned PUT.

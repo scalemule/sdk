@@ -1346,6 +1346,9 @@ export class StorageService extends ServiceModule {
       parentSignalCleanup?.();
 
       if (!response.ok) {
+        // Read body to capture AWS error code (e.g. SignatureDoesNotMatch, RequestTimeout).
+        // Without this, every failure looks identical in our logs.
+        const s3ErrorBody = await response.text().catch(() => '');
         return {
           data: null,
           error: {
@@ -1355,7 +1358,9 @@ export class StorageService extends ServiceModule {
             details: {
               transport: 'fetch',
               total_bytes: file.size,
-              online: getOnlineStatus()
+              online: getOnlineStatus(),
+              s3_error_body: s3ErrorBody.slice(0, 1024),
+              s3_error_code: extractS3ErrorCode(s3ErrorBody)
             }
           }
         };
@@ -1463,6 +1468,7 @@ export class StorageService extends ServiceModule {
           onProgress?.(100);
           resolve({ data: null, error: null });
         } else {
+          const body = (xhr.responseText || '').slice(0, 1024);
           resolve({
             data: null,
             error: {
@@ -1474,7 +1480,9 @@ export class StorageService extends ServiceModule {
                 bytes_sent: lastLoaded,
                 total_bytes: totalBytes,
                 progress_percent: totalBytes > 0 ? Math.round((lastLoaded / totalBytes) * 100) : undefined,
-                online: getOnlineStatus()
+                online: getOnlineStatus(),
+                s3_error_body: body,
+                s3_error_code: extractS3ErrorCode(body)
               }
             }
           });
@@ -1576,13 +1584,21 @@ export class StorageService extends ServiceModule {
           return { etag };
         }
 
+        // Capture body so we can tell SignatureDoesNotMatch from RequestTimeout etc.
+        const body = await response.text().catch(() => '');
+        const s3ErrorCode = extractS3ErrorCode(body);
+
         if (NON_RETRYABLE_STATUS_CODES.has(response.status)) {
-          return { error: `Part upload failed: ${response.status}`, status: response.status, code: 's3_error' };
+          return {
+            error: `Part upload failed: ${response.status}${s3ErrorCode ? ` (${s3ErrorCode})` : ''}`,
+            status: response.status,
+            code: response.status === 403 ? 's3_signature_error' : 's3_error'
+          };
         }
 
         if (attempt === RETRY_DELAYS.length - 1) {
           return {
-            error: `Part upload failed after retries: ${response.status}`,
+            error: `Part upload failed after retries: ${response.status}${s3ErrorCode ? ` (${s3ErrorCode})` : ''}`,
             status: response.status,
             code: 's3_error'
           };
@@ -1751,4 +1767,16 @@ function getUploadEnvironmentDiagnostics(): Record<string, unknown> {
 
 function asNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * Extract the AWS error code from an S3 XML error response.
+ * S3 returns errors like:
+ *   <Error><Code>SignatureDoesNotMatch</Code><Message>...</Message>...</Error>
+ * Knowing the code is the difference between "fix the signature" and "retry".
+ */
+function extractS3ErrorCode(body: string): string | undefined {
+  if (!body) return undefined;
+  const m = body.match(/<Code>([^<]+)<\/Code>/);
+  return m ? m[1] : undefined;
 }

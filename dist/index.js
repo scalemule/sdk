@@ -3195,6 +3195,7 @@ var StorageService = class extends ServiceModule {
       clearTimeout(timer);
       parentSignalCleanup?.();
       if (!response.ok) {
+        const s3ErrorBody = await response.text().catch(() => "");
         return {
           data: null,
           error: {
@@ -3204,7 +3205,9 @@ var StorageService = class extends ServiceModule {
             details: {
               transport: "fetch",
               total_bytes: file.size,
-              online: getOnlineStatus()
+              online: getOnlineStatus(),
+              s3_error_body: s3ErrorBody.slice(0, 1024),
+              s3_error_code: extractS3ErrorCode(s3ErrorBody)
             }
           }
         };
@@ -3295,6 +3298,7 @@ var StorageService = class extends ServiceModule {
           onProgress?.(100);
           resolve({ data: null, error: null });
         } else {
+          const body = (xhr.responseText || "").slice(0, 1024);
           resolve({
             data: null,
             error: {
@@ -3306,7 +3310,9 @@ var StorageService = class extends ServiceModule {
                 bytes_sent: lastLoaded,
                 total_bytes: totalBytes,
                 progress_percent: totalBytes > 0 ? Math.round(lastLoaded / totalBytes * 100) : void 0,
-                online: getOnlineStatus()
+                online: getOnlineStatus(),
+                s3_error_body: body,
+                s3_error_code: extractS3ErrorCode(body)
               }
             }
           });
@@ -3385,12 +3391,18 @@ var StorageService = class extends ServiceModule {
           }
           return { etag };
         }
+        const body = await response.text().catch(() => "");
+        const s3ErrorCode = extractS3ErrorCode(body);
         if (NON_RETRYABLE_STATUS_CODES.has(response.status)) {
-          return { error: `Part upload failed: ${response.status}`, status: response.status, code: "s3_error" };
+          return {
+            error: `Part upload failed: ${response.status}${s3ErrorCode ? ` (${s3ErrorCode})` : ""}`,
+            status: response.status,
+            code: response.status === 403 ? "s3_signature_error" : "s3_error"
+          };
         }
         if (attempt === RETRY_DELAYS.length - 1) {
           return {
-            error: `Part upload failed after retries: ${response.status}`,
+            error: `Part upload failed after retries: ${response.status}${s3ErrorCode ? ` (${s3ErrorCode})` : ""}`,
             status: response.status,
             code: "s3_error"
           };
@@ -3516,6 +3528,11 @@ function getUploadEnvironmentDiagnostics() {
 function asNumber2(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : void 0;
 }
+function extractS3ErrorCode(body) {
+  if (!body) return void 0;
+  const m = body.match(/<Code>([^<]+)<\/Code>/);
+  return m ? m[1] : void 0;
+}
 
 // src/index.ts
 init_upload_resume();
@@ -3618,33 +3635,65 @@ function getPartRange(partNumber, chunkSize, totalSize) {
 var DEFAULT_RETRY_DELAYS = [0, 1e3, 3e3];
 var DEFAULT_STALL_TIMEOUT_MS3 = 45e3;
 var DEFAULT_CONCURRENCY = 3;
+var FATAL_S3_STATUS = /* @__PURE__ */ new Set([400, 403, 404, 411, 412, 413, 415]);
+var MAX_ERROR_BODY_BYTES = 1024;
 async function uploadSingleToS3(url, file, options) {
   const maxRetries = options?.maxRetries ?? 3;
   const retryDelays = DEFAULT_RETRY_DELAYS.slice(0, maxRetries);
   const stallTimeout = options?.stallTimeoutMs ?? DEFAULT_STALL_TIMEOUT_MS3;
+  let lastFailure = null;
   for (let attempt = 0; attempt < retryDelays.length; attempt++) {
     if (attempt > 0) {
       await sleep3(retryDelays[attempt] || 1e3);
     }
     if (options?.signal?.aborted) {
-      return { success: false, error: "Upload aborted" };
+      return { success: false, error: "Upload aborted", code: "aborted" };
     }
     const result = await doSinglePut(url, file, options?.onProgress, options?.signal, stallTimeout);
-    if (result === "success") return { success: true };
-    if (result === "abort") return { success: false, error: "Upload aborted" };
+    if (result.kind === "success") return { success: true };
+    if (result.kind === "abort") return { success: false, error: "Upload aborted", code: "aborted" };
+    lastFailure = result;
+    if (result.kind === "fatal") {
+      return {
+        success: false,
+        error: `S3 rejected upload: ${result.status} ${result.code}`,
+        status: result.status,
+        code: result.code,
+        s3ErrorBody: result.body
+      };
+    }
   }
-  return { success: false, error: "Upload failed after retries" };
+  return {
+    success: false,
+    error: lastFailure?.kind === "stall" ? "Upload stalled after retries" : "Upload failed after retries",
+    status: lastFailure && "status" in lastFailure ? lastFailure.status : void 0,
+    code: lastFailure?.kind === "stall" ? "stalled" : lastFailure && "code" in lastFailure ? lastFailure.code : "network_error",
+    s3ErrorBody: lastFailure && "body" in lastFailure ? lastFailure.body : void 0
+  };
+}
+function classifyS3Status(status) {
+  if (status === 403) return { fatal: true, code: "s3_signature_error" };
+  if (FATAL_S3_STATUS.has(status)) return { fatal: true, code: "s3_client_error" };
+  if (status >= 500) return { fatal: false, code: "s3_server_error" };
+  return { fatal: false, code: "s3_transient_error" };
 }
 function doSinglePut(url, file, onProgress, signal, stallTimeoutMs) {
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
     let stallTimer = null;
+    let resolved = false;
+    const settle = (r) => {
+      if (resolved) return;
+      resolved = true;
+      if (stallTimer) clearTimeout(stallTimer);
+      resolve(r);
+    };
     const resetStallTimer = () => {
       if (stallTimer) clearTimeout(stallTimer);
       if (stallTimeoutMs) {
         stallTimer = setTimeout(() => {
           xhr.abort();
-          resolve("stall");
+          settle({ kind: "stall" });
         }, stallTimeoutMs);
       }
     };
@@ -3659,29 +3708,27 @@ function doSinglePut(url, file, onProgress, signal, stallTimeoutMs) {
       }
     });
     xhr.addEventListener("load", () => {
-      if (stallTimer) clearTimeout(stallTimer);
       if (xhr.status >= 200 && xhr.status < 300) {
-        resolve("success");
-      } else if (xhr.status >= 500) {
-        resolve("retry");
-      } else {
-        resolve("retry");
+        settle({ kind: "success" });
+        return;
       }
+      const body = (xhr.responseText || "").slice(0, MAX_ERROR_BODY_BYTES);
+      const { fatal, code } = classifyS3Status(xhr.status);
+      settle({ kind: fatal ? "fatal" : "retry", status: xhr.status, code, body });
     });
-    xhr.addEventListener("error", () => {
-      if (stallTimer) clearTimeout(stallTimer);
-      resolve("retry");
-    });
+    xhr.addEventListener("error", () => settle({ kind: "retry", code: "network_error" }));
     xhr.addEventListener("abort", () => {
-      if (stallTimer) clearTimeout(stallTimer);
+      if (!resolved) settle({ kind: "retry", code: "aborted_unexpected" });
     });
     if (signal) {
       signal.addEventListener(
         "abort",
         () => {
-          xhr.abort();
-          if (stallTimer) clearTimeout(stallTimer);
-          resolve("abort");
+          try {
+            xhr.abort();
+          } catch {
+          }
+          settle({ kind: "abort" });
         },
         { once: true }
       );
@@ -3726,7 +3773,7 @@ async function uploadMultipartToS3(file, config, options) {
         const end = Math.min(start + partSizeBytes, file.size);
         const blob = file.slice(start, end);
         let result = await uploadPartWithRetry(url, blob, partNum, maxRetries, options?.signal, stallTimeoutMs);
-        if (!result && fetchMoreUrls) {
+        if ("error" in result && fetchMoreUrls && (result.code === "s3_signature_error" || result.refreshable)) {
           const freshUrls = await fetchMoreUrls([partNum]);
           if (freshUrls?.[0]) {
             availableUrls.set(partNum, freshUrls[0].url);
@@ -3740,7 +3787,7 @@ async function uploadMultipartToS3(file, config, options) {
             );
           }
         }
-        if (result) {
+        if ("etag" in result) {
           totalUploaded += end - start;
           options?.onProgress?.({
             loaded: totalUploaded,
@@ -3749,12 +3796,25 @@ async function uploadMultipartToS3(file, config, options) {
           });
           return { partNum, etag: result.etag };
         }
-        return { partNum, error: "Part upload failed after retries" };
+        return {
+          partNum,
+          error: result.error,
+          status: result.status,
+          code: result.code,
+          body: result.body
+        };
       })
     );
     for (const result of results) {
       if ("error" in result) {
-        return { success: false, error: `Part ${result.partNum}: ${result.error}` };
+        const detail = result.status ? ` (HTTP ${result.status} ${result.code ?? ""})` : "";
+        return {
+          success: false,
+          error: `Part ${result.partNum}: ${result.error}${detail}`,
+          status: result.status,
+          code: result.code,
+          s3ErrorBody: result.body
+        };
       }
       completedParts.push({ partNumber: result.partNum, etag: result.etag });
     }
@@ -3766,14 +3826,36 @@ async function uploadMultipartToS3(file, config, options) {
 }
 async function uploadPartWithRetry(url, blob, _partNumber, maxRetries, signal, stallTimeoutMs) {
   const retryDelays = DEFAULT_RETRY_DELAYS.slice(0, maxRetries);
+  let lastFailure = {
+    error: "Part upload failed",
+    code: "network_error",
+    refreshable: false
+  };
   for (let attempt = 0; attempt < retryDelays.length; attempt++) {
     if (attempt > 0) await sleep3(retryDelays[attempt] || 1e3);
-    if (signal?.aborted) return null;
+    if (signal?.aborted) {
+      return { error: "Upload aborted", code: "aborted", refreshable: false };
+    }
     const result = await doPartPut(url, blob, signal, stallTimeoutMs);
-    if (result === "abort") return null;
-    if (typeof result === "object") return result;
+    if (result.kind === "success") return { etag: result.etag };
+    if (result.kind === "abort") {
+      return { error: "Upload aborted", code: "aborted", refreshable: false };
+    }
+    if (result.kind === "stall") {
+      lastFailure = { error: "Part stalled", code: "stalled", refreshable: false };
+      continue;
+    }
+    lastFailure = {
+      error: `Part HTTP ${result.status ?? "network"}`,
+      status: result.status,
+      code: result.code ?? "network_error",
+      body: result.body,
+      refreshable: !!result.refreshable
+    };
+    if (result.refreshable) return lastFailure;
+    if (result.kind === "fatal") return lastFailure;
   }
-  return null;
+  return { ...lastFailure, error: `Part upload failed after retries: ${lastFailure.error}` };
 }
 function doPartPut(url, blob, signal, stallTimeoutMs) {
   return new Promise((resolve) => {
@@ -3791,39 +3873,50 @@ function doPartPut(url, blob, signal, stallTimeoutMs) {
       if (stallTimeoutMs) {
         stallTimer = setTimeout(() => {
           xhr.abort();
-          settle("retry");
+          settle({ kind: "stall" });
         }, stallTimeoutMs);
       }
     };
-    xhr.upload.addEventListener("progress", () => {
-      resetStallTimer();
-    });
+    xhr.upload.addEventListener("progress", () => resetStallTimer());
     xhr.addEventListener("load", () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         const etag = xhr.getResponseHeader("etag");
         if (etag) {
-          settle({ etag });
+          settle({ kind: "success", etag });
         } else {
-          settle("retry");
+          settle({
+            kind: "retry",
+            status: xhr.status,
+            code: "s3_missing_etag",
+            body: (xhr.responseText || "").slice(0, MAX_ERROR_BODY_BYTES)
+          });
         }
-      } else if (xhr.status === 403) {
-        settle("retry");
-      } else if (xhr.status >= 500) {
-        settle("retry");
-      } else {
-        settle("retry");
+        return;
       }
+      const body = (xhr.responseText || "").slice(0, MAX_ERROR_BODY_BYTES);
+      const { fatal, code } = classifyS3Status(xhr.status);
+      const refreshable = xhr.status === 403;
+      settle({
+        kind: refreshable ? "retry" : fatal ? "fatal" : "retry",
+        status: xhr.status,
+        code,
+        body,
+        refreshable
+      });
     });
-    xhr.addEventListener("error", () => settle("retry"));
+    xhr.addEventListener("error", () => settle({ kind: "retry", code: "network_error" }));
     xhr.addEventListener("abort", () => {
-      if (!resolved) settle("abort");
+      if (!resolved) settle({ kind: "abort" });
     });
     if (signal) {
       signal.addEventListener(
         "abort",
         () => {
-          xhr.abort();
-          settle("abort");
+          try {
+            xhr.abort();
+          } catch {
+          }
+          settle({ kind: "abort" });
         },
         { once: true }
       );
