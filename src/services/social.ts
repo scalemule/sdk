@@ -80,6 +80,31 @@ export interface Like {
   created_at: string;
 }
 
+/**
+ * Bipolar vote state. Score = up_count - down_count.
+ *
+ * `value` is the *caller's* current vote on the target:
+ *   1 = upvote, -1 = downvote, 0 = no vote.
+ */
+export interface VoteState {
+  value: 1 | -1 | 0;
+  up_count: number;
+  down_count: number;
+  score: number;
+}
+
+/**
+ * View counters for a target.
+ *
+ * `view_count` is total recorded views. `unique_viewer_count` is the
+ * count of distinct (viewer, day) buckets — i.e. how many distinct
+ * people viewed across all time, deduped per day.
+ */
+export interface ViewState {
+  view_count: number;
+  unique_viewer_count: number;
+}
+
 // ============================================================================
 // Social Service
 // ============================================================================
@@ -173,6 +198,80 @@ export class SocialService extends ServiceModule {
     requestOptions?: RequestOptions
   ): Promise<PaginatedResponse<Like>> {
     return this._list<Like>(`/${targetType}/${targetId}/likes`, params, requestOptions);
+  }
+
+  // --------------------------------------------------------------------------
+  // Voting (bipolar — up/down with score)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Cast, change, or clear the caller's vote on a target.
+   *
+   * `value`: 1 = upvote, -1 = downvote, 0 = clear.
+   *
+   * Idempotent: re-casting the same value is a no-op; clearing when no
+   * vote exists is a no-op. Server validates `target_type` matches
+   * `[a-z0-9_]{1,64}`. Convention: prefix per app (`weekmob_post`,
+   * `gistyo_gist`).
+   *
+   * Requires an authenticated session; anonymous calls return 401.
+   */
+  async vote(
+    targetType: string,
+    targetId: string,
+    value: 1 | -1 | 0,
+    options?: RequestOptions
+  ): Promise<ApiResponse<VoteState>> {
+    return this.put<VoteState>(`/${targetType}/${targetId}/vote`, { value }, options);
+  }
+
+  /**
+   * Read the caller's current vote on a target plus the aggregate counts.
+   * `value` is 0 when the caller has no vote.
+   *
+   * Requires an authenticated session.
+   */
+  async getVote(
+    targetType: string,
+    targetId: string,
+    options?: RequestOptions
+  ): Promise<ApiResponse<VoteState>> {
+    return this._get<VoteState>(`/${targetType}/${targetId}/vote`, options);
+  }
+
+  // --------------------------------------------------------------------------
+  // View counters
+  // --------------------------------------------------------------------------
+
+  /**
+   * Record a view of a target. Increments the total counter
+   * unconditionally; increments the unique-viewer counter once per
+   * (viewer, UTC day).
+   *
+   * Authenticated callers don't need to pass `viewerFingerprint` — the
+   * user_id is used. Anonymous callers may pass a 64-hex-char
+   * fingerprint hash to participate in unique-viewer dedupe; without
+   * one, only the total counter moves.
+   */
+  async recordView(
+    targetType: string,
+    targetId: string,
+    viewerFingerprint?: string,
+    options?: RequestOptions
+  ): Promise<ApiResponse<ViewState>> {
+    const body = viewerFingerprint ? { viewer_fingerprint: viewerFingerprint } : {};
+    return this.post<ViewState>(`/${targetType}/${targetId}/views`, body, options);
+  }
+
+  /**
+   * Read view counters for a target.
+   */
+  async getViews(
+    targetType: string,
+    targetId: string,
+    options?: RequestOptions
+  ): Promise<ApiResponse<ViewState>> {
+    return this._get<ViewState>(`/${targetType}/${targetId}/views`, options);
   }
 
   // --------------------------------------------------------------------------
