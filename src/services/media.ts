@@ -443,23 +443,22 @@ export class MediaService extends ServiceModule {
     });
     if (kind === 'image' && fileInfo.content_type !== 'image/svg+xml' && options?.preset !== 'custom') {
       emit('optimizing', 100, result.data.id);
-      const persistedManifest = await this.waitForAnonymousManifest(
-        fileInfo.id,
-        options,
-        requestOptions,
-        emit
-      );
+      const persistedManifest = await this.waitForAnonymousManifest(fileInfo.id, options, requestOptions, emit);
       if (persistedManifest.error) {
         return { data: null, error: persistedManifest.error };
       }
       manifest = persistedManifest.manifest ?? manifest;
     }
 
-    const asset = this.buildAsset(fileInfo, {
-      photoId: null,
-      preset: options?.preset,
-      customWidths: options?.customWidths
-    }, manifest);
+    const asset = this.buildAsset(
+      fileInfo,
+      {
+        photoId: null,
+        preset: options?.preset,
+        customWidths: options?.customWidths
+      },
+      manifest
+    );
     emit('ready', 100, result.data.id);
     return {
       data: {
@@ -690,7 +689,6 @@ export class MediaService extends ServiceModule {
       }
     };
   }
-
 }
 
 function detectKind(contentType: string): MediaKind {
