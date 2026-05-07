@@ -1430,10 +1430,7 @@ export class StorageService extends ServiceModule {
     visibility: Visibility | boolean,
     options?: RequestOptions
   ): Promise<ApiResponse<{ file_id: string; visibility: Visibility; is_public: boolean }>> {
-    const body =
-      typeof visibility === 'boolean'
-        ? { is_public: visibility }
-        : { visibility };
+    const body = typeof visibility === 'boolean' ? { is_public: visibility } : { visibility };
     return this.patch<{ file_id: string; visibility: Visibility; is_public: boolean }>(
       `/files/${fileId}/visibility`,
       body,

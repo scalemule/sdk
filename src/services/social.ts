@@ -231,11 +231,7 @@ export class SocialService extends ServiceModule {
    *
    * Requires an authenticated session.
    */
-  async getVote(
-    targetType: string,
-    targetId: string,
-    options?: RequestOptions
-  ): Promise<ApiResponse<VoteState>> {
+  async getVote(targetType: string, targetId: string, options?: RequestOptions): Promise<ApiResponse<VoteState>> {
     return this._get<VoteState>(`/${targetType}/${targetId}/vote`, options);
   }
 
@@ -266,11 +262,7 @@ export class SocialService extends ServiceModule {
   /**
    * Read view counters for a target.
    */
-  async getViews(
-    targetType: string,
-    targetId: string,
-    options?: RequestOptions
-  ): Promise<ApiResponse<ViewState>> {
+  async getViews(targetType: string, targetId: string, options?: RequestOptions): Promise<ApiResponse<ViewState>> {
     return this._get<ViewState>(`/${targetType}/${targetId}/views`, options);
   }
 
