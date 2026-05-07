@@ -50,10 +50,54 @@ const MULTIPART_THRESHOLD_SLOW = 4 * 1024 * 1024; // 4MB
 // Types
 // ============================================================================
 
+/**
+ * Tri-state file visibility — replaces the overloaded `isPublic`
+ * boolean. Three modes, ordered most-restrictive to most-permissive:
+ *
+ *   - `'private'`           — signed/private access only. Owner +
+ *                             app members only.
+ *   - `'app_public'`        — readable by ANY authenticated end-user
+ *                             inside the same application. Same
+ *                             semantics the legacy `isPublic: true`
+ *                             flag has always carried — NOT
+ *                             world-readable.
+ *   - `'anonymous_visible'` — world-readable on a separate public
+ *                             CDN with no auth at request time.
+ *                             Suitable for direct `<img src="…">` use
+ *                             on a logged-out marketing or blog page.
+ *                             Must be requested explicitly — never
+ *                             derived from `isPublic`.
+ *
+ * The storage service backs `anonymous_visible` with a separate S3
+ * bucket fronted by an unsigned CloudFront distribution. When the
+ * environment hasn't provisioned that bucket, `anonymous_visible`
+ * uploads fail loud with HTTP 503 `ANONYMOUS_DELIVERY_NOT_CONFIGURED`
+ * — the SDK never silently demotes them to `app_public`.
+ */
+export type Visibility = 'private' | 'app_public' | 'anonymous_visible';
+
 export interface UploadOptions {
   /** Display filename (sanitized automatically) */
   filename?: string;
-  /** Make file publicly accessible */
+  /**
+   * Tri-state visibility (preferred — see {@link Visibility}).
+   * If both `visibility` and `isPublic` are provided, `visibility`
+   * wins. If neither is provided, the storage service defaults to
+   * `app_public` (matching the historical pre-tristate wire
+   * contract). Callers wanting world-visible uploads MUST pass
+   * `'anonymous_visible'` explicitly — `isPublic: true` only ever
+   * means `app_public`.
+   */
+  visibility?: Visibility;
+  /**
+   * Legacy two-state visibility flag.
+   *
+   * - `true`  → `app_public`  (NOT `anonymous_visible`)
+   * - `false` → `private`
+   *
+   * Prefer the {@link visibility} field for new code. Kept for
+   * back-compat with apps that haven't migrated.
+   */
   isPublic?: boolean;
   /** Custom metadata attached to the file */
   metadata?: Record<string, unknown>;
@@ -96,6 +140,18 @@ export interface PresignedUploadResponse {
   completion_token: string;
   expires_at: string;
   method: string;
+  /**
+   * Resolved visibility for this upload — may differ from the value
+   * the caller sent (e.g. legacy `is_public: true` → `app_public`).
+   * Returned by storage so the SDK can surface back to callers.
+   */
+  visibility?: Visibility;
+  /**
+   * Stable unsigned CDN URL the file will be served at after upload
+   * completion. Populated only when `visibility === 'anonymous_visible'`.
+   * Safe to embed directly in `<img src>` on a logged-out page.
+   */
+  cdn_url?: string;
 }
 
 export interface UploadCompleteResponse {
@@ -106,6 +162,10 @@ export interface UploadCompleteResponse {
   url: string;
   already_completed: boolean;
   scan_queued: boolean;
+  /** Resolved visibility (see {@link PresignedUploadResponse.visibility}). */
+  visibility?: Visibility;
+  /** Unsigned CDN URL — populated only for `anonymous_visible` files. */
+  cdn_url?: string;
 }
 
 export interface UploadFailureReport {
@@ -152,6 +212,10 @@ export interface MultipartCompleteResponse {
   content_type: string;
   url: string;
   scan_queued: boolean;
+  /** Resolved visibility — present on multipart_complete responses. */
+  visibility?: Visibility;
+  /** Unsigned CDN URL — populated only for `anonymous_visible` files. */
+  cdn_url?: string;
 }
 
 export interface FileInfo {
@@ -160,6 +224,29 @@ export interface FileInfo {
   content_type: string;
   size_bytes: number;
   is_public?: boolean;
+  /**
+   * Tri-state visibility from the storage service. Preferred over
+   * `is_public` — `is_public: true` covers both `app_public` and
+   * `anonymous_visible`, which have very different delivery
+   * contracts.
+   */
+  visibility?: Visibility;
+  /**
+   * Bucket the file's bytes live in. For `anonymous_visible` files
+   * this is the storage anonymous bucket; otherwise the standard
+   * `scalemule-storage*` bucket. Empty string when older storage
+   * instances don't return it — callers should treat that as
+   * "primary bucket".
+   */
+  bucket_name?: string;
+  /**
+   * Stable unsigned public-CDN URL — populated only when
+   * `visibility === 'anonymous_visible'`. Drop directly into
+   * `<img src>` on logged-out pages. For private/app_public files
+   * use {@link StorageService.getViewUrl} or
+   * {@link StorageService.getDownloadUrl} instead.
+   */
+  cdn_url?: string;
   url?: string;
   scan_status?: string;
   scanned_at?: string;
@@ -231,6 +318,54 @@ export interface FileStatus {
      *  transcode worker reports `transcode.status === 'done'` (video only). */
     hls?: string;
   };
+}
+
+// ============================================================================
+// Visibility wire helper
+// ============================================================================
+
+/**
+ * Build the visibility-related fields the storage service expects on
+ * upload-init requests (`/signed-url/upload`, `/signed-url/multipart/start`).
+ *
+ * Precedence (matches the storage service's resolver):
+ *   1. Typed `options.visibility` wins outright.
+ *   2. Otherwise, derive from legacy `options.isPublic`:
+ *        true  → `app_public`
+ *        false → `private`
+ *   3. If neither is set, the storage service applies its own
+ *      default (`app_public`, for wire-compat with pre-tristate
+ *      callers). The SDK omits both fields in that case so the
+ *      server-side default rules — sending an explicit value here
+ *      would lock customers to whatever the SDK *thought* the
+ *      default should be at the time it was published.
+ *
+ * The function emits BOTH `visibility` (typed, preferred) and
+ * `is_public` (legacy) when possible — the storage service tolerates
+ * both, with `visibility` winning. Older storage versions that don't
+ * yet understand `visibility` see the legacy `is_public` field.
+ */
+function buildVisibilityWire(options: UploadOptions | undefined): Record<string, unknown> {
+  if (!options) return {};
+  if (options.visibility) {
+    return {
+      visibility: options.visibility,
+      // Legacy field for old storage instances that haven't deployed
+      // the tristate handler yet — omit `is_public` for the
+      // `anonymous_visible` case so an old server that doesn't know
+      // the new value at least falls through to its own default
+      // rather than mis-treating it as `app_public`.
+      ...(options.visibility === 'private'
+        ? { is_public: false }
+        : options.visibility === 'app_public'
+          ? { is_public: true }
+          : {})
+    };
+  }
+  if (typeof options.isPublic === 'boolean') {
+    return { is_public: options.isPublic };
+  }
+  return {};
 }
 
 // ============================================================================
@@ -336,6 +471,63 @@ export class StorageService extends ServiceModule {
     return result;
   }
 
+  /**
+   * Upload a file as world-readable on the anonymous public CDN.
+   *
+   * Same browser→S3 pipeline as {@link upload}, but enforces:
+   *   - `visibility: 'anonymous_visible'` — caller cannot opt out
+   *   - fail-closed if the response doesn't include a `cdn_url`
+   *     (without it, callers would have no way to embed the file
+   *     in `<img src>` and would silently fall back to the signed
+   *     URL — which works, but defeats the whole reason they asked
+   *     for `anonymous_visible`)
+   *
+   * Use this for media meant to render on logged-out marketing
+   * pages, blog posts, embed snippets — anywhere a customer needs
+   * to drop a URL into `<img src>` without an authenticated
+   * session. For everything else (chat attachments, private
+   * uploads, app-internal galleries) prefer {@link upload} or
+   * {@link uploadPrivate}.
+   *
+   * Requires the operator to have provisioned the anonymous
+   * delivery bucket + CDN. When they haven't, the storage service
+   * returns 503 `ANONYMOUS_DELIVERY_NOT_CONFIGURED` and this
+   * helper surfaces that error directly — it never silently
+   * demotes to `app_public`.
+   */
+  async uploadAnonymous(
+    file: File | Blob,
+    options?: Omit<UploadOptions, 'visibility' | 'isPublic'>
+  ): Promise<ApiResponse<FileInfo>> {
+    const result = await this.upload(file, {
+      ...options,
+      visibility: 'anonymous_visible'
+    });
+
+    // Defense-in-depth: an `anonymous_visible` upload that comes
+    // back without a `cdn_url` is unusable by the caller — they
+    // asked for a public-CDN URL and didn't get one. Surface as an
+    // error so the customer's UI can show "upload failed" rather
+    // than render a broken `<img>`.
+    if (result.data && !result.data.cdn_url) {
+      return {
+        data: null,
+        error: {
+          code: 'missing_cdn_url',
+          message:
+            'Storage accepted an anonymous_visible upload but did not return a cdn_url. ' +
+            'This usually indicates the storage service is missing the ANONYMOUS_CDN_HOSTNAME ' +
+            'environment variable, or the file row was created before the operator provisioned ' +
+            'the anonymous-delivery bucket. The file may still be retrievable via a signed URL, ' +
+            'but the public-CDN contract was not honored.',
+          status: 0
+        }
+      };
+    }
+
+    return result;
+  }
+
   // --------------------------------------------------------------------------
   // Direct Upload (3-step with retry + stall)
   // --------------------------------------------------------------------------
@@ -356,13 +548,15 @@ export class StorageService extends ServiceModule {
       upload_url: string;
       completion_token: string;
       expires_at: string;
+      visibility?: Visibility;
+      cdn_url?: string;
     }>(
       '/signed-url/upload',
       {
         filename,
         content_type: file.type || 'application/octet-stream',
         size_bytes: file.size,
-        is_public: options?.isPublic ?? true,
+        ...buildVisibilityWire(options),
         metadata: options?.metadata
       },
       requestOpts
@@ -471,6 +665,13 @@ export class StorageService extends ServiceModule {
         content_type: d.content_type,
         size_bytes: d.size_bytes,
         url: d.url,
+        // Surface visibility + cdn_url all the way out so callers
+        // can branch on visibility without a follow-up getInfo()
+        // round-trip. Anonymous-visible callers especially need
+        // `cdn_url` here to render the image immediately.
+        visibility: d.visibility,
+        cdn_url: d.cdn_url,
+        is_public: d.visibility ? d.visibility !== 'private' : undefined,
         created_at: new Date().toISOString()
       },
       error: null
@@ -569,7 +770,7 @@ export class StorageService extends ServiceModule {
           filename,
           content_type: file.type || 'application/octet-stream',
           size_bytes: file.size,
-          is_public: options?.isPublic ?? true,
+          ...buildVisibilityWire(options),
           metadata: options?.metadata,
           chunk_size: options?.chunkSize,
           ...(clientUploadKey ? { client_upload_key: clientUploadKey } : {})
@@ -887,6 +1088,9 @@ export class StorageService extends ServiceModule {
         content_type: d.content_type,
         size_bytes: d.size_bytes,
         url: d.url,
+        visibility: d.visibility,
+        cdn_url: d.cdn_url,
+        is_public: d.visibility ? d.visibility !== 'private' : undefined,
         created_at: new Date().toISOString()
       },
       error: null
@@ -931,6 +1135,9 @@ export class StorageService extends ServiceModule {
     filename: string,
     contentType: string,
     options?: {
+      /** Tri-state visibility (preferred). See {@link Visibility}. */
+      visibility?: Visibility;
+      /** Legacy boolean. `true` → app_public, `false` → private. */
       isPublic?: boolean;
       expiresIn?: number;
       sizeBytes?: number;
@@ -943,7 +1150,7 @@ export class StorageService extends ServiceModule {
       {
         filename,
         content_type: contentType,
-        is_public: options?.isPublic ?? true,
+        ...buildVisibilityWire(options as UploadOptions | undefined),
         expires_in: options?.expiresIn ?? 3600,
         size_bytes: options?.sizeBytes,
         metadata: options?.metadata
@@ -1002,12 +1209,22 @@ export class StorageService extends ServiceModule {
   // Multipart Public API (for advanced/server-side usage)
   // --------------------------------------------------------------------------
 
-  /** Start a multipart upload session. */
+  /**
+   * Start a multipart upload session.
+   *
+   * Accepts both the typed `visibility` field (preferred) and the
+   * legacy `is_public` boolean for back-compat. If both are sent the
+   * storage service uses `visibility`. `'anonymous_visible'` requires
+   * the operator to have provisioned the anonymous bucket — the
+   * service returns 503 `ANONYMOUS_DELIVERY_NOT_CONFIGURED`
+   * otherwise (the SDK never silently demotes).
+   */
   async startMultipartUpload(
     params: {
       filename: string;
       content_type: string;
       size_bytes: number;
+      visibility?: Visibility;
       is_public?: boolean;
       metadata?: Record<string, unknown>;
       chunk_size?: number;
@@ -1182,18 +1399,33 @@ export class StorageService extends ServiceModule {
   }
 
   /**
-   * Update a file's visibility (public/private).
-   * Only the file owner can toggle this. Changes URL TTL — does not move the S3 object.
-   * Public files get 7-day signed URLs; private files get 1-hour signed URLs.
+   * Update a file's visibility.
+   *
+   * Accepts either:
+   *   - a tri-state {@link Visibility} string (preferred), or
+   *   - a legacy boolean (`true` → `app_public`, `false` → `private`).
+   *
+   * Only the file owner / app member can toggle this. Same-bucket
+   * transitions (`private` ↔ `app_public`) succeed and the service
+   * keeps the legacy `is_public` column in sync via a DB trigger.
+   * Cross-bucket transitions (any flip into or out of
+   * `'anonymous_visible'`) currently return 409
+   * `VISIBILITY_TRANSITION_UNSUPPORTED` — the bytes would need to
+   * move between S3 buckets and that orchestration is not yet
+   * shipped. Re-upload the file with the desired visibility instead.
    */
   async updateVisibility(
     fileId: string,
-    isPublic: boolean,
+    visibility: Visibility | boolean,
     options?: RequestOptions
-  ): Promise<ApiResponse<{ file_id: string; is_public: boolean }>> {
-    return this.patch<{ file_id: string; is_public: boolean }>(
+  ): Promise<ApiResponse<{ file_id: string; visibility: Visibility; is_public: boolean }>> {
+    const body =
+      typeof visibility === 'boolean'
+        ? { is_public: visibility }
+        : { visibility };
+    return this.patch<{ file_id: string; visibility: Visibility; is_public: boolean }>(
       `/files/${fileId}/visibility`,
-      { is_public: isPublic },
+      body,
       options
     );
   }

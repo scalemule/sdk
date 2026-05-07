@@ -155,6 +155,42 @@ export class PhotoService extends ServiceModule {
   }
 
   /**
+   * Build an absolute URL for the **public** transform endpoint —
+   * the unauthenticated path that serves transformed bytes for
+   * `<img src>` use on logged-out marketing pages, blogs, embeds.
+   *
+   * The photo service refuses any photo that isn't:
+   *   - `visibility = 'anonymous_visible'` (the customer explicitly
+   *     opted into world-readable for this file at upload time)
+   *   - `scan_status = 'clean'` (no exception for pending/scanning)
+   *
+   * Anything else returns 404 — the endpoint refuses to disambiguate
+   * "not found" from "not anonymous" so it can't be probed to
+   * discover existence or visibility of private photos.
+   *
+   * Pair with {@link getTransformUrl} for the authenticated case:
+   * customer apps that already have a session should keep using the
+   * authed transform URL (which also handles `anonymous_visible`
+   * photos transparently) — this URL is for cross-origin embedding.
+   *
+   * @example
+   * ```tsx
+   * // photo was uploaded with visibility: 'anonymous_visible'
+   * <img src={sm.photo.getPublicTransformUrl(photoId, { width: 800 })} />
+   * ```
+   */
+  getPublicTransformUrl(photoId: string, options?: TransformOptions): string {
+    const params = new URLSearchParams();
+    if (options?.width) params.set('width', String(options.width));
+    if (options?.height) params.set('height', String(options.height));
+    if (options?.fit) params.set('fit', options.fit);
+    if (options?.format) params.set('format', options.format);
+    if (options?.quality) params.set('quality', String(options.quality));
+    const qs = params.toString();
+    return `${this.client.getBaseUrl()}${this.basePath}/public/${photoId}/transform${qs ? `?${qs}` : ''}`;
+  }
+
+  /**
    * Get a transform URL optimized for the given display area.
    *
    * Snaps UP to the nearest pre-generated square breakpoint (150, 320, 640, 1080)
