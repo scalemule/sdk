@@ -2062,13 +2062,8 @@ var StorageService = class extends ServiceModule {
   /**
    * Upload a file as world-readable on the anonymous public CDN.
    *
-   * Same browser→S3 pipeline as {@link upload}, but enforces:
-   *   - `visibility: 'anonymous_visible'` — caller cannot opt out
-   *   - fail-closed if the response doesn't include a `cdn_url`
-   *     (without it, callers would have no way to embed the file
-   *     in `<img src>` and would silently fall back to the signed
-   *     URL — which works, but defeats the whole reason they asked
-   *     for `anonymous_visible`)
+   * Same browser→S3 pipeline as {@link upload}, but pins
+   * `visibility: 'anonymous_visible'` — caller cannot opt out.
    *
    * Use this for media meant to render on logged-out marketing
    * pages, blog posts, embed snippets — anywhere a customer needs
@@ -2077,28 +2072,28 @@ var StorageService = class extends ServiceModule {
    * uploads, app-internal galleries) prefer {@link upload} or
    * {@link uploadPrivate}.
    *
+   * **`cdn_url` may be `null` on the immediate response.** Storage
+   * intentionally withholds the public CDN URL until the AV scan
+   * has flipped to `clean` — exposing the URL pre-scan would let a
+   * customer embed the bytes in a logged-out page before the
+   * platform has verified them. The upload itself succeeds
+   * regardless; consumers should check `result.data.cdn_url` and:
+   *   - if non-null → it's safe to publish
+   *   - if null → poll {@link getFileStatus} on a small backoff
+   *     until `urls.cdn_url` populates (or `scan.status` flips to
+   *     `threat` / `quarantined` / `error` — terminal failure)
+   *
    * Requires the operator to have provisioned the anonymous
    * delivery bucket + CDN. When they haven't, the storage service
-   * returns 503 `ANONYMOUS_DELIVERY_NOT_CONFIGURED` and this
-   * helper surfaces that error directly — it never silently
-   * demotes to `app_public`.
+   * returns 503 `ANONYMOUS_DELIVERY_NOT_CONFIGURED` (an error
+   * propagated through this helper) — it never silently demotes
+   * to `app_public`.
    */
   async uploadAnonymous(file, options) {
-    const result = await this.upload(file, {
+    return this.upload(file, {
       ...options,
       visibility: "anonymous_visible"
     });
-    if (result.data && !result.data.cdn_url) {
-      return {
-        data: null,
-        error: {
-          code: "missing_cdn_url",
-          message: "Storage accepted an anonymous_visible upload but did not return a cdn_url. This usually indicates the storage service is missing the ANONYMOUS_CDN_HOSTNAME environment variable, or the file row was created before the operator provisioned the anonymous-delivery bucket. The file may still be retrievable via a signed URL, but the public-CDN contract was not honored.",
-          status: 0
-        }
-      };
-    }
-    return result;
   }
   // --------------------------------------------------------------------------
   // Direct Upload (3-step with retry + stall)
