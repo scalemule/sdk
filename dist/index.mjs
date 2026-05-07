@@ -1960,6 +1960,24 @@ var DEFAULT_STALL_TIMEOUT_MS = 45e3;
 var SLOW_NETWORK_STALL_TIMEOUT_MS = 9e4;
 var MULTIPART_THRESHOLD = 8 * 1024 * 1024;
 var MULTIPART_THRESHOLD_SLOW = 4 * 1024 * 1024;
+function buildVisibilityWire(options) {
+  if (!options) return {};
+  if (options.visibility) {
+    return {
+      visibility: options.visibility,
+      // Legacy field for old storage instances that haven't deployed
+      // the tristate handler yet — omit `is_public` for the
+      // `anonymous_visible` case so an old server that doesn't know
+      // the new value at least falls through to its own default
+      // rather than mis-treating it as `app_public`.
+      ...options.visibility === "private" ? { is_public: false } : options.visibility === "app_public" ? { is_public: true } : {}
+    };
+  }
+  if (typeof options.isPublic === "boolean") {
+    return { is_public: options.isPublic };
+  }
+  return {};
+}
 var StorageService = class extends ServiceModule {
   constructor() {
     super(...arguments);
@@ -2041,6 +2059,42 @@ var StorageService = class extends ServiceModule {
     }
     return result;
   }
+  /**
+   * Upload a file as world-readable on the anonymous public CDN.
+   *
+   * Same browser→S3 pipeline as {@link upload}, but pins
+   * `visibility: 'anonymous_visible'` — caller cannot opt out.
+   *
+   * Use this for media meant to render on logged-out marketing
+   * pages, blog posts, embed snippets — anywhere a customer needs
+   * to drop a URL into `<img src>` without an authenticated
+   * session. For everything else (chat attachments, private
+   * uploads, app-internal galleries) prefer {@link upload} or
+   * {@link uploadPrivate}.
+   *
+   * **`cdn_url` may be `null` on the immediate response.** Storage
+   * intentionally withholds the public CDN URL until the AV scan
+   * has flipped to `clean` — exposing the URL pre-scan would let a
+   * customer embed the bytes in a logged-out page before the
+   * platform has verified them. The upload itself succeeds
+   * regardless; consumers should check `result.data.cdn_url` and:
+   *   - if non-null → it's safe to publish
+   *   - if null → poll {@link getFileStatus} on a small backoff
+   *     until `urls.cdn_url` populates (or `scan.status` flips to
+   *     `threat` / `quarantined` / `error` — terminal failure)
+   *
+   * Requires the operator to have provisioned the anonymous
+   * delivery bucket + CDN. When they haven't, the storage service
+   * returns 503 `ANONYMOUS_DELIVERY_NOT_CONFIGURED` (an error
+   * propagated through this helper) — it never silently demotes
+   * to `app_public`.
+   */
+  async uploadAnonymous(file, options) {
+    return this.upload(file, {
+      ...options,
+      visibility: "anonymous_visible"
+    });
+  }
   // --------------------------------------------------------------------------
   // Direct Upload (3-step with retry + stall)
   // --------------------------------------------------------------------------
@@ -2054,7 +2108,7 @@ var StorageService = class extends ServiceModule {
         filename,
         content_type: file.type || "application/octet-stream",
         size_bytes: file.size,
-        is_public: options?.isPublic ?? true,
+        ...buildVisibilityWire(options),
         metadata: options?.metadata
       },
       requestOpts
@@ -2145,6 +2199,13 @@ var StorageService = class extends ServiceModule {
         content_type: d.content_type,
         size_bytes: d.size_bytes,
         url: d.url,
+        // Surface visibility + cdn_url all the way out so callers
+        // can branch on visibility without a follow-up getInfo()
+        // round-trip. Anonymous-visible callers especially need
+        // `cdn_url` here to render the image immediately.
+        visibility: d.visibility,
+        cdn_url: d.cdn_url,
+        is_public: d.visibility ? d.visibility !== "private" : void 0,
         created_at: (/* @__PURE__ */ new Date()).toISOString()
       },
       error: null
@@ -2226,7 +2287,7 @@ var StorageService = class extends ServiceModule {
           filename,
           content_type: file.type || "application/octet-stream",
           size_bytes: file.size,
-          is_public: options?.isPublic ?? true,
+          ...buildVisibilityWire(options),
           metadata: options?.metadata,
           chunk_size: options?.chunkSize,
           ...clientUploadKey ? { client_upload_key: clientUploadKey } : {}
@@ -2504,6 +2565,9 @@ var StorageService = class extends ServiceModule {
         content_type: d.content_type,
         size_bytes: d.size_bytes,
         url: d.url,
+        visibility: d.visibility,
+        cdn_url: d.cdn_url,
+        is_public: d.visibility ? d.visibility !== "private" : void 0,
         created_at: (/* @__PURE__ */ new Date()).toISOString()
       },
       error: null
@@ -2541,7 +2605,7 @@ var StorageService = class extends ServiceModule {
       {
         filename,
         content_type: contentType,
-        is_public: options?.isPublic ?? true,
+        ...buildVisibilityWire(options),
         expires_in: options?.expiresIn ?? 3600,
         size_bytes: options?.sizeBytes,
         metadata: options?.metadata
@@ -2588,7 +2652,16 @@ var StorageService = class extends ServiceModule {
   // --------------------------------------------------------------------------
   // Multipart Public API (for advanced/server-side usage)
   // --------------------------------------------------------------------------
-  /** Start a multipart upload session. */
+  /**
+   * Start a multipart upload session.
+   *
+   * Accepts both the typed `visibility` field (preferred) and the
+   * legacy `is_public` boolean for back-compat. If both are sent the
+   * storage service uses `visibility`. `'anonymous_visible'` requires
+   * the operator to have provisioned the anonymous bucket — the
+   * service returns 503 `ANONYMOUS_DELIVERY_NOT_CONFIGURED`
+   * otherwise (the SDK never silently demotes).
+   */
   async startMultipartUpload(params, requestOptions) {
     return this.post("/signed-url/multipart/start", params, requestOptions);
   }
@@ -2719,14 +2792,26 @@ var StorageService = class extends ServiceModule {
     return this._get(`/files/${fileId}/view-status`, options);
   }
   /**
-   * Update a file's visibility (public/private).
-   * Only the file owner can toggle this. Changes URL TTL — does not move the S3 object.
-   * Public files get 7-day signed URLs; private files get 1-hour signed URLs.
+   * Update a file's visibility.
+   *
+   * Accepts either:
+   *   - a tri-state {@link Visibility} string (preferred), or
+   *   - a legacy boolean (`true` → `app_public`, `false` → `private`).
+   *
+   * Only the file owner / app member can toggle this. Same-bucket
+   * transitions (`private` ↔ `app_public`) succeed and the service
+   * keeps the legacy `is_public` column in sync via a DB trigger.
+   * Cross-bucket transitions (any flip into or out of
+   * `'anonymous_visible'`) currently return 409
+   * `VISIBILITY_TRANSITION_UNSUPPORTED` — the bytes would need to
+   * move between S3 buckets and that orchestration is not yet
+   * shipped. Re-upload the file with the desired visibility instead.
    */
-  async updateVisibility(fileId, isPublic, options) {
+  async updateVisibility(fileId, visibility, options) {
+    const body = typeof visibility === "boolean" ? { is_public: visibility } : { visibility };
     return this.patch(
       `/files/${fileId}/visibility`,
-      { is_public: isPublic },
+      body,
       options
     );
   }
@@ -4480,6 +4565,56 @@ var SocialService = class extends ServiceModule {
     return this._list(`/${targetType}/${targetId}/likes`, params, requestOptions);
   }
   // --------------------------------------------------------------------------
+  // Voting (bipolar — up/down with score)
+  // --------------------------------------------------------------------------
+  /**
+   * Cast, change, or clear the caller's vote on a target.
+   *
+   * `value`: 1 = upvote, -1 = downvote, 0 = clear.
+   *
+   * Idempotent: re-casting the same value is a no-op; clearing when no
+   * vote exists is a no-op. Server validates `target_type` matches
+   * `[a-z0-9_]{1,64}`. Convention: prefix per app (`weekmob_post`,
+   * `gistyo_gist`).
+   *
+   * Requires an authenticated session; anonymous calls return 401.
+   */
+  async vote(targetType, targetId, value, options) {
+    return this.put(`/${targetType}/${targetId}/vote`, { value }, options);
+  }
+  /**
+   * Read the caller's current vote on a target plus the aggregate counts.
+   * `value` is 0 when the caller has no vote.
+   *
+   * Requires an authenticated session.
+   */
+  async getVote(targetType, targetId, options) {
+    return this._get(`/${targetType}/${targetId}/vote`, options);
+  }
+  // --------------------------------------------------------------------------
+  // View counters
+  // --------------------------------------------------------------------------
+  /**
+   * Record a view of a target. Increments the total counter
+   * unconditionally; increments the unique-viewer counter once per
+   * (viewer, UTC day).
+   *
+   * Authenticated callers don't need to pass `viewerFingerprint` — the
+   * user_id is used. Anonymous callers may pass a 64-hex-char
+   * fingerprint hash to participate in unique-viewer dedupe; without
+   * one, only the total counter moves.
+   */
+  async recordView(targetType, targetId, viewerFingerprint, options) {
+    const body = viewerFingerprint ? { viewer_fingerprint: viewerFingerprint } : {};
+    return this.post(`/${targetType}/${targetId}/views`, body, options);
+  }
+  /**
+   * Read view counters for a target.
+   */
+  async getViews(targetType, targetId, options) {
+    return this._get(`/${targetType}/${targetId}/views`, options);
+  }
+  // --------------------------------------------------------------------------
   // Comments
   // --------------------------------------------------------------------------
   async comment(postId, data, options) {
@@ -6071,6 +6206,41 @@ var PhotoService = class extends ServiceModule {
     if (options?.quality) params.set("quality", String(options.quality));
     const qs = params.toString();
     return `${this.client.getBaseUrl()}${this.basePath}/${photoId}/transform${qs ? `?${qs}` : ""}`;
+  }
+  /**
+   * Build an absolute URL for the **public** transform endpoint —
+   * the unauthenticated path that serves transformed bytes for
+   * `<img src>` use on logged-out marketing pages, blogs, embeds.
+   *
+   * The photo service refuses any photo that isn't:
+   *   - `visibility = 'anonymous_visible'` (the customer explicitly
+   *     opted into world-readable for this file at upload time)
+   *   - `scan_status = 'clean'` (no exception for pending/scanning)
+   *
+   * Anything else returns 404 — the endpoint refuses to disambiguate
+   * "not found" from "not anonymous" so it can't be probed to
+   * discover existence or visibility of private photos.
+   *
+   * Pair with {@link getTransformUrl} for the authenticated case:
+   * customer apps that already have a session should keep using the
+   * authed transform URL (which also handles `anonymous_visible`
+   * photos transparently) — this URL is for cross-origin embedding.
+   *
+   * @example
+   * ```tsx
+   * // photo was uploaded with visibility: 'anonymous_visible'
+   * <img src={sm.photo.getPublicTransformUrl(photoId, { width: 800 })} />
+   * ```
+   */
+  getPublicTransformUrl(photoId, options) {
+    const params = new URLSearchParams();
+    if (options?.width) params.set("width", String(options.width));
+    if (options?.height) params.set("height", String(options.height));
+    if (options?.fit) params.set("fit", options.fit);
+    if (options?.format) params.set("format", options.format);
+    if (options?.quality) params.set("quality", String(options.quality));
+    const qs = params.toString();
+    return `${this.client.getBaseUrl()}${this.basePath}/public/${photoId}/transform${qs ? `?${qs}` : ""}`;
   }
   /**
    * Get a transform URL optimized for the given display area.
