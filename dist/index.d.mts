@@ -1275,6 +1275,13 @@ interface FileStatus {
          * S3-presigned otherwise). Absent when scan is `threat` /
          * `quarantined` / `error` — consumers render a blocked
          * placeholder when this is null + scan is non-clean.
+         *
+         * For `visibility = anonymous_visible` files, this field is
+         * ALSO null until scan has flipped to `clean` — the
+         * release-async carve-out only applies to auth-gated tiers,
+         * since for anon files any URL is world-readable. Use
+         * {@link cdn_url} (which has the same gate but is typed
+         * specifically for the public-CDN case) to branch reliably.
          */
         original?: string;
         /** Gateway path for the photo transform — present only when the
@@ -1283,6 +1290,27 @@ interface FileStatus {
         /** Gateway path for the HLS master playlist — present only when the
          *  transcode worker reports `transcode.status === 'done'` (video only). */
         hls?: string;
+        /**
+         * **Typed** unsigned public CDN URL — populated only when
+         * `visibility === 'anonymous_visible'` AND scan has flipped to
+         * `clean` (or admin-released). Lets polling consumers
+         * (`useFileStatus()`) surface the public URL the moment it
+         * becomes available without a separate `getInfo()` /
+         * `list()` call. Mirrors the contract on
+         * {@link FileInfo.cdn_url} and the upload-complete response.
+         *
+         * Polling pattern:
+         * ```ts
+         * while (true) {
+         *   const r = await sm.storage.getFileStatus(fileId);
+         *   if (r.data.urls.cdn_url) break;       // safe to publish
+         *   if (['threat','quarantined','error'].includes(r.data.scan.status))
+         *     break;                              // failed terminal
+         *   await sleep(1000);
+         * }
+         * ```
+         */
+        cdn_url?: string;
     };
 }
 declare class StorageService extends ServiceModule {
