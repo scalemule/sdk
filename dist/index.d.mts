@@ -4970,6 +4970,117 @@ declare class AudioService extends ServiceModule {
     }, requestOptions?: RequestOptions): Promise<ApiResponse<AudioUploadViaStorageResult>>;
 }
 
+type MediaKind = 'image' | 'video' | 'audio' | 'document' | 'other';
+type MediaPreset = 'hero' | 'inline' | 'thumbnail' | 'avatar' | 'logo' | 'custom';
+type MediaUploadPhase = 'presigning' | 'uploading' | 'scanning' | 'optimizing' | 'ready';
+interface MediaUploadEvent {
+    phase: MediaUploadPhase;
+    progress?: number;
+    file_id?: string;
+}
+interface MediaPresetSpec {
+    widths: readonly number[];
+    fit?: 'cover' | 'contain';
+}
+declare const MEDIA_PRESETS: {
+    readonly hero: {
+        readonly widths: readonly [400, 800, 1200, 1600, 2400];
+    };
+    readonly inline: {
+        readonly widths: readonly [400, 800, 1200];
+    };
+    readonly thumbnail: {
+        readonly widths: readonly [120, 240, 360];
+        readonly fit: "cover";
+    };
+    readonly avatar: {
+        readonly widths: readonly [64, 128, 256];
+        readonly fit: "cover";
+    };
+    readonly logo: {
+        readonly widths: readonly [120, 240, 480];
+    };
+};
+interface MediaManifest {
+    file_id: string;
+    content_type: string;
+    preset: MediaPreset | 'original';
+    variants: Record<string, string>;
+    srcset: string | null;
+    default: string | null;
+}
+interface MediaAsset {
+    file_id: string;
+    photo_id: string | null;
+    filename: string;
+    content_type: string;
+    size_bytes: number;
+    kind: MediaKind;
+    visibility: Visibility;
+    is_public: boolean;
+    scan_status?: string;
+    created_at: string;
+    original_url: string | null;
+    cdn_url: string | null;
+    manifest: MediaManifest | null;
+}
+interface MediaUploadResult {
+    file_id: string;
+    photo_id: string | null;
+    original_view_url: string | null;
+    optimized_url_promise: Promise<string | null>;
+    hls_url_promise: Promise<string | null>;
+    mime_type: string;
+    is_public: boolean;
+    visibility: Visibility;
+    cdn_url: string | null;
+    asset: MediaAsset;
+}
+interface MediaUploadOptions {
+    visibility?: Visibility;
+    isPublic?: boolean;
+    policy?: MediaPolicy;
+    filename?: string;
+    metadata?: Record<string, unknown>;
+    preset?: MediaPreset;
+    customWidths?: number[];
+    prewarm?: boolean;
+    onProgress?: (event: MediaUploadEvent) => void;
+    signal?: AbortSignal;
+    skipPhotoRegister?: boolean;
+}
+interface MediaManifestOptions {
+    preset?: MediaPreset;
+    customWidths?: number[];
+}
+declare class MediaService extends ServiceModule {
+    private readonly storage;
+    private readonly photo;
+    private readonly video;
+    private readonly audio;
+    protected basePath: string;
+    constructor(client: ScaleMuleClient, storage: StorageService, photo: PhotoService, video: VideoService, audio: AudioService);
+    getPresets(): Record<Exclude<MediaPreset, 'custom'>, MediaPresetSpec>;
+    upload(file: File | Blob, options?: MediaUploadOptions, requestOptions?: RequestOptions): Promise<ApiResponse<MediaUploadResult>>;
+    get(fileId: string, options?: MediaManifestOptions, requestOptions?: RequestOptions): Promise<ApiResponse<MediaAsset>>;
+    list(params?: PaginationParams & MediaManifestOptions, requestOptions?: RequestOptions): Promise<PaginatedResponse<MediaAsset>>;
+    delete(fileId: string, options?: RequestOptions): Promise<ApiResponse<{
+        deleted: boolean;
+    }>>;
+    releaseQuarantine(fileId: string, reason?: string, options?: RequestOptions): Promise<ApiResponse<MediaAsset>>;
+    getManifest(fileId: string, options?: MediaManifestOptions, requestOptions?: RequestOptions): Promise<ApiResponse<MediaManifest>>;
+    buildAsset(file: FileInfo, options?: MediaManifestOptions & {
+        photoId?: string | null;
+    }): MediaAsset;
+    buildManifest(file: FileInfo, options?: MediaManifestOptions): MediaManifest | null;
+    private uploadAnonymous;
+    private uploadImage;
+    private waitForAnonymousReady;
+    private fetchInfoBestEffort;
+    private pollPhotoOptimizationComplete;
+    private prewarmManifest;
+}
+
 type TtsAccessMode = 'owner_private' | 'tenant_shared' | 'public';
 type TtsSpeechProfile = 'private_default' | 'developer_summary' | 'public_blog' | 'enterprise_strict';
 interface TtsAudioInfo {
@@ -6785,6 +6896,7 @@ declare class ScaleMule {
     readonly events: EventsService;
     readonly graph: GraphService;
     readonly functions: FunctionsService;
+    readonly media: MediaService;
     readonly photo: PhotoService;
     readonly audio: AudioService;
     readonly tts: TtsService;
@@ -6862,4 +6974,4 @@ declare class ScaleMule {
     getClient(): ScaleMuleClient;
 }
 
-export { type AccountBalance, type AccountSwitcherPrivacy, AccountsService, type ActiveUsers, type ActivityItem, AgentAuthService, AgentModelsService, type AgentProfile, AgentProjectsService, type AgentResponse, type AgentSecurityPolicy, AgentSessionsService, type AgentSigningKey, type AgentToken, type AgentToolEntitlement, AgentToolsService, type Workspace as AgentWorkspace, AgentsService, type AggregateOptions, type AggregateResult, type AnalyticsEvent, AnalyticsService, type ApiError, type ApiKey, type ApiResponse, type Appeal, type Application, type Attachment, type Attendee, type AudioRegisterResult, AudioService, type AudioUploadViaStorageResult, type AuditLog, type AuthRegisterAgentRequest, type AuthRegisterAgentResponse, AuthService, type AuthSession, type AuthUser, type BackupCodes, BillingService, type CacheEntry, CacheService, type CalendarEvent, type CallParticipant, type CallSession, type CatalogEntry, CatalogService, type ChatMessage, type ChatReaction, ChatService, type ClaimResult, type Client, type ClientContext, type Collection, type Comment, CommunicationService, type CompletedPart, ComplianceService, type CompressionConfig, ConferenceService, type ConferenceSettings, type ConnectedAccount, type ConnectedAccountSubscription, type ConnectedSetupIntentResponse, type ConnectedSubscriptionListParams, type ConnectionStatus, type ContentFlag, type ContentPolicy, type Conversation, type CostReportDay, type CreateProjectInput as CreateCreatorProjectInput, type CreateFlagRequest, type CreateRuleRequest, type CreateSegmentRequest, type CreateSessionResponse, type CreateVariantRequest, type GenerationJob as CreatorJob, CreatorMakerService, type GenerationOutput as CreatorOutput, type CreatorProject, type CreatorUsage, type Credential, type CredentialScope, type Customer, type DataAccessPolicy, type DataExport, DataService, type DataSource, type DeadLetterJob, type DeviceInfo, type DirectoryUser, type DirectoryUserDetail, type DirectoryUsersListResponse, type Document, type ErrorCode, ErrorCodes, type EventAggregation, EventsService, type FileInfo, type FileStatus, type FlagAuditEntry, type FlagCheck, type FlagCondition, FlagContentService, type FlagDefinition, type FlagDetail, type FlagEnvironment, type FlagEvaluation, type FlagSegment, type FlagVariant, FlagsService, type FollowStatus, type FunctionExecution, type FunctionMetrics, FunctionsService, type Funnel, type FunnelConversion, type GdprRequest, type GenerateInput, type GrantInfo, type GraphEdge, type GraphNode, GraphService, IdentityService, type IdentityType, type IncomingRequestLike, type Invoice, type JobExecution, type JobStats, type JoinCallResponse, type KnownAccount, type KnownAccountDisplay, type Leaderboard, type LeaderboardEntry, LeaderboardService, type Like, type ListNotificationsParams, type Listing, ListingsService, type LogEntry, type LogInput, type LogQueryParams, type LogQueryResponse, type LogRecord, LoggerService, type LoginActivitySummary, type LoginDeviceInfo, type LoginHistoryEntry, type LoginRiskInfo, type MediaPolicy, type MessageCallback, type MessagePin, type MessageStatus, type MetricDataPoint, type MfaStatus, type Model, type ModelEntitlement, type ModelPricing, type ModelProvider, type UsageSummary as ModelUsageSummary, type MultipartCompleteResponse, type MultipartConfig, type MultipartPartUrl, type MultipartPartUrlsResponse, type MultipartStartResponse, type NetworkClass, type Notification, type NotificationListResponse, NotificationsService, type OAuthProvider, type OAuthUrl, OrchestratorService, PHOTO_BREAKPOINTS, type PaginatedResponse, type PaginationMetadata, type PaginationParams, type PartResult, type PartUrl, type Participant, type Payment, type PaymentListParams, type PaymentMethod, type PaymentStatusResponse, type Payout, type PayoutSchedule, type PermissionCheck, type PermissionMatrix, PermissionsService, type PhotoInfo, PhotoService, type PinnedMessagesResponse, type Pipeline, type PipelineVersion, type Policy, type PresenceCallback, type PresenceEvent, type PresignedUploadResponse, type Price, type Product, type Project, type ProjectDocument, type ProjectGrant, type ProjectMember, type PushApiFetcher, type PushPreferences, type PushSettings, type PushSubscriptionInfo, type PushToken, type PushTokenAssociationResult, type PushTopic, type QueryFilter, type QueryOptions, type QuerySort, type QueueJob, QueueService, type ReadStatus, RealtimeService, type RedeemResult, type ReferralAnalytics, type ReferralCampaign, type ReferralProfile, type ReferralStats, ReferralsService, type Refund, type RegisterAgentRequest, type RegisterAgentResponse, type RegisterPushTokenData, type RequestOptions, type ResolvedReferral, type ResumeSession, type Role, type RuntimeTemplate, type RuntimeTemplateVersion, type S3MultipartOptions, type S3MultipartResult, type S3SingleUploadOptions, type S3SingleUploadResult, type S3UploadProgress, ScaleMule, ScaleMuleClient, type ScaleMuleConfig, type SchedulerJob, SchedulerService, type SearchResult, SearchService, type SearchUsersParams, type SecurityLayers, type ServerlessFunction, type ServiceHealth, ServiceModule, type Session, type SessionArtifact, type SessionInfo, type SessionLog, type SessionPoolEntry, type Severity, type ShareLink, type ShortestPathResult, type SignedUrlResponse, type SocialPost, SocialService, type SocialUser, type SsoConfig, type StatusCallback, type StorageAdapter, StorageService, type StorageSettings, type StrategyResult, type StylePreset, type SubmitResult, type Subscription, type TargetingRule, type Task, type TaskAttempt, type TaskTransition, type Team, type TeamInvitation, type TeamMember, TeamsService, type TelemetryPayload, type Tool, type ToolCapability, type ToolIntegration, type TopEvent, type TotpSetup, type Transaction, type TransactionListParams, type TransactionSummary, type TransactionSummaryParams, type Transfer, type TransformOptions, type TransformResult, type TraversalResult, type TtsAccessMode, type TtsAudioInfo, type TtsJobStatus, type TtsListVoicesParams, TtsService, type TtsSpeechMetadata, type TtsSpeechProfile, type TtsSynthesizeParams, type TtsSynthesizeQueuedResult, type TtsSynthesizeReadyResult, type TtsSynthesizeResult, type TtsVoice, type TtsVoicesResponse, type UnreadCountResponse, type UpdateFlagRequest, type UpdateRuleRequest, type UpdateSegmentRequest, type UpdateVariantRequest, type UploadCompleteResponse, type UploadEngineConfig, type UploadFailureReport, type UploadFailureReportResponse, type UploadOptions, type UploadPlan, UploadResumeStore, type UploadStrategy, UploadTelemetry, type UploadTelemetryConfig, type UploadTelemetryEvent, type UpsertEnvironmentRequest, type UsageRecord, type UsageSummary$1 as UsageSummary, type UserRank, type VideoInfo, VideoService, type VideoUploadOptions, WEB_PUSH_SERVICE_WORKER, WebPushManager, type WebPushManagerOptions, type WebPushSubscriptionData, type Webhook, WebhooksService, type WebrtcStats, type Workflow, type WorkflowExecution, type Workspace$1 as Workspace, type WorkspaceInvitation, type WorkspaceMember, WorkspacesService, buildClientContextHeaders, calculateTotalParts, canPerform, createUploadPlan, ScaleMule as default, detectNetworkClass, extractClientContext, generateUploadSessionId, getMeasuredBandwidthMbps, getPartRange, hasMinRoleLevel, resolveStrategy, uploadMultipartToS3, uploadSingleToS3, validateIP };
+export { type AccountBalance, type AccountSwitcherPrivacy, AccountsService, type ActiveUsers, type ActivityItem, AgentAuthService, AgentModelsService, type AgentProfile, AgentProjectsService, type AgentResponse, type AgentSecurityPolicy, AgentSessionsService, type AgentSigningKey, type AgentToken, type AgentToolEntitlement, AgentToolsService, type Workspace as AgentWorkspace, AgentsService, type AggregateOptions, type AggregateResult, type AnalyticsEvent, AnalyticsService, type ApiError, type ApiKey, type ApiResponse, type Appeal, type Application, type Attachment, type Attendee, type AudioRegisterResult, AudioService, type AudioUploadViaStorageResult, type AuditLog, type AuthRegisterAgentRequest, type AuthRegisterAgentResponse, AuthService, type AuthSession, type AuthUser, type BackupCodes, BillingService, type CacheEntry, CacheService, type CalendarEvent, type CallParticipant, type CallSession, type CatalogEntry, CatalogService, type ChatMessage, type ChatReaction, ChatService, type ClaimResult, type Client, type ClientContext, type Collection, type Comment, CommunicationService, type CompletedPart, ComplianceService, type CompressionConfig, ConferenceService, type ConferenceSettings, type ConnectedAccount, type ConnectedAccountSubscription, type ConnectedSetupIntentResponse, type ConnectedSubscriptionListParams, type ConnectionStatus, type ContentFlag, type ContentPolicy, type Conversation, type CostReportDay, type CreateProjectInput as CreateCreatorProjectInput, type CreateFlagRequest, type CreateRuleRequest, type CreateSegmentRequest, type CreateSessionResponse, type CreateVariantRequest, type GenerationJob as CreatorJob, CreatorMakerService, type GenerationOutput as CreatorOutput, type CreatorProject, type CreatorUsage, type Credential, type CredentialScope, type Customer, type DataAccessPolicy, type DataExport, DataService, type DataSource, type DeadLetterJob, type DeviceInfo, type DirectoryUser, type DirectoryUserDetail, type DirectoryUsersListResponse, type Document, type ErrorCode, ErrorCodes, type EventAggregation, EventsService, type FileInfo, type FileStatus, type FlagAuditEntry, type FlagCheck, type FlagCondition, FlagContentService, type FlagDefinition, type FlagDetail, type FlagEnvironment, type FlagEvaluation, type FlagSegment, type FlagVariant, FlagsService, type FollowStatus, type FunctionExecution, type FunctionMetrics, FunctionsService, type Funnel, type FunnelConversion, type GdprRequest, type GenerateInput, type GrantInfo, type GraphEdge, type GraphNode, GraphService, IdentityService, type IdentityType, type IncomingRequestLike, type Invoice, type JobExecution, type JobStats, type JoinCallResponse, type KnownAccount, type KnownAccountDisplay, type Leaderboard, type LeaderboardEntry, LeaderboardService, type Like, type ListNotificationsParams, type Listing, ListingsService, type LogEntry, type LogInput, type LogQueryParams, type LogQueryResponse, type LogRecord, LoggerService, type LoginActivitySummary, type LoginDeviceInfo, type LoginHistoryEntry, type LoginRiskInfo, MEDIA_PRESETS, type MediaAsset, type MediaKind, type MediaManifest, type MediaManifestOptions, type MediaPolicy, type MediaPreset, type MediaPresetSpec, MediaService, type MediaUploadEvent, type MediaUploadOptions, type MediaUploadPhase, type MediaUploadResult, type MessageCallback, type MessagePin, type MessageStatus, type MetricDataPoint, type MfaStatus, type Model, type ModelEntitlement, type ModelPricing, type ModelProvider, type UsageSummary as ModelUsageSummary, type MultipartCompleteResponse, type MultipartConfig, type MultipartPartUrl, type MultipartPartUrlsResponse, type MultipartStartResponse, type NetworkClass, type Notification, type NotificationListResponse, NotificationsService, type OAuthProvider, type OAuthUrl, OrchestratorService, PHOTO_BREAKPOINTS, type PaginatedResponse, type PaginationMetadata, type PaginationParams, type PartResult, type PartUrl, type Participant, type Payment, type PaymentListParams, type PaymentMethod, type PaymentStatusResponse, type Payout, type PayoutSchedule, type PermissionCheck, type PermissionMatrix, PermissionsService, type PhotoInfo, PhotoService, type PinnedMessagesResponse, type Pipeline, type PipelineVersion, type Policy, type PresenceCallback, type PresenceEvent, type PresignedUploadResponse, type Price, type Product, type Project, type ProjectDocument, type ProjectGrant, type ProjectMember, type PushApiFetcher, type PushPreferences, type PushSettings, type PushSubscriptionInfo, type PushToken, type PushTokenAssociationResult, type PushTopic, type QueryFilter, type QueryOptions, type QuerySort, type QueueJob, QueueService, type ReadStatus, RealtimeService, type RedeemResult, type ReferralAnalytics, type ReferralCampaign, type ReferralProfile, type ReferralStats, ReferralsService, type Refund, type RegisterAgentRequest, type RegisterAgentResponse, type RegisterPushTokenData, type RequestOptions, type ResolvedReferral, type ResumeSession, type Role, type RuntimeTemplate, type RuntimeTemplateVersion, type S3MultipartOptions, type S3MultipartResult, type S3SingleUploadOptions, type S3SingleUploadResult, type S3UploadProgress, ScaleMule, ScaleMuleClient, type ScaleMuleConfig, type SchedulerJob, SchedulerService, type SearchResult, SearchService, type SearchUsersParams, type SecurityLayers, type ServerlessFunction, type ServiceHealth, ServiceModule, type Session, type SessionArtifact, type SessionInfo, type SessionLog, type SessionPoolEntry, type Severity, type ShareLink, type ShortestPathResult, type SignedUrlResponse, type SocialPost, SocialService, type SocialUser, type SsoConfig, type StatusCallback, type StorageAdapter, StorageService, type StorageSettings, type StrategyResult, type StylePreset, type SubmitResult, type Subscription, type TargetingRule, type Task, type TaskAttempt, type TaskTransition, type Team, type TeamInvitation, type TeamMember, TeamsService, type TelemetryPayload, type Tool, type ToolCapability, type ToolIntegration, type TopEvent, type TotpSetup, type Transaction, type TransactionListParams, type TransactionSummary, type TransactionSummaryParams, type Transfer, type TransformOptions, type TransformResult, type TraversalResult, type TtsAccessMode, type TtsAudioInfo, type TtsJobStatus, type TtsListVoicesParams, TtsService, type TtsSpeechMetadata, type TtsSpeechProfile, type TtsSynthesizeParams, type TtsSynthesizeQueuedResult, type TtsSynthesizeReadyResult, type TtsSynthesizeResult, type TtsVoice, type TtsVoicesResponse, type UnreadCountResponse, type UpdateFlagRequest, type UpdateRuleRequest, type UpdateSegmentRequest, type UpdateVariantRequest, type UploadCompleteResponse, type UploadEngineConfig, type UploadFailureReport, type UploadFailureReportResponse, type UploadOptions, type UploadPlan, UploadResumeStore, type UploadStrategy, UploadTelemetry, type UploadTelemetryConfig, type UploadTelemetryEvent, type UpsertEnvironmentRequest, type UsageRecord, type UsageSummary$1 as UsageSummary, type UserRank, type VideoInfo, VideoService, type VideoUploadOptions, WEB_PUSH_SERVICE_WORKER, WebPushManager, type WebPushManagerOptions, type WebPushSubscriptionData, type Webhook, WebhooksService, type WebrtcStats, type Workflow, type WorkflowExecution, type Workspace$1 as Workspace, type WorkspaceInvitation, type WorkspaceMember, WorkspacesService, buildClientContextHeaders, calculateTotalParts, canPerform, createUploadPlan, ScaleMule as default, detectNetworkClass, extractClientContext, generateUploadSessionId, getMeasuredBandwidthMbps, getPartRange, hasMinRoleLevel, resolveStrategy, uploadMultipartToS3, uploadSingleToS3, validateIP };

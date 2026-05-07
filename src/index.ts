@@ -266,6 +266,19 @@ export { SearchService } from './services/search';
 export type { SearchResult } from './services/search';
 export { PhotoService, PHOTO_BREAKPOINTS } from './services/photo';
 export type { PhotoInfo, TransformResult, TransformOptions } from './services/photo';
+export { MediaService, MEDIA_PRESETS } from './services/media';
+export type {
+  MediaAsset,
+  MediaKind,
+  MediaManifest,
+  MediaManifestOptions,
+  MediaPreset,
+  MediaPresetSpec,
+  MediaUploadEvent,
+  MediaUploadOptions,
+  MediaUploadPhase,
+  MediaUploadResult
+} from './services/media';
 export { AudioService } from './services/audio';
 export type { AudioRegisterResult, AudioUploadViaStorageResult } from './services/audio';
 export { TtsService } from './services/tts';
@@ -406,6 +419,7 @@ import { LeaderboardService } from './services/leaderboard';
 import { WebhooksService } from './services/webhooks';
 import { SearchService } from './services/search';
 import { PhotoService } from './services/photo';
+import { MediaService } from './services/media';
 import { AudioService } from './services/audio';
 import { TtsService } from './services/tts';
 import { QueueService } from './services/queue';
@@ -509,6 +523,7 @@ export class ScaleMule {
   public readonly functions: FunctionsService;
 
   // Media services
+  public readonly media: MediaService;
   public readonly photo: PhotoService;
   public readonly audio: AudioService;
   public readonly tts: TtsService;
@@ -571,6 +586,7 @@ export class ScaleMule {
     this.functions = new FunctionsService(this._client);
     this.photo = new PhotoService(this._client, this.storage);
     this.audio = new AudioService(this._client, this.storage);
+    this.media = new MediaService(this._client, this.storage, this.photo, this.video, this.audio);
     this.tts = new TtsService(this._client);
     this.flagContent = new FlagContentService(this._client);
     this.creatorMaker = new CreatorMakerService(this._client);
