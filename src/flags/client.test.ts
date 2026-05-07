@@ -60,9 +60,7 @@ describe('FlagClient', () => {
     await vi.advanceTimersByTimeAsync(60_000);
 
     expect(mockFetch).toHaveBeenCalledTimes(3);
-    expect(mockFetch.mock.calls[2]?.[0]).toBe(
-      'https://api.scalemule.com/v1/flags/config?environment=prod'
-    );
+    expect(mockFetch.mock.calls[2]?.[0]).toBe('https://api.scalemule.com/v1/flags/config?environment=prod');
     expect(mockFetch.mock.calls[2]?.[1]).toMatchObject({
       headers: {
         'x-api-key': 'sm_secret_test',
