@@ -92,11 +92,12 @@ describe('Client Initialization', () => {
     expect(client.getBaseUrl()).toBe('https://custom.api.com');
   });
 
-  it('should initialize all 32 services', () => {
+  it('should initialize all media and core services', () => {
     expect(sm.auth).toBeDefined();
     expect(sm.storage).toBeDefined();
     expect(sm.data).toBeDefined();
     expect(sm.video).toBeDefined();
+    expect(sm.media).toBeDefined();
     expect(sm.realtime).toBeDefined();
     expect(sm.chat).toBeDefined();
     expect(sm.social).toBeDefined();

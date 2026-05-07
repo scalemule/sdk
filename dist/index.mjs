@@ -6439,6 +6439,565 @@ var PhotoService = class extends ServiceModule {
   }
 };
 
+// src/services/media.ts
+var MEDIA_PRESETS = {
+  hero: { widths: [400, 800, 1200, 1600, 2400] },
+  inline: { widths: [400, 800, 1200] },
+  thumbnail: { widths: [120, 240, 360], fit: "cover" },
+  avatar: { widths: [64, 128, 256], fit: "cover" },
+  logo: { widths: [120, 240, 480] }
+};
+var MediaService = class extends ServiceModule {
+  constructor(client, storage, photo, video, audio) {
+    super(client);
+    this.storage = storage;
+    this.photo = photo;
+    this.video = video;
+    this.audio = audio;
+    this.basePath = "";
+  }
+  getPresets() {
+    return MEDIA_PRESETS;
+  }
+  async upload(file, options, requestOptions) {
+    const mimeType = file.type || "application/octet-stream";
+    const kind = detectKind(mimeType);
+    const visibility = resolveVisibility(options);
+    const isPublic = visibility !== "private";
+    const isAnonymous = visibility === "anonymous_visible";
+    const gateOnPipeline = shouldGateOnPipeline(options?.policy);
+    const emit = (phase, progress, fileId) => {
+      options?.onProgress?.({ phase, progress, file_id: fileId });
+    };
+    const uploadOptions = {
+      filename: options?.filename,
+      metadata: options?.metadata,
+      signal: options?.signal,
+      onProgress: (progress) => emit("uploading", progress)
+    };
+    emit("presigning", 0);
+    try {
+      if (isAnonymous) {
+        return await this.uploadAnonymous(file, mimeType, kind, options, requestOptions, uploadOptions, emit);
+      }
+      if (kind === "image" && !options?.skipPhotoRegister) {
+        return await this.uploadImage(
+          file,
+          mimeType,
+          visibility,
+          gateOnPipeline,
+          options,
+          requestOptions,
+          uploadOptions,
+          emit
+        );
+      }
+      if (kind === "video" && visibility === "private") {
+        const result = await this.video.uploadViaStorage(file, uploadOptions, requestOptions);
+        if (result.error || !result.data) {
+          return { data: null, error: result.error };
+        }
+        if (gateOnPipeline) {
+          emit("optimizing", 100, result.data.file_id);
+          await result.data.hls_url_promise;
+        }
+        const info = await this.fetchInfoBestEffort(result.data.file_id, requestOptions);
+        const asset2 = this.buildAsset(
+          info ?? fallbackFileInfo(result.data.file_id, mimeType, visibility, result.data.original_view_url, null),
+          {
+            photoId: null,
+            preset: options?.preset,
+            customWidths: options?.customWidths
+          }
+        );
+        emit("ready", 100, result.data.file_id);
+        return {
+          data: {
+            file_id: result.data.file_id,
+            photo_id: null,
+            original_view_url: result.data.original_view_url,
+            optimized_url_promise: Promise.resolve(null),
+            hls_url_promise: result.data.hls_url_promise,
+            mime_type: mimeType,
+            is_public: false,
+            visibility,
+            cdn_url: null,
+            asset: asset2
+          },
+          error: null
+        };
+      }
+      if (kind === "audio" && visibility === "private") {
+        const result = await this.audio.uploadViaStorage(file, uploadOptions, requestOptions);
+        if (result.error || !result.data) {
+          return { data: null, error: result.error };
+        }
+        const info = await this.fetchInfoBestEffort(result.data.file_id, requestOptions);
+        const asset2 = this.buildAsset(
+          info ?? fallbackFileInfo(result.data.file_id, mimeType, visibility, result.data.original_view_url, null),
+          {
+            photoId: null,
+            preset: options?.preset,
+            customWidths: options?.customWidths
+          }
+        );
+        emit("ready", 100, result.data.file_id);
+        return {
+          data: {
+            file_id: result.data.file_id,
+            photo_id: null,
+            original_view_url: result.data.original_view_url,
+            optimized_url_promise: Promise.resolve(null),
+            hls_url_promise: Promise.resolve(null),
+            mime_type: mimeType,
+            is_public: false,
+            visibility,
+            cdn_url: null,
+            asset: asset2
+          },
+          error: null
+        };
+      }
+      const storageResult = isPublic ? await this.storage.upload(file, {
+        ...uploadOptions,
+        visibility: "app_public",
+        skipCompression: true
+      }) : await this.storage.uploadPrivate(file, uploadOptions);
+      if (storageResult.error || !storageResult.data) {
+        return { data: null, error: storageResult.error };
+      }
+      const fileInfo = storageResult.data;
+      const asset = this.buildAsset(fileInfo, {
+        photoId: null,
+        preset: options?.preset,
+        customWidths: options?.customWidths
+      });
+      emit("ready", 100, fileInfo.id);
+      return {
+        data: {
+          file_id: fileInfo.id,
+          photo_id: null,
+          original_view_url: fileInfo.url ?? null,
+          optimized_url_promise: Promise.resolve(null),
+          hls_url_promise: Promise.resolve(null),
+          mime_type: mimeType,
+          is_public: fileInfo.is_public ?? isPublic,
+          visibility: resolveFileVisibility(fileInfo, visibility),
+          cdn_url: fileInfo.cdn_url ?? null,
+          asset
+        },
+        error: null
+      };
+    } catch (error) {
+      return {
+        data: null,
+        error: normalizeThrownError(error)
+      };
+    }
+  }
+  async get(fileId, options, requestOptions) {
+    const result = await this.storage.getInfo(fileId, requestOptions);
+    if (result.error || !result.data) {
+      return { data: null, error: result.error };
+    }
+    return {
+      data: this.buildAsset(result.data, {
+        photoId: null,
+        preset: options?.preset,
+        customWidths: options?.customWidths
+      }),
+      error: null
+    };
+  }
+  async list(params, requestOptions) {
+    const result = await this.storage.list(params, requestOptions);
+    return {
+      data: result.data.map(
+        (file) => this.buildAsset(file, {
+          photoId: null,
+          preset: params?.preset,
+          customWidths: params?.customWidths
+        })
+      ),
+      metadata: result.metadata,
+      error: result.error
+    };
+  }
+  async delete(fileId, options) {
+    try {
+      const [, storageResult] = await Promise.all([
+        this.photo.delete(fileId, options).catch(() => ({ data: null, error: null })),
+        this.storage.delete(fileId, options)
+      ]);
+      if (storageResult.error && storageResult.error.status !== 404) {
+        return { data: null, error: storageResult.error };
+      }
+      return { data: { deleted: true }, error: null };
+    } catch (error) {
+      return { data: null, error: normalizeThrownError(error) };
+    }
+  }
+  async releaseQuarantine(fileId, reason = "Released via @scalemule/sdk media.releaseQuarantine()", options) {
+    const response = await this.client.post(
+      `/v1/storage/admin/files/${fileId}/scan-override`,
+      { scan_status: "clean", reason },
+      options
+    );
+    if (response.error) {
+      return { data: null, error: response.error };
+    }
+    return this.get(fileId, void 0, options);
+  }
+  async getManifest(fileId, options, requestOptions) {
+    const asset = await this.get(fileId, options, requestOptions);
+    if (asset.error || !asset.data) {
+      return { data: null, error: asset.error };
+    }
+    return { data: asset.data.manifest, error: null };
+  }
+  buildAsset(file, options) {
+    const visibility = resolveFileVisibility(file);
+    const photoId = options?.photoId ?? null;
+    const originalUrl = visibility === "anonymous_visible" ? file.cdn_url ?? file.url ?? null : file.url ?? file.cdn_url ?? null;
+    return {
+      file_id: file.id,
+      photo_id: photoId,
+      filename: file.filename,
+      content_type: file.content_type,
+      size_bytes: file.size_bytes,
+      kind: detectKind(file.content_type),
+      visibility,
+      is_public: file.is_public ?? visibility !== "private",
+      scan_status: file.scan_status,
+      created_at: file.created_at,
+      original_url: originalUrl,
+      cdn_url: file.cdn_url ?? null,
+      manifest: this.buildManifest(file, options)
+    };
+  }
+  buildManifest(file, options) {
+    const kind = detectKind(file.content_type);
+    const visibility = resolveFileVisibility(file);
+    const originalUrl = visibility === "anonymous_visible" ? file.cdn_url ?? file.url ?? null : file.url ?? file.cdn_url ?? null;
+    if (!originalUrl) {
+      return null;
+    }
+    if (kind !== "image" || file.content_type === "image/svg+xml") {
+      return {
+        file_id: file.id,
+        content_type: file.content_type,
+        preset: "original",
+        variants: { original: originalUrl },
+        srcset: null,
+        default: originalUrl
+      };
+    }
+    const preset = options?.preset ?? "inline";
+    const spec = resolvePresetSpec(preset, options?.customWidths);
+    const variants = Object.fromEntries(
+      spec.widths.map((width) => [
+        String(width),
+        visibility === "anonymous_visible" ? this.photo.getPublicTransformUrl(file.id, transformOptions(width, spec.fit)) : this.photo.getTransformUrl(file.id, transformOptions(width, spec.fit))
+      ])
+    );
+    const defaultWidth = pickDefaultWidth(spec.widths);
+    const defaultUrl = variants[String(defaultWidth)] ?? Object.values(variants)[0] ?? originalUrl;
+    return {
+      file_id: file.id,
+      content_type: file.content_type,
+      preset,
+      variants,
+      srcset: spec.widths.map((width) => `${variants[String(width)]} ${width}w`).join(", "),
+      default: defaultUrl
+    };
+  }
+  async uploadAnonymous(file, mimeType, kind, options, requestOptions, uploadOptions, emit) {
+    const result = await this.storage.uploadAnonymous(file, uploadOptions);
+    if (result.error || !result.data) {
+      return { data: null, error: result.error };
+    }
+    emit("scanning", 100, result.data.id);
+    const ready = await this.waitForAnonymousReady(result.data.id, options?.signal, emit);
+    if (ready.error) {
+      return { data: null, error: ready.error };
+    }
+    const fileInfo = await this.fetchInfoBestEffort(result.data.id, requestOptions) ?? {
+      ...result.data,
+      cdn_url: ready.cdnUrl ?? result.data.cdn_url,
+      scan_status: ready.scanStatus
+    };
+    const manifest = this.buildManifest(fileInfo, {
+      preset: options?.preset,
+      customWidths: options?.customWidths
+    });
+    if (kind === "image" && fileInfo.content_type !== "image/svg+xml" && options?.prewarm !== false) {
+      emit("optimizing", 100, result.data.id);
+      await this.prewarmManifest(manifest, options?.signal);
+    }
+    const asset = this.buildAsset(fileInfo, {
+      photoId: null,
+      preset: options?.preset,
+      customWidths: options?.customWidths
+    });
+    emit("ready", 100, result.data.id);
+    return {
+      data: {
+        file_id: result.data.id,
+        photo_id: null,
+        original_view_url: fileInfo.cdn_url ?? null,
+        optimized_url_promise: Promise.resolve(manifest?.default ?? null),
+        hls_url_promise: Promise.resolve(null),
+        mime_type: mimeType,
+        is_public: true,
+        visibility: "anonymous_visible",
+        cdn_url: fileInfo.cdn_url ?? null,
+        asset
+      },
+      error: null
+    };
+  }
+  async uploadImage(file, mimeType, visibility, gateOnPipeline, options, requestOptions, uploadOptions, emit) {
+    if (visibility === "private") {
+      const result = await this.photo.uploadViaStorage(file, uploadOptions, requestOptions);
+      if (result.error || !result.data) {
+        return { data: null, error: result.error };
+      }
+      if (gateOnPipeline) {
+        emit("optimizing", 100, result.data.file_id);
+        await result.data.optimized_url_promise;
+      }
+      const info2 = await this.fetchInfoBestEffort(result.data.file_id, requestOptions);
+      const asset2 = this.buildAsset(
+        info2 ?? fallbackFileInfo(result.data.file_id, mimeType, visibility, result.data.original_view_url, null),
+        {
+          photoId: result.data.photo_id,
+          preset: options?.preset,
+          customWidths: options?.customWidths
+        }
+      );
+      emit("ready", 100, result.data.file_id);
+      return {
+        data: {
+          file_id: result.data.file_id,
+          photo_id: result.data.photo_id,
+          original_view_url: result.data.original_view_url,
+          optimized_url_promise: result.data.optimized_url_promise,
+          hls_url_promise: Promise.resolve(null),
+          mime_type: mimeType,
+          is_public: false,
+          visibility,
+          cdn_url: null,
+          asset: asset2
+        },
+        error: null
+      };
+    }
+    const storageResult = await this.storage.upload(file, {
+      ...uploadOptions,
+      visibility: "app_public",
+      skipCompression: true
+    });
+    if (storageResult.error || !storageResult.data) {
+      return { data: null, error: storageResult.error };
+    }
+    const originalViewUrl = storageResult.data.url ?? null;
+    const registerResult = await this.photo.register({ fileId: storageResult.data.id }, requestOptions);
+    const photoId = registerResult.error || !registerResult.data ? null : registerResult.data.id;
+    const optimizedUrlPromise = photoId ? this.pollPhotoOptimizationComplete(photoId, requestOptions) : Promise.resolve(null);
+    if (gateOnPipeline) {
+      emit("optimizing", 100, storageResult.data.id);
+      await optimizedUrlPromise;
+    }
+    const info = await this.fetchInfoBestEffort(storageResult.data.id, requestOptions) ?? storageResult.data;
+    const asset = this.buildAsset(info, {
+      photoId,
+      preset: options?.preset,
+      customWidths: options?.customWidths
+    });
+    emit("ready", 100, storageResult.data.id);
+    return {
+      data: {
+        file_id: storageResult.data.id,
+        photo_id: photoId,
+        original_view_url: originalViewUrl,
+        optimized_url_promise: optimizedUrlPromise,
+        hls_url_promise: Promise.resolve(null),
+        mime_type: mimeType,
+        is_public: true,
+        visibility,
+        cdn_url: info.cdn_url ?? null,
+        asset
+      },
+      error: null
+    };
+  }
+  async waitForAnonymousReady(fileId, signal, emit) {
+    const delays = [500, 1e3, 1500, 2e3, 2500, 3e3];
+    for (let attempt = 0; attempt < 24; attempt++) {
+      if (signal?.aborted) {
+        return {
+          cdnUrl: null,
+          scanStatus: void 0,
+          error: { code: "aborted", message: "Upload aborted", status: 0 }
+        };
+      }
+      const status = await this.storage.getFileStatus(fileId);
+      if (status.error || !status.data) {
+        await sleep4(delays[Math.min(attempt, delays.length - 1)] ?? 3e3);
+        continue;
+      }
+      const scanStatus = status.data.scan.status;
+      if (status.data.urls.cdn_url) {
+        return { cdnUrl: status.data.urls.cdn_url, scanStatus, error: null };
+      }
+      if (scanStatus === "threat" || scanStatus === "quarantined" || scanStatus === "error") {
+        return {
+          cdnUrl: null,
+          scanStatus,
+          error: scanError(scanStatus)
+        };
+      }
+      emit("scanning", Math.min(99, 10 + attempt * 4), fileId);
+      await sleep4(delays[Math.min(attempt, delays.length - 1)] ?? 3e3);
+    }
+    return {
+      cdnUrl: null,
+      scanStatus: "pending",
+      error: {
+        code: "file_scanning",
+        message: "File scan did not complete in time. Re-fetch the file status and publish once cdn_url appears.",
+        status: 202
+      }
+    };
+  }
+  async fetchInfoBestEffort(fileId, requestOptions) {
+    const result = await this.storage.getInfo(fileId, requestOptions);
+    return result.error || !result.data ? null : result.data;
+  }
+  async pollPhotoOptimizationComplete(photoId, requestOptions) {
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const result = await this.photo.get(photoId, requestOptions);
+      const status = result.data?.optimization_status;
+      if (status === "completed") {
+        return this.photo.getTransformUrl(photoId, { width: 1200 });
+      }
+      await sleep4(250);
+    }
+    return null;
+  }
+  async prewarmManifest(manifest, signal) {
+    if (!manifest || manifest.preset === "original") {
+      return;
+    }
+    const urls = Object.values(manifest.variants);
+    await Promise.all(
+      urls.map(async (url) => {
+        try {
+          const response = await fetch(url, {
+            method: "GET",
+            signal,
+            headers: {
+              Accept: "image/avif,image/webp,image/*,*/*;q=0.8"
+            }
+          });
+          if (!response.ok) {
+            throw new Error(`Prewarm failed with HTTP ${response.status}`);
+          }
+          await response.arrayBuffer();
+        } catch (error) {
+          console.warn("[scalemule-sdk] media prewarm failed", url, error);
+        }
+      })
+    );
+  }
+};
+function detectKind(contentType) {
+  if (contentType.startsWith("image/")) return "image";
+  if (contentType.startsWith("video/")) return "video";
+  if (contentType.startsWith("audio/")) return "audio";
+  if (contentType.includes("pdf") || contentType.includes("text/") || contentType.includes("word") || contentType.includes("sheet") || contentType.includes("presentation")) {
+    return "document";
+  }
+  return "other";
+}
+function resolveVisibility(options) {
+  if (options?.visibility) return options.visibility;
+  if (options?.isPublic === true) return "app_public";
+  return "private";
+}
+function resolveFileVisibility(file, fallback = "private") {
+  if (file.visibility) return file.visibility;
+  if (file.is_public === true) return "app_public";
+  return fallback;
+}
+function shouldGateOnPipeline(policy) {
+  return policy === "safe_public" || policy === "moderated" || policy === "compliance";
+}
+function resolvePresetSpec(preset, customWidths) {
+  if (preset === "custom") {
+    const widths = Array.from(
+      new Set((customWidths ?? []).filter((value) => Number.isFinite(value) && value > 0))
+    ).sort((a, b) => a - b);
+    return { widths: widths.length > 0 ? widths : MEDIA_PRESETS.inline.widths };
+  }
+  return MEDIA_PRESETS[preset];
+}
+function transformOptions(width, fit) {
+  return fit === "cover" ? { width, height: width, fit: "cover" } : { width, fit: fit ?? "contain" };
+}
+function pickDefaultWidth(widths) {
+  if (widths.includes(1200)) return 1200;
+  return widths[Math.floor(widths.length / 2)] ?? widths[0] ?? 0;
+}
+function fallbackFileInfo(fileId, contentType, visibility, originalUrl, cdnUrl) {
+  return {
+    id: fileId,
+    filename: fileId,
+    content_type: contentType,
+    size_bytes: 0,
+    is_public: visibility !== "private",
+    visibility,
+    cdn_url: cdnUrl ?? void 0,
+    url: originalUrl ?? void 0,
+    created_at: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+function normalizeThrownError(error) {
+  if (typeof error === "object" && error && "code" in error && "message" in error) {
+    return error;
+  }
+  return {
+    code: "upload_error",
+    message: error instanceof Error ? error.message : "Media operation failed",
+    status: 500
+  };
+}
+function scanError(status) {
+  switch (status) {
+    case "threat":
+      return {
+        code: "file_threat",
+        message: "File was flagged as malicious during scanning.",
+        status: 409
+      };
+    case "quarantined":
+      return {
+        code: "file_quarantined",
+        message: "File was quarantined during scanning.",
+        status: 409
+      };
+    default:
+      return {
+        code: "upload_error",
+        message: "File scan failed.",
+        status: 500
+      };
+  }
+}
+function sleep4(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // src/services/audio.ts
 var AudioService = class extends ServiceModule {
   /**
@@ -7387,6 +7946,7 @@ var ScaleMule = class {
     this.functions = new FunctionsService(this._client);
     this.photo = new PhotoService(this._client, this.storage);
     this.audio = new AudioService(this._client, this.storage);
+    this.media = new MediaService(this._client, this.storage, this.photo, this.video, this.audio);
     this.tts = new TtsService(this._client);
     this.flagContent = new FlagContentService(this._client);
     this.creatorMaker = new CreatorMakerService(this._client);
@@ -7551,6 +8111,8 @@ export {
   LeaderboardService,
   ListingsService,
   LoggerService,
+  MEDIA_PRESETS,
+  MediaService,
   NotificationsService,
   OrchestratorService,
   PHONE_COUNTRIES,
