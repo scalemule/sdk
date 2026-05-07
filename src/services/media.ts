@@ -33,6 +33,7 @@ export interface MediaManifest {
   file_id: string;
   content_type: string;
   preset: MediaPreset | 'original';
+  ready?: boolean;
   variants: Record<string, string>;
   srcset: string | null;
   default: string | null;
@@ -331,14 +332,19 @@ export class MediaService extends ServiceModule {
     options?: MediaManifestOptions,
     requestOptions?: RequestOptions
   ): Promise<ApiResponse<MediaManifest>> {
-    const asset = await this.get(fileId, options, requestOptions);
-    if (asset.error || !asset.data) {
-      return { data: null, error: asset.error };
+    const file = await this.storage.getInfo(fileId, requestOptions);
+    if (file.error || !file.data) {
+      return { data: null, error: file.error };
     }
-    return { data: asset.data.manifest, error: null };
+    const manifest = await this.fetchManifest(file.data, options, requestOptions);
+    return { data: manifest, error: null };
   }
 
-  buildAsset(file: FileInfo, options?: MediaManifestOptions & { photoId?: string | null }): MediaAsset {
+  buildAsset(
+    file: FileInfo,
+    options?: MediaManifestOptions & { photoId?: string | null },
+    manifest?: MediaManifest | null
+  ): MediaAsset {
     const visibility = resolveFileVisibility(file);
     const photoId = options?.photoId ?? null;
     const originalUrl =
@@ -357,7 +363,7 @@ export class MediaService extends ServiceModule {
       created_at: file.created_at,
       original_url: originalUrl,
       cdn_url: file.cdn_url ?? null,
-      manifest: this.buildManifest(file, options)
+      manifest: manifest ?? this.buildManifest(file, options)
     };
   }
 
@@ -431,21 +437,29 @@ export class MediaService extends ServiceModule {
       scan_status: ready.scanStatus
     };
 
-    const manifest = this.buildManifest(fileInfo, {
+    let manifest = this.buildManifest(fileInfo, {
       preset: options?.preset,
       customWidths: options?.customWidths
     });
-
-    if (kind === 'image' && fileInfo.content_type !== 'image/svg+xml' && options?.prewarm !== false) {
+    if (kind === 'image' && fileInfo.content_type !== 'image/svg+xml' && options?.preset !== 'custom') {
       emit('optimizing', 100, result.data.id);
-      await this.prewarmManifest(manifest, options?.signal);
+      const persistedManifest = await this.waitForAnonymousManifest(
+        fileInfo.id,
+        options,
+        requestOptions,
+        emit
+      );
+      if (persistedManifest.error) {
+        return { data: null, error: persistedManifest.error };
+      }
+      manifest = persistedManifest.manifest ?? manifest;
     }
 
     const asset = this.buildAsset(fileInfo, {
       photoId: null,
       preset: options?.preset,
       customWidths: options?.customWidths
-    });
+    }, manifest);
     emit('ready', 100, result.data.id);
     return {
       data: {
@@ -604,6 +618,31 @@ export class MediaService extends ServiceModule {
     return result.error || !result.data ? null : result.data;
   }
 
+  private async fetchManifest(
+    file: FileInfo,
+    options?: MediaManifestOptions,
+    requestOptions?: RequestOptions
+  ): Promise<MediaManifest | null> {
+    const kind = detectKind(file.content_type);
+    const visibility = resolveFileVisibility(file);
+    if (kind !== 'image' || file.content_type === 'image/svg+xml') {
+      return this.buildManifest(file, options);
+    }
+    if (visibility !== 'anonymous_visible' || options?.preset === 'custom') {
+      return this.buildManifest(file, options);
+    }
+
+    const persisted = await this.photo.getPublicManifest(
+      file.id,
+      { preset: (options?.preset ?? 'inline') as Exclude<MediaPreset, 'custom'> },
+      requestOptions
+    );
+    if (persisted.error || !persisted.data) {
+      return this.buildManifest(file, options);
+    }
+    return persisted.data;
+  }
+
   private async pollPhotoOptimizationComplete(
     photoId: string,
     requestOptions?: RequestOptions
@@ -620,32 +659,38 @@ export class MediaService extends ServiceModule {
     return null;
   }
 
-  private async prewarmManifest(manifest: MediaManifest | null, signal: AbortSignal | undefined): Promise<void> {
-    if (!manifest || manifest.preset === 'original') {
-      return;
+  private async waitForAnonymousManifest(
+    fileId: string,
+    options: MediaUploadOptions | undefined,
+    requestOptions: RequestOptions | undefined,
+    emit: (phase: MediaUploadPhase, progress?: number, fileId?: string) => void
+  ): Promise<{ manifest: MediaManifest | null; error: ApiError | null }> {
+    const preset = (options?.preset ?? 'inline') as Exclude<MediaPreset, 'custom'>;
+    const delays = [500, 1000, 1500, 2000, 2500, 3000];
+    for (let attempt = 0; attempt < 30; attempt++) {
+      if (options?.signal?.aborted) {
+        return {
+          manifest: null,
+          error: { code: 'aborted', message: 'Upload aborted', status: 0 }
+        };
+      }
+      const manifest = await this.photo.getPublicManifest(fileId, { preset }, requestOptions);
+      if (!manifest.error && manifest.data && manifest.data.ready) {
+        return { manifest: manifest.data, error: null };
+      }
+      emit('optimizing', Math.min(99, 15 + attempt * 3), fileId);
+      await sleep(delays[Math.min(attempt, delays.length - 1)] ?? 3000);
     }
-    const urls = Object.values(manifest.variants);
-    await Promise.all(
-      urls.map(async (url) => {
-        try {
-          const response = await fetch(url, {
-            method: 'GET',
-            signal,
-            headers: {
-              Accept: 'image/avif,image/webp,image/*,*/*;q=0.8'
-            }
-          });
-          if (!response.ok) {
-            throw new Error(`Prewarm failed with HTTP ${response.status}`);
-          }
-          await response.arrayBuffer();
-        } catch (error) {
-          // eslint-disable-next-line no-console
-          console.warn('[scalemule-sdk] media prewarm failed', url, error);
-        }
-      })
-    );
+    return {
+      manifest: null,
+      error: {
+        code: 'manifest_pending',
+        message: 'Photo variants are still being generated. Re-fetch the public manifest once ready flips true.',
+        status: 202
+      }
+    };
   }
+
 }
 
 function detectKind(contentType: string): MediaKind {

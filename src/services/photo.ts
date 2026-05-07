@@ -40,6 +40,19 @@ export interface TransformResult {
   format: string;
 }
 
+export type PhotoPreset = 'hero' | 'inline' | 'thumbnail' | 'avatar' | 'logo';
+
+export interface PhotoManifest {
+  file_id: string;
+  photo_id: string;
+  content_type: string;
+  preset: PhotoPreset | 'original';
+  ready: boolean;
+  variants: Record<string, string>;
+  srcset: string | null;
+  default: string | null;
+}
+
 /** Options for building a transform URL or requesting a transform */
 export interface TransformOptions {
   width?: number;
@@ -134,6 +147,28 @@ export class PhotoService extends ServiceModule {
 
   async delete(id: string, options?: RequestOptions): Promise<ApiResponse<{ deleted: boolean }>> {
     return this.del<{ deleted: boolean }>(`/${id}`, options);
+  }
+
+  async getPresets(
+    options?: RequestOptions
+  ): Promise<ApiResponse<Record<PhotoPreset, { widths: number[] }>>> {
+    return this._get<Record<PhotoPreset, { widths: number[] }>>('/presets', options);
+  }
+
+  async getManifest(
+    id: string,
+    params?: { preset?: PhotoPreset },
+    options?: RequestOptions
+  ): Promise<ApiResponse<PhotoManifest>> {
+    return this._get<PhotoManifest>(this.withQuery(`/${id}/manifest`, params), options);
+  }
+
+  async getPublicManifest(
+    id: string,
+    params?: { preset?: PhotoPreset },
+    options?: RequestOptions
+  ): Promise<ApiResponse<PhotoManifest>> {
+    return this._get<PhotoManifest>(this.withQuery(`/public/${id}/manifest`, params), options);
   }
 
   /**
