@@ -149,9 +149,7 @@ export class PhotoService extends ServiceModule {
     return this.del<{ deleted: boolean }>(`/${id}`, options);
   }
 
-  async getPresets(
-    options?: RequestOptions
-  ): Promise<ApiResponse<Record<PhotoPreset, { widths: number[] }>>> {
+  async getPresets(options?: RequestOptions): Promise<ApiResponse<Record<PhotoPreset, { widths: number[] }>>> {
     return this._get<Record<PhotoPreset, { widths: number[] }>>('/presets', options);
   }
 
