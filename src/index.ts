@@ -32,6 +32,15 @@ export { ErrorCodes } from './types';
 export { extractClientContext, buildClientContextHeaders, validateIP } from './context';
 export type { IncomingRequestLike } from './context';
 
+// Anonymous-ID contract (shared across all client packages)
+export {
+  STORAGE_KEYS,
+  LEGACY_ANONYMOUS_ID_KEYS,
+  generateAnonymousId,
+  readAnonymousId,
+  ensureAnonymousId
+} from './anonymous-id';
+
 // Re-export core client and base class
 export { ScaleMuleClient } from './client';
 export { ServiceModule } from './service';

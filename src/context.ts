@@ -130,7 +130,8 @@ export function extractClientContext(request: IncomingRequestLike): ClientContex
     ip,
     userAgent: getHeader('user-agent') || undefined,
     deviceFingerprint: getHeader('x-device-fingerprint') || undefined,
-    referrer: getHeader('referer') || undefined
+    referrer: getHeader('referer') || undefined,
+    anonymousId: getHeader('x-anonymous-id') || undefined
   };
 }
 
@@ -160,5 +161,10 @@ export function buildClientContextHeaders(context: ClientContext | undefined): R
   if (context.userAgent) headers['X-Client-User-Agent'] = context.userAgent;
   if (context.deviceFingerprint) headers['X-Client-Device-Fingerprint'] = context.deviceFingerprint;
   if (context.referrer) headers['X-Client-Referrer'] = context.referrer;
+  // Forward the visitor's anonymous-ID through the server-to-gateway hop so
+  // scalemule-auth's register/login handlers (which read `x-anonymous-id`)
+  // see the same value the browser sent to the proxy. Without this, proxy
+  // mode silently drops the ID and the identity-link pipeline can't run.
+  if (context.anonymousId) headers['x-anonymous-id'] = context.anonymousId;
   return headers;
 }
