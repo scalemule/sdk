@@ -37,19 +37,23 @@ interface RawApiResponse {
   details?: Record<string, unknown>;
 }
 
+import { STORAGE_KEYS, ensureAnonymousId } from './anonymous-id';
+
 const SDK_VERSION = '0.0.1';
 const DEFAULT_TIMEOUT = 30000;
 const DEFAULT_MAX_RETRIES = 2;
 const DEFAULT_BACKOFF_MS = 300;
 const MAX_BACKOFF_MS = 30000;
-const SESSION_STORAGE_KEY = 'scalemule_session';
-const USER_ID_STORAGE_KEY = 'scalemule_user_id';
-const OFFLINE_QUEUE_KEY = 'scalemule_offline_queue';
-const WORKSPACE_STORAGE_KEY = 'scalemule_workspace_id';
-const ANONYMOUS_ID_STORAGE_KEY = 'scalemule_anonymous_id';
-const SESSION_POOL_KEY = 'scalemule_session_pool';
-const ACTIVE_ACCOUNT_KEY = 'scalemule_active_account';
-const KNOWN_ACCOUNTS_KEY = 'scalemule_known_accounts';
+// Storage key constants below mirror STORAGE_KEYS from ./anonymous-id. They
+// stay as local aliases so the diff against existing call sites is minimal;
+// new code should prefer STORAGE_KEYS directly.
+const SESSION_STORAGE_KEY = STORAGE_KEYS.SESSION;
+const USER_ID_STORAGE_KEY = STORAGE_KEYS.USER_ID;
+const OFFLINE_QUEUE_KEY = STORAGE_KEYS.OFFLINE_QUEUE;
+const WORKSPACE_STORAGE_KEY = STORAGE_KEYS.WORKSPACE_ID;
+const SESSION_POOL_KEY = STORAGE_KEYS.SESSION_POOL;
+const ACTIVE_ACCOUNT_KEY = STORAGE_KEYS.ACTIVE_ACCOUNT;
+const KNOWN_ACCOUNTS_KEY = STORAGE_KEYS.KNOWN_ACCOUNTS;
 
 const GATEWAY_URLS = {
   dev: 'https://api-dev.scalemule.com',
@@ -394,6 +398,11 @@ export class ScaleMuleClient {
   private offlineQueue: OfflineQueue | null = null;
   private workspaceId: string | null = null;
   private anonymousId: string | null = null;
+  // Per-client single-flight for the lazy mint. The shared helper has its
+  // own WeakMap-keyed guard against concurrent callers; this field caches
+  // the resolved value at the instance level so subsequent calls (including
+  // those during request bursts) don't even await the helper.
+  private anonymousIdPromise: Promise<string> | null = null;
   private multiSessionEnabled: boolean;
   private sessionPool: Map<string, import('./types').SessionPoolEntry> = new Map();
   private accountSwitcherEnabled: boolean;
@@ -441,13 +450,12 @@ export class ScaleMuleClient {
     const wsId = await this.storage.getItem(WORKSPACE_STORAGE_KEY);
     if (wsId) this.workspaceId = wsId;
 
-    // Load or generate anonymous_id for identity linking
-    let anonId = await this.storage.getItem(ANONYMOUS_ID_STORAGE_KEY);
-    if (!anonId) {
-      anonId = crypto.randomUUID();
-      await this.storage.setItem(ANONYMOUS_ID_STORAGE_KEY, anonId);
-    }
-    this.anonymousId = anonId;
+    // Load or mint anonymous_id via the instance-level single-flight which
+    // wraps the shared helper. Reads canonical key first, falls back to the
+    // legacy `sm_anonymous_id` left over by older `@scalemule/nextjs`
+    // versions, and dual-writes during the migration window. See
+    // ./anonymous-id.ts for the full contract.
+    await this.ensureAnonymousId();
 
     // Load session pool when multi-session is enabled
     if (this.multiSessionEnabled) {
@@ -510,7 +518,7 @@ export class ScaleMuleClient {
         '[ScaleMule] Initialized, session:',
         !!this.sessionToken,
         'anonymousId:',
-        anonId,
+        this.anonymousId,
         'poolSize:',
         this.sessionPool.size,
         'knownAccounts:',
@@ -569,8 +577,42 @@ export class ScaleMuleClient {
   isAuthenticated(): boolean {
     return this.sessionToken !== null;
   }
+  /**
+   * Sync accessor for the cached anonymous ID. Returns `null` until either
+   * `initialize()` has run or `ensureAnonymousId()` has been awaited at
+   * least once. Use `ensureAnonymousId()` if you need a guaranteed value.
+   */
   getAnonymousId(): string | null {
     return this.anonymousId;
+  }
+
+  /**
+   * Lazy-mint or cache-then-return the anonymous ID.
+   *
+   * Always returns a usable string. Callers that need to attach the
+   * `x-anonymous-id` header before `initialize()` has completed (rare —
+   * usually only the very first unauthenticated request from a freshly
+   * constructed client) should `await` this rather than relying on
+   * `getAnonymousId()`.
+   *
+   * Concurrent callers receive the same in-flight promise — no risk of
+   * two simultaneous first requests minting two distinct IDs.
+   */
+  async ensureAnonymousId(): Promise<string> {
+    if (this.anonymousId) return this.anonymousId;
+    if (!this.anonymousIdPromise) {
+      this.anonymousIdPromise = ensureAnonymousId(this.storage)
+        .then((id) => {
+          this.anonymousId = id;
+          return id;
+        })
+        .finally(() => {
+          // Drop the promise reference now that the value is cached on
+          // the instance — future calls hit the sync fast path above.
+          this.anonymousIdPromise = null;
+        });
+    }
+    return this.anonymousIdPromise;
   }
   isMultiSessionEnabled(): boolean {
     return this.multiSessionEnabled;
@@ -791,9 +833,23 @@ export class ScaleMuleClient {
       if (this.workspaceId) {
         headers['x-sm-workspace-id'] = this.workspaceId;
       }
-      // Include anonymous_id header when not authenticated (for identity linking)
-      if (!this.sessionToken && this.anonymousId) {
-        headers['x-anonymous-id'] = this.anonymousId;
+      // Include anonymous_id header when not authenticated (for identity linking).
+      // Lazy-mint if `initialize()` hasn't been awaited yet — this is the path
+      // that fires on a brand-new visitor whose very first action is a register
+      // or login call before any other SDK method has touched storage. The
+      // instance-level single-flight on `ensureAnonymousId()` guarantees that a
+      // burst of concurrent first requests all see the same minted value.
+      if (!init.skipAuth && !this.sessionToken) {
+        if (!this.anonymousId) {
+          try {
+            await this.ensureAnonymousId();
+          } catch {
+            /* storage unavailable — proceed without header, backend handles missing */
+          }
+        }
+        if (this.anonymousId) {
+          headers['x-anonymous-id'] = this.anonymousId;
+        }
       }
 
       // On retry for POST/PUT/PATCH, attach the idempotency key

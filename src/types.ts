@@ -312,4 +312,11 @@ export interface ClientContext {
   deviceFingerprint?: string;
   /** HTTP Referer header from the end-user's request */
   referrer?: string;
+  /**
+   * End-user anonymous visitor ID, forwarded as `x-anonymous-id`. Set on
+   * unauthenticated requests so the backend can link the visitor's pre-auth
+   * activity to a registered user on login/register. Populated automatically
+   * by `extractClientContext()` when the upstream request carries the header.
+   */
+  anonymousId?: string;
 }
