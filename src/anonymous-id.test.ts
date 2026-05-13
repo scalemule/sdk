@@ -108,6 +108,40 @@ describe('anonymous-id', () => {
       expect(second).toBe(third);
     });
 
+    it('single-flights concurrent first calls against the same storage', async () => {
+      // Async storage that introduces a microtask gap between get and set,
+      // creating the exact window where two callers can race. Without the
+      // helper-level WeakMap guard, both calls would observe empty storage,
+      // mint different UUIDs, and one of them would persist the "wrong" one.
+      const data = new Map<string, string>();
+      const asyncStorage: StorageAdapter = {
+        getItem: async (k) => {
+          await Promise.resolve();
+          return data.get(k) ?? null;
+        },
+        setItem: async (k, v) => {
+          await Promise.resolve();
+          data.set(k, v);
+        },
+        removeItem: async (k) => {
+          await Promise.resolve();
+          data.delete(k);
+        }
+      };
+
+      const [a, b, c, d] = await Promise.all([
+        ensureAnonymousId(asyncStorage),
+        ensureAnonymousId(asyncStorage),
+        ensureAnonymousId(asyncStorage),
+        ensureAnonymousId(asyncStorage)
+      ]);
+
+      expect(a).toBe(b);
+      expect(b).toBe(c);
+      expect(c).toBe(d);
+      expect(data.get(STORAGE_KEYS.ANONYMOUS_ID)).toBe(a);
+    });
+
     it('survives a storage that throws on setItem (returns value anyway)', async () => {
       const throwing: StorageAdapter = {
         getItem: () => null,

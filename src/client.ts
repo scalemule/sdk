@@ -398,6 +398,11 @@ export class ScaleMuleClient {
   private offlineQueue: OfflineQueue | null = null;
   private workspaceId: string | null = null;
   private anonymousId: string | null = null;
+  // Per-client single-flight for the lazy mint. The shared helper has its
+  // own WeakMap-keyed guard against concurrent callers; this field caches
+  // the resolved value at the instance level so subsequent calls (including
+  // those during request bursts) don't even await the helper.
+  private anonymousIdPromise: Promise<string> | null = null;
   private multiSessionEnabled: boolean;
   private sessionPool: Map<string, import('./types').SessionPoolEntry> = new Map();
   private accountSwitcherEnabled: boolean;
@@ -445,11 +450,12 @@ export class ScaleMuleClient {
     const wsId = await this.storage.getItem(WORKSPACE_STORAGE_KEY);
     if (wsId) this.workspaceId = wsId;
 
-    // Load or mint anonymous_id via the shared helper. Reads canonical key
-    // first, falls back to the legacy `sm_anonymous_id` left over by older
-    // `@scalemule/nextjs` versions, and dual-writes during the migration
-    // window. See ./anonymous-id.ts for the full contract.
-    this.anonymousId = await ensureAnonymousId(this.storage);
+    // Load or mint anonymous_id via the instance-level single-flight which
+    // wraps the shared helper. Reads canonical key first, falls back to the
+    // legacy `sm_anonymous_id` left over by older `@scalemule/nextjs`
+    // versions, and dual-writes during the migration window. See
+    // ./anonymous-id.ts for the full contract.
+    await this.ensureAnonymousId();
 
     // Load session pool when multi-session is enabled
     if (this.multiSessionEnabled) {
@@ -588,11 +594,25 @@ export class ScaleMuleClient {
    * usually only the very first unauthenticated request from a freshly
    * constructed client) should `await` this rather than relying on
    * `getAnonymousId()`.
+   *
+   * Concurrent callers receive the same in-flight promise — no risk of
+   * two simultaneous first requests minting two distinct IDs.
    */
   async ensureAnonymousId(): Promise<string> {
     if (this.anonymousId) return this.anonymousId;
-    this.anonymousId = await ensureAnonymousId(this.storage);
-    return this.anonymousId;
+    if (!this.anonymousIdPromise) {
+      this.anonymousIdPromise = ensureAnonymousId(this.storage)
+        .then((id) => {
+          this.anonymousId = id;
+          return id;
+        })
+        .finally(() => {
+          // Drop the promise reference now that the value is cached on
+          // the instance — future calls hit the sync fast path above.
+          this.anonymousIdPromise = null;
+        });
+    }
+    return this.anonymousIdPromise;
   }
   isMultiSessionEnabled(): boolean {
     return this.multiSessionEnabled;
@@ -816,11 +836,13 @@ export class ScaleMuleClient {
       // Include anonymous_id header when not authenticated (for identity linking).
       // Lazy-mint if `initialize()` hasn't been awaited yet — this is the path
       // that fires on a brand-new visitor whose very first action is a register
-      // or login call before any other SDK method has touched storage.
+      // or login call before any other SDK method has touched storage. The
+      // instance-level single-flight on `ensureAnonymousId()` guarantees that a
+      // burst of concurrent first requests all see the same minted value.
       if (!init.skipAuth && !this.sessionToken) {
         if (!this.anonymousId) {
           try {
-            this.anonymousId = await ensureAnonymousId(this.storage);
+            await this.ensureAnonymousId();
           } catch {
             /* storage unavailable — proceed without header, backend handles missing */
           }

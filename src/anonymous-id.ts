@@ -81,6 +81,19 @@ export async function readAnonymousId(storage: StorageAdapter): Promise<string |
 }
 
 /**
+ * Per-storage in-flight promise cache. `StorageAdapter` is async, so the
+ * read-then-mint sequence inside `ensureAnonymousId` is interleavable —
+ * without this guard, two concurrent first calls can both observe empty
+ * storage, mint distinct UUIDs, and persist whichever write lands last,
+ * leaving one in-flight request with a header value that no longer matches
+ * stored state. The WeakMap collapses concurrent calls to a single resolve.
+ *
+ * Keyed by the storage object identity (not by some hash of its contents),
+ * so callers that share a single adapter instance share the guard.
+ */
+const inFlight = new WeakMap<StorageAdapter, Promise<string>>();
+
+/**
  * Read-or-create the anonymous ID with legacy-key migration and dual-write.
  *
  * Algorithm:
@@ -91,11 +104,31 @@ export async function readAnonymousId(storage: StorageAdapter): Promise<string |
  *   3. No ID exists — mint a new UUID, dual-write canonical + legacy keys,
  *      return it.
  *
+ * Concurrent callers against the same storage adapter are single-flighted
+ * — the second caller receives the same promise as the first.
+ *
  * Idempotent. Safe to call on every request that needs the header. If you
  * cache the result in memory on the client, you can avoid the storage
  * round-trip after the first call.
  */
-export async function ensureAnonymousId(storage: StorageAdapter): Promise<string> {
+export function ensureAnonymousId(storage: StorageAdapter): Promise<string> {
+  const existing = inFlight.get(storage);
+  if (existing) return existing;
+  const promise = (async () => {
+    try {
+      return await resolveAnonymousId(storage);
+    } finally {
+      // Release the slot so callers that arrive after the resolve don't
+      // pin a stale promise. By the time we get here the value is already
+      // persisted; the next caller will hit a fast canonical-read path.
+      inFlight.delete(storage);
+    }
+  })();
+  inFlight.set(storage, promise);
+  return promise;
+}
+
+async function resolveAnonymousId(storage: StorageAdapter): Promise<string> {
   const canonical = await storage.getItem(STORAGE_KEYS.ANONYMOUS_ID);
   if (canonical) {
     // Best-effort: keep the legacy key in sync so any code still reading it
