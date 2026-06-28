@@ -1,6 +1,282 @@
-import {
-  UploadResumeStore
-} from "./chunk-3FTGBRLU.mjs";
+var __defProp = Object.defineProperty;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __esm = (fn, res) => function __init() {
+  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+};
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+
+// src/services/upload-resume.ts
+var upload_resume_exports = {};
+__export(upload_resume_exports, {
+  UploadResumeStore: () => UploadResumeStore
+});
+var DB_NAME, STORE_NAME, DB_VERSION, MAX_AGE_MS, UploadResumeStore;
+var init_upload_resume = __esm({
+  "src/services/upload-resume.ts"() {
+    "use strict";
+    DB_NAME = "sm_upload_sessions_v1";
+    STORE_NAME = "sessions";
+    DB_VERSION = 1;
+    MAX_AGE_MS = 24 * 60 * 60 * 1e3;
+    UploadResumeStore = class {
+      constructor() {
+        this.db = null;
+      }
+      /** Generate a deterministic resume key from upload identity */
+      static async generateResumeKey(appId, userId, filename, size, lastModified) {
+        const raw = `${appId}:${userId}:${filename}:${size}:${lastModified ?? 0}`;
+        if (typeof crypto !== "undefined" && crypto.subtle) {
+          const buffer = new TextEncoder().encode(raw);
+          const hash2 = await crypto.subtle.digest("SHA-256", buffer);
+          return Array.from(new Uint8Array(hash2)).map((b) => b.toString(16).padStart(2, "0")).join("");
+        }
+        let hash = 0;
+        for (let i = 0; i < raw.length; i++) {
+          const chr = raw.charCodeAt(i);
+          hash = (hash << 5) - hash + chr;
+          hash |= 0;
+        }
+        return `fallback_${Math.abs(hash).toString(36)}`;
+      }
+      /** Open the IndexedDB store. No-ops if IndexedDB is unavailable. */
+      async open() {
+        if (typeof indexedDB === "undefined") return;
+        return new Promise((resolve, reject) => {
+          const request = indexedDB.open(DB_NAME, DB_VERSION);
+          request.onupgradeneeded = () => {
+            const db = request.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+              const store = db.createObjectStore(STORE_NAME, { keyPath: "key" });
+              store.createIndex("updated_at", "updated_at");
+            }
+          };
+          request.onsuccess = () => {
+            this.db = request.result;
+            resolve();
+          };
+          request.onerror = () => {
+            reject(request.error);
+          };
+        });
+      }
+      /** Get a resume session by key. Returns null if not found or stale. */
+      async get(key) {
+        if (!this.db) return null;
+        return new Promise((resolve) => {
+          const tx = this.db.transaction(STORE_NAME, "readonly");
+          const store = tx.objectStore(STORE_NAME);
+          const request = store.get(key);
+          request.onsuccess = () => {
+            const entry = request.result;
+            if (!entry) {
+              resolve(null);
+              return;
+            }
+            if (Date.now() - entry.updated_at > MAX_AGE_MS) {
+              this.remove(key).catch(() => {
+              });
+              resolve(null);
+              return;
+            }
+            resolve(entry.session);
+          };
+          request.onerror = () => resolve(null);
+        });
+      }
+      /** Save a new resume session. */
+      async save(key, session) {
+        if (!this.db) return;
+        return new Promise((resolve, reject) => {
+          const tx = this.db.transaction(STORE_NAME, "readwrite");
+          const store = tx.objectStore(STORE_NAME);
+          const entry = {
+            key,
+            session: { ...session, created_at: Date.now() },
+            updated_at: Date.now()
+          };
+          const request = store.put(entry);
+          request.onsuccess = () => resolve();
+          request.onerror = () => reject(request.error);
+        });
+      }
+      /** Update a single completed part in an existing session. */
+      async updatePart(key, partNumber, etag) {
+        if (!this.db) return;
+        return new Promise((resolve) => {
+          const tx = this.db.transaction(STORE_NAME, "readwrite");
+          const store = tx.objectStore(STORE_NAME);
+          const getRequest = store.get(key);
+          getRequest.onsuccess = () => {
+            const entry = getRequest.result;
+            if (!entry) {
+              resolve();
+              return;
+            }
+            const existing = entry.session.completed_parts.find((p) => p.part_number === partNumber);
+            if (!existing) {
+              entry.session.completed_parts.push({ part_number: partNumber, etag });
+            }
+            entry.updated_at = Date.now();
+            const putRequest = store.put(entry);
+            putRequest.onsuccess = () => resolve();
+            putRequest.onerror = () => resolve();
+          };
+          getRequest.onerror = () => resolve();
+        });
+      }
+      /** Remove a resume session (e.g., after successful completion). */
+      async remove(key) {
+        if (!this.db) return;
+        return new Promise((resolve) => {
+          const tx = this.db.transaction(STORE_NAME, "readwrite");
+          const store = tx.objectStore(STORE_NAME);
+          const request = store.delete(key);
+          request.onsuccess = () => resolve();
+          request.onerror = () => resolve();
+        });
+      }
+      /** Purge all stale entries (older than MAX_AGE_MS). */
+      async purgeStale() {
+        if (!this.db) return 0;
+        return new Promise((resolve) => {
+          const cutoff = Date.now() - MAX_AGE_MS;
+          const tx = this.db.transaction(STORE_NAME, "readwrite");
+          const store = tx.objectStore(STORE_NAME);
+          const index = store.index("updated_at");
+          const range = IDBKeyRange.upperBound(cutoff);
+          const request = index.openCursor(range);
+          let count = 0;
+          request.onsuccess = () => {
+            const cursor = request.result;
+            if (cursor) {
+              cursor.delete();
+              count++;
+              cursor.continue();
+            } else {
+              resolve(count);
+            }
+          };
+          request.onerror = () => resolve(0);
+        });
+      }
+      /** Close the database connection. */
+      close() {
+        if (this.db) {
+          this.db.close();
+          this.db = null;
+        }
+      }
+    };
+  }
+});
+
+// src/services/upload-compression.ts
+var upload_compression_exports = {};
+__export(upload_compression_exports, {
+  maybeCompressImage: () => maybeCompressImage
+});
+async function maybeCompressImage(file, userConfig, sessionId, telemetry) {
+  const type = file.type?.toLowerCase() || "";
+  if (!type.startsWith("image/")) return null;
+  if (SKIP_TYPES.has(type)) {
+    telemetry?.emit(sessionId, "upload.compression.skipped", { reason: "format", type });
+    return null;
+  }
+  if (!COMPRESSIBLE_TYPES.has(type)) {
+    telemetry?.emit(sessionId, "upload.compression.skipped", { reason: "unsupported_type", type });
+    return null;
+  }
+  if (file.size < MIN_COMPRESS_SIZE) {
+    telemetry?.emit(sessionId, "upload.compression.skipped", { reason: "too_small", size: file.size });
+    return null;
+  }
+  const networkType = getNetworkEffectiveType();
+  const defaultProfile = { maxWidth: 3840, maxHeight: 3840, quality: 0.85, maxSizeMB: 5 };
+  const networkProfile = NETWORK_PROFILES[networkType] ?? defaultProfile;
+  const config = {
+    maxWidth: userConfig?.maxWidth ?? networkProfile.maxWidth,
+    maxHeight: userConfig?.maxHeight ?? networkProfile.maxHeight,
+    quality: userConfig?.quality ?? networkProfile.quality,
+    maxSizeMB: userConfig?.maxSizeMB ?? networkProfile.maxSizeMB
+  };
+  telemetry?.emit(sessionId, "upload.compression.started", {
+    original_size: file.size,
+    network: networkType,
+    target_quality: config.quality
+  });
+  try {
+    const imageCompression = await loadImageCompression();
+    if (!imageCompression) {
+      telemetry?.emit(sessionId, "upload.compression.skipped", { reason: "library_unavailable" });
+      return null;
+    }
+    const compressed = await imageCompression(file, {
+      maxSizeMB: config.maxSizeMB,
+      maxWidthOrHeight: Math.max(config.maxWidth, config.maxHeight),
+      initialQuality: config.quality,
+      useWebWorker: true,
+      fileType: type === "image/png" ? "image/webp" : void 0
+    });
+    if (compressed.size >= file.size * 0.95) {
+      telemetry?.emit(sessionId, "upload.compression.skipped", {
+        reason: "no_size_reduction",
+        original_size: file.size,
+        compressed_size: compressed.size
+      });
+      return null;
+    }
+    telemetry?.emit(sessionId, "upload.compression.completed", {
+      original_size: file.size,
+      compressed_size: compressed.size,
+      ratio: (compressed.size / file.size).toFixed(2)
+    });
+    return compressed;
+  } catch (err) {
+    telemetry?.emit(sessionId, "upload.compression.skipped", {
+      reason: "error",
+      error: err instanceof Error ? err.message : "Unknown compression error"
+    });
+    return null;
+  }
+}
+async function loadImageCompression() {
+  if (cachedImport === false) return null;
+  if (cachedImport) return cachedImport;
+  try {
+    const mod = await Function('return import("browser-image-compression")')();
+    cachedImport = mod.default || mod;
+    return cachedImport;
+  } catch {
+    cachedImport = false;
+    return null;
+  }
+}
+function getNetworkEffectiveType() {
+  if (typeof navigator !== "undefined" && "connection" in navigator) {
+    const conn = navigator.connection;
+    return conn?.effectiveType || "4g";
+  }
+  return "4g";
+}
+var MIN_COMPRESS_SIZE, COMPRESSIBLE_TYPES, SKIP_TYPES, NETWORK_PROFILES, cachedImport;
+var init_upload_compression = __esm({
+  "src/services/upload-compression.ts"() {
+    "use strict";
+    MIN_COMPRESS_SIZE = 100 * 1024;
+    COMPRESSIBLE_TYPES = /* @__PURE__ */ new Set(["image/jpeg", "image/jpg", "image/png", "image/bmp", "image/tiff"]);
+    SKIP_TYPES = /* @__PURE__ */ new Set(["image/gif", "image/svg+xml", "image/webp", "image/avif"]);
+    NETWORK_PROFILES = {
+      "slow-2g": { maxWidth: 1280, maxHeight: 1280, quality: 0.6, maxSizeMB: 0.5 },
+      "2g": { maxWidth: 1600, maxHeight: 1600, quality: 0.65, maxSizeMB: 1 },
+      "3g": { maxWidth: 2048, maxHeight: 2048, quality: 0.75, maxSizeMB: 2 },
+      "4g": { maxWidth: 3840, maxHeight: 3840, quality: 0.85, maxSizeMB: 5 }
+    };
+    cachedImport = null;
+  }
+});
 
 // src/types.ts
 var ErrorCodes = {
@@ -2128,7 +2404,7 @@ var StorageService = class extends ServiceModule {
       size_bytes: file.size,
       content_type: file.type,
       strategy: this.shouldUseMultipart(file, options) ? "multipart" : "direct",
-      network_type: getNetworkEffectiveType()
+      network_type: getNetworkEffectiveType2()
     });
     try {
       let uploadFile = file;
@@ -2344,7 +2620,7 @@ var StorageService = class extends ServiceModule {
     let resumeData = null;
     if (options?.resume !== "off" && typeof window !== "undefined") {
       try {
-        const { UploadResumeStore: UploadResumeStore2 } = await import("./upload-resume-RXLHBH5E.mjs");
+        const { UploadResumeStore: UploadResumeStore2 } = await Promise.resolve().then(() => (init_upload_resume(), upload_resume_exports));
         resumeStore = new UploadResumeStore2();
         await resumeStore.open();
         const resumeKey = await UploadResumeStore2.generateResumeKey(
@@ -2392,7 +2668,7 @@ var StorageService = class extends ServiceModule {
     } else {
       let clientUploadKey;
       try {
-        const { UploadResumeStore: UploadResumeStore2 } = await import("./upload-resume-RXLHBH5E.mjs");
+        const { UploadResumeStore: UploadResumeStore2 } = await Promise.resolve().then(() => (init_upload_resume(), upload_resume_exports));
         clientUploadKey = await UploadResumeStore2.generateResumeKey(
           this.client.getApiKey?.() || "",
           this.client.getUserId?.() || "",
@@ -2425,7 +2701,7 @@ var StorageService = class extends ServiceModule {
     const { upload_session_id, file_id, part_size_bytes, total_parts } = startData;
     if (resumeStore && !resumeData) {
       try {
-        const { UploadResumeStore: UploadResumeStore2 } = await import("./upload-resume-RXLHBH5E.mjs");
+        const { UploadResumeStore: UploadResumeStore2 } = await Promise.resolve().then(() => (init_upload_resume(), upload_resume_exports));
         const resumeKey = await UploadResumeStore2.generateResumeKey(
           this.client.getApiKey?.() || "",
           this.client.getUserId?.() || "",
@@ -2576,7 +2852,7 @@ var StorageService = class extends ServiceModule {
           telemetry?.emit(sessionId, "upload.multipart.part_completed", { part_number: result.partNum });
           if (resumeStore) {
             try {
-              const { UploadResumeStore: UploadResumeStore2 } = await import("./upload-resume-RXLHBH5E.mjs");
+              const { UploadResumeStore: UploadResumeStore2 } = await Promise.resolve().then(() => (init_upload_resume(), upload_resume_exports));
               const resumeKey = await UploadResumeStore2.generateResumeKey(
                 this.client.getApiKey?.() || "",
                 this.client.getUserId?.() || "",
@@ -2628,7 +2904,7 @@ var StorageService = class extends ServiceModule {
     );
     if (resumeStore) {
       try {
-        const { UploadResumeStore: UploadResumeStore2 } = await import("./upload-resume-RXLHBH5E.mjs");
+        const { UploadResumeStore: UploadResumeStore2 } = await Promise.resolve().then(() => (init_upload_resume(), upload_resume_exports));
         const resumeKey = await UploadResumeStore2.generateResumeKey(
           this.client.getApiKey?.() || "",
           this.client.getUserId?.() || "",
@@ -3267,21 +3543,21 @@ var StorageService = class extends ServiceModule {
   }
   defaultChunkSize(fileSize) {
     if (fileSize > 512 * 1024 * 1024) return 16 * 1024 * 1024;
-    const effectiveType = getNetworkEffectiveType();
+    const effectiveType = getNetworkEffectiveType2();
     if (effectiveType === "slow-2g" || effectiveType === "2g") return 5 * 1024 * 1024;
     if (effectiveType === "3g") return 5 * 1024 * 1024;
     return 8 * 1024 * 1024;
   }
   defaultConcurrency() {
-    const effectiveType = getNetworkEffectiveType();
+    const effectiveType = getNetworkEffectiveType2();
     if (effectiveType === "slow-2g" || effectiveType === "2g") return 1;
     if (effectiveType === "3g") return 2;
     return 4;
   }
   async maybeCompress(file, config, sessionId, telemetry) {
     try {
-      const { maybeCompressImage } = await import("./upload-compression-VOUJRAIM.mjs");
-      return await maybeCompressImage(file, config, sessionId, telemetry);
+      const { maybeCompressImage: maybeCompressImage2 } = await Promise.resolve().then(() => (init_upload_compression(), upload_compression_exports));
+      return await maybeCompressImage2(file, config, sessionId, telemetry);
     } catch {
       return null;
     }
@@ -3321,10 +3597,10 @@ function getStallTimeout() {
   return isSlowNetwork() ? SLOW_NETWORK_STALL_TIMEOUT_MS : DEFAULT_STALL_TIMEOUT_MS;
 }
 function isSlowNetwork() {
-  const effectiveType = getNetworkEffectiveType();
+  const effectiveType = getNetworkEffectiveType2();
   return effectiveType === "slow-2g" || effectiveType === "2g" || effectiveType === "3g";
 }
-function getNetworkEffectiveType() {
+function getNetworkEffectiveType2() {
   if (typeof navigator !== "undefined" && "connection" in navigator) {
     const conn = navigator.connection;
     return conn?.effectiveType || "4g";
@@ -3337,7 +3613,7 @@ function getOnlineStatus() {
 }
 function getUploadEnvironmentDiagnostics() {
   const diagnostics = {
-    network_type: getNetworkEffectiveType(),
+    network_type: getNetworkEffectiveType2(),
     online: getOnlineStatus()
   };
   if (typeof navigator !== "undefined") {
@@ -3368,6 +3644,9 @@ function extractS3ErrorCode(body) {
   const m = body.match(/<Code>([^<]+)<\/Code>/);
   return m ? m[1] : void 0;
 }
+
+// src/index.ts
+init_upload_resume();
 
 // src/services/upload-strategy.ts
 var MULTIPART_THRESHOLD2 = 8 * 1024 * 1024;

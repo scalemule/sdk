@@ -5,6 +5,7 @@ export default defineConfig({
   format: ["cjs", "esm"],
   dts: true,
   clean: true,
+  splitting: false,
   noExternal: ["@scalemule/ui"],
   external: ["browser-image-compression"],
 });
