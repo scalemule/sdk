@@ -160,6 +160,35 @@ export type {
 } from './services/conference';
 export { SocialService } from './services/social';
 export type { SocialPost, Comment, FollowStatus, ActivityItem, SocialUser, Like } from './services/social';
+export { SocialPolicyService } from './services/social-policy';
+export type {
+  SocialPolicyAction,
+  SocialPolicyBatchDecisionItem,
+  SocialPolicyBatchDecisionRequest,
+  SocialPolicyBatchDecisionResponse,
+  SocialPolicyBatchDecisionTarget,
+  SocialPolicyBlockRequest,
+  SocialPolicyContactRequest,
+  SocialPolicyContactRequestListItem,
+  SocialPolicyContactRequestQuery,
+  SocialPolicyContactRequestRequest,
+  SocialPolicyContext,
+  SocialPolicyDecision,
+  SocialPolicyDecisionLimits,
+  SocialPolicyDecisionRequest,
+  SocialPolicyDecisionResponse,
+  SocialPolicyIdentity,
+  SocialPolicyIdentityType,
+  SocialPolicyMuteRequest,
+  SocialPolicyPolicyPack,
+  SocialPolicyRelationship,
+  SocialPolicyRelationshipQuery,
+  SocialPolicyRelationshipRequest,
+  SocialPolicyReportRequest,
+  SocialPolicySettings,
+  SocialPolicyUnblockRequest,
+  SocialPolicyUpdateSettingsRequest
+} from './services/social-policy';
 export { ReferralsService } from './services/referrals';
 export type {
   ReferralProfile,
@@ -408,6 +437,7 @@ import { DataService } from './services/data';
 import { ChatService } from './services/chat';
 import { ConferenceService } from './services/conference';
 import { SocialService } from './services/social';
+import { SocialPolicyService } from './services/social-policy';
 import { ReferralsService } from './services/referrals';
 import { BillingService } from './services/billing';
 import { AnalyticsService } from './services/analytics';
@@ -498,6 +528,7 @@ export class ScaleMule {
   public readonly chat: ChatService;
   public readonly conference: ConferenceService;
   public readonly social: SocialService;
+  public readonly socialPolicy: SocialPolicyService;
   public readonly referrals: ReferralsService;
   public readonly billing: BillingService;
   public readonly analytics: AnalyticsService;
@@ -569,6 +600,7 @@ export class ScaleMule {
     this.chat = new ChatService(this._client);
     this.conference = new ConferenceService(this._client);
     this.social = new SocialService(this._client);
+    this.socialPolicy = new SocialPolicyService(this._client);
     this.referrals = new ReferralsService(this._client);
     this.billing = new BillingService(this._client);
     this.analytics = new AnalyticsService(this._client);
