@@ -183,6 +183,56 @@ MIME type and exposes a single hook for chat composers. See
 for the decision tree (fast vs safe policy modes, private vs public visibility,
 anti-patterns).
 
+## Social and Policy
+
+Use `sm.social` for graph primitives and `sm.socialPolicy` for privacy,
+abuse-prevention, contact-request routing, block/report state, and audit-backed
+decisions. Apps should not duplicate policy rules locally; ask the policy
+service for a decision and let `effective_allowed`, `effective_decision`, and
+`route` drive the UI.
+
+```ts
+const actor = { identity_id: personIdentityId, identity_type: 'person', user_id }
+const target = { identity_id: businessIdentityId, identity_type: 'business', account_id }
+
+const { data: decision, error } = await sm.socialPolicy.decideFollow(actor, target, {
+  appKey: 'coralmeet',
+  context: { context_type: 'personshare', context_id: shareId },
+})
+
+if (error) {
+  // Show retry/failure state.
+} else if (decision!.effective_allowed) {
+  await sm.social.follow(targetUserId)
+} else {
+  // Show decision.ui_message or route to a request/report flow.
+}
+```
+
+For direct service integrations, use:
+
+```ts
+await sm.socialPolicy.decide({
+  app_key: 'coralmeet',
+  actor,
+  target,
+  action: 'message_direct',
+  context: { conversation_id },
+})
+
+await sm.socialPolicy.block({
+  blocker_identity_id: actor.identity_id,
+  blocked_identity_id: target.identity_id,
+  reason: 'spam',
+})
+
+await sm.socialPolicy.report({
+  reporter_identity_id: actor.identity_id,
+  reported_identity_id: target.identity_id,
+  reason: 'spam',
+})
+```
+
 ## Storage
 
 Use this for plain files that don't need image optimization or video

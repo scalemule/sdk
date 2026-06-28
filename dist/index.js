@@ -319,6 +319,7 @@ __export(index_exports, {
   FunctionsService: () => FunctionsService,
   GraphService: () => GraphService,
   IdentityService: () => IdentityService,
+  LEGACY_ANONYMOUS_ID_KEYS: () => LEGACY_ANONYMOUS_ID_KEYS,
   LeaderboardService: () => LeaderboardService,
   ListingsService: () => ListingsService,
   LoggerService: () => LoggerService,
@@ -333,11 +334,13 @@ __export(index_exports, {
   QueueService: () => QueueService,
   RealtimeService: () => RealtimeService,
   ReferralsService: () => ReferralsService,
+  STORAGE_KEYS: () => STORAGE_KEYS,
   ScaleMule: () => ScaleMule,
   ScaleMuleClient: () => ScaleMuleClient,
   SchedulerService: () => SchedulerService,
   SearchService: () => SearchService,
   ServiceModule: () => ServiceModule,
+  SocialPolicyService: () => SocialPolicyService,
   SocialService: () => SocialService,
   StorageService: () => StorageService,
   TeamsService: () => TeamsService,
@@ -358,9 +361,11 @@ __export(index_exports, {
   default: () => index_default,
   detectCountryFromE164: () => detectCountryFromE164,
   detectNetworkClass: () => detectNetworkClass,
+  ensureAnonymousId: () => ensureAnonymousId,
   extractClientContext: () => extractClientContext,
   findPhoneCountryByCode: () => findPhoneCountryByCode,
   findPhoneCountryByDialCode: () => findPhoneCountryByDialCode,
+  generateAnonymousId: () => generateAnonymousId,
   generateUploadSessionId: () => generateUploadSessionId,
   getMeasuredBandwidthMbps: () => getMeasuredBandwidthMbps,
   getPartRange: () => getPartRange,
@@ -368,6 +373,7 @@ __export(index_exports, {
   isValidE164Phone: () => isValidE164Phone,
   normalizeAndValidatePhone: () => normalizeAndValidatePhone,
   normalizePhoneNumber: () => normalizePhoneNumber,
+  readAnonymousId: () => readAnonymousId,
   resolveStrategy: () => resolveStrategy,
   uploadMultipartToS3: () => uploadMultipartToS3,
   uploadSingleToS3: () => uploadSingleToS3,
@@ -451,7 +457,8 @@ function extractClientContext(request) {
     ip,
     userAgent: getHeader("user-agent") || void 0,
     deviceFingerprint: getHeader("x-device-fingerprint") || void 0,
-    referrer: getHeader("referer") || void 0
+    referrer: getHeader("referer") || void 0,
+    anonymousId: getHeader("x-anonymous-id") || void 0
   };
 }
 function buildClientContextHeaders(context) {
@@ -464,7 +471,91 @@ function buildClientContextHeaders(context) {
   if (context.userAgent) headers["X-Client-User-Agent"] = context.userAgent;
   if (context.deviceFingerprint) headers["X-Client-Device-Fingerprint"] = context.deviceFingerprint;
   if (context.referrer) headers["X-Client-Referrer"] = context.referrer;
+  if (context.anonymousId) headers["x-anonymous-id"] = context.anonymousId;
   return headers;
+}
+
+// src/anonymous-id.ts
+var STORAGE_KEYS = {
+  SESSION: "scalemule_session",
+  USER_ID: "scalemule_user_id",
+  WORKSPACE_ID: "scalemule_workspace_id",
+  ANONYMOUS_ID: "scalemule_anonymous_id",
+  SESSION_POOL: "scalemule_session_pool",
+  ACTIVE_ACCOUNT: "scalemule_active_account",
+  KNOWN_ACCOUNTS: "scalemule_known_accounts",
+  OFFLINE_QUEUE: "scalemule_offline_queue"
+};
+var LEGACY_ANONYMOUS_ID_KEYS = ["sm_anonymous_id"];
+function generateAnonymousId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0;
+    const v = c === "x" ? r : r & 3 | 8;
+    return v.toString(16);
+  });
+}
+async function readAnonymousId(storage) {
+  const canonical = await storage.getItem(STORAGE_KEYS.ANONYMOUS_ID);
+  if (canonical) return canonical;
+  for (const legacyKey of LEGACY_ANONYMOUS_ID_KEYS) {
+    const legacy = await storage.getItem(legacyKey);
+    if (legacy) return legacy;
+  }
+  return null;
+}
+var inFlight = /* @__PURE__ */ new WeakMap();
+function ensureAnonymousId(storage) {
+  const existing = inFlight.get(storage);
+  if (existing) return existing;
+  const promise = (async () => {
+    try {
+      return await resolveAnonymousId(storage);
+    } finally {
+      inFlight.delete(storage);
+    }
+  })();
+  inFlight.set(storage, promise);
+  return promise;
+}
+async function resolveAnonymousId(storage) {
+  const canonical = await storage.getItem(STORAGE_KEYS.ANONYMOUS_ID);
+  if (canonical) {
+    for (const legacyKey of LEGACY_ANONYMOUS_ID_KEYS) {
+      const legacy = await storage.getItem(legacyKey);
+      if (legacy !== canonical) {
+        try {
+          await storage.setItem(legacyKey, canonical);
+        } catch {
+        }
+      }
+    }
+    return canonical;
+  }
+  for (const legacyKey of LEGACY_ANONYMOUS_ID_KEYS) {
+    const legacy = await storage.getItem(legacyKey);
+    if (legacy) {
+      try {
+        await storage.setItem(STORAGE_KEYS.ANONYMOUS_ID, legacy);
+      } catch {
+      }
+      return legacy;
+    }
+  }
+  const fresh = generateAnonymousId();
+  try {
+    await storage.setItem(STORAGE_KEYS.ANONYMOUS_ID, fresh);
+  } catch {
+  }
+  for (const legacyKey of LEGACY_ANONYMOUS_ID_KEYS) {
+    try {
+      await storage.setItem(legacyKey, fresh);
+    } catch {
+    }
+  }
+  return fresh;
 }
 
 // src/client.ts
@@ -473,14 +564,13 @@ var DEFAULT_TIMEOUT = 3e4;
 var DEFAULT_MAX_RETRIES = 2;
 var DEFAULT_BACKOFF_MS = 300;
 var MAX_BACKOFF_MS = 3e4;
-var SESSION_STORAGE_KEY = "scalemule_session";
-var USER_ID_STORAGE_KEY = "scalemule_user_id";
-var OFFLINE_QUEUE_KEY = "scalemule_offline_queue";
-var WORKSPACE_STORAGE_KEY = "scalemule_workspace_id";
-var ANONYMOUS_ID_STORAGE_KEY = "scalemule_anonymous_id";
-var SESSION_POOL_KEY = "scalemule_session_pool";
-var ACTIVE_ACCOUNT_KEY = "scalemule_active_account";
-var KNOWN_ACCOUNTS_KEY = "scalemule_known_accounts";
+var SESSION_STORAGE_KEY = STORAGE_KEYS.SESSION;
+var USER_ID_STORAGE_KEY = STORAGE_KEYS.USER_ID;
+var OFFLINE_QUEUE_KEY = STORAGE_KEYS.OFFLINE_QUEUE;
+var WORKSPACE_STORAGE_KEY = STORAGE_KEYS.WORKSPACE_ID;
+var SESSION_POOL_KEY = STORAGE_KEYS.SESSION_POOL;
+var ACTIVE_ACCOUNT_KEY = STORAGE_KEYS.ACTIVE_ACCOUNT;
+var KNOWN_ACCOUNTS_KEY = STORAGE_KEYS.KNOWN_ACCOUNTS;
 var GATEWAY_URLS = {
   dev: "https://api-dev.scalemule.com",
   prod: "https://api.scalemule.com"
@@ -723,6 +813,11 @@ var ScaleMuleClient = class {
     this.offlineQueue = null;
     this.workspaceId = null;
     this.anonymousId = null;
+    // Per-client single-flight for the lazy mint. The shared helper has its
+    // own WeakMap-keyed guard against concurrent callers; this field caches
+    // the resolved value at the instance level so subsequent calls (including
+    // those during request bursts) don't even await the helper.
+    this.anonymousIdPromise = null;
     this.sessionPool = /* @__PURE__ */ new Map();
     this.knownAccounts = /* @__PURE__ */ new Map();
     this.refreshPromise = null;
@@ -758,12 +853,7 @@ var ScaleMuleClient = class {
     if (userId) this.userId = userId;
     const wsId = await this.storage.getItem(WORKSPACE_STORAGE_KEY);
     if (wsId) this.workspaceId = wsId;
-    let anonId = await this.storage.getItem(ANONYMOUS_ID_STORAGE_KEY);
-    if (!anonId) {
-      anonId = crypto.randomUUID();
-      await this.storage.setItem(ANONYMOUS_ID_STORAGE_KEY, anonId);
-    }
-    this.anonymousId = anonId;
+    await this.ensureAnonymousId();
     if (this.multiSessionEnabled) {
       const poolJson = await this.storage.getItem(SESSION_POOL_KEY);
       if (poolJson) {
@@ -815,7 +905,7 @@ var ScaleMuleClient = class {
         "[ScaleMule] Initialized, session:",
         !!this.sessionToken,
         "anonymousId:",
-        anonId,
+        this.anonymousId,
         "poolSize:",
         this.sessionPool.size,
         "knownAccounts:",
@@ -869,8 +959,37 @@ var ScaleMuleClient = class {
   isAuthenticated() {
     return this.sessionToken !== null;
   }
+  /**
+   * Sync accessor for the cached anonymous ID. Returns `null` until either
+   * `initialize()` has run or `ensureAnonymousId()` has been awaited at
+   * least once. Use `ensureAnonymousId()` if you need a guaranteed value.
+   */
   getAnonymousId() {
     return this.anonymousId;
+  }
+  /**
+   * Lazy-mint or cache-then-return the anonymous ID.
+   *
+   * Always returns a usable string. Callers that need to attach the
+   * `x-anonymous-id` header before `initialize()` has completed (rare —
+   * usually only the very first unauthenticated request from a freshly
+   * constructed client) should `await` this rather than relying on
+   * `getAnonymousId()`.
+   *
+   * Concurrent callers receive the same in-flight promise — no risk of
+   * two simultaneous first requests minting two distinct IDs.
+   */
+  async ensureAnonymousId() {
+    if (this.anonymousId) return this.anonymousId;
+    if (!this.anonymousIdPromise) {
+      this.anonymousIdPromise = ensureAnonymousId(this.storage).then((id) => {
+        this.anonymousId = id;
+        return id;
+      }).finally(() => {
+        this.anonymousIdPromise = null;
+      });
+    }
+    return this.anonymousIdPromise;
   }
   isMultiSessionEnabled() {
     return this.multiSessionEnabled;
@@ -1047,8 +1166,16 @@ var ScaleMuleClient = class {
       if (this.workspaceId) {
         headers["x-sm-workspace-id"] = this.workspaceId;
       }
-      if (!this.sessionToken && this.anonymousId) {
-        headers["x-anonymous-id"] = this.anonymousId;
+      if (!init.skipAuth && !this.sessionToken) {
+        if (!this.anonymousId) {
+          try {
+            await this.ensureAnonymousId();
+          } catch {
+          }
+        }
+        if (this.anonymousId) {
+          headers["x-anonymous-id"] = this.anonymousId;
+        }
       }
       if (attempt > 0 && (method === "POST" || method === "PUT" || method === "PATCH")) {
         if (!idempotencyKey) {
@@ -5020,6 +5147,118 @@ var SocialService = class extends ServiceModule {
   }
 };
 
+// src/services/social-policy.ts
+var SocialPolicyService = class extends ServiceModule {
+  constructor() {
+    super(...arguments);
+    this.basePath = "/v1/social-policy";
+  }
+  decide(request, options) {
+    return this.post("/decision", withDefaultContext(request), options);
+  }
+  batchDecide(request, options) {
+    return this.post("/decisions/batch", request, options);
+  }
+  decideAction(action, actor, target, options) {
+    return this.decide(
+      {
+        app_key: options?.appKey,
+        account_id: options?.accountId,
+        policy_pack: options?.policyPack,
+        actor,
+        target,
+        action,
+        context: options?.context,
+        metadata: options?.metadata
+      },
+      options?.requestOptions
+    );
+  }
+  decideFollow(actor, target, options) {
+    return this.decideAction("follow", actor, target, options);
+  }
+  decideDirectMessage(actor, target, options) {
+    return this.decideAction("message_direct", actor, target, options);
+  }
+  decideContactRequest(actor, target, options) {
+    return this.decideAction("connect_request", actor, target, options);
+  }
+  getSettings(identityId, options) {
+    return this._get(`/settings/${identityId}`, options);
+  }
+  updateSettings(identityId, request, options) {
+    return this.patch(`/settings/${identityId}`, request, options);
+  }
+  createRelationship(request, options) {
+    return this.post("/relationships", request, options);
+  }
+  listRelationships(params, options) {
+    return this._get(this.withQuery("/relationships", toQueryParams(params)), options);
+  }
+  deleteRelationship(relationshipId, options) {
+    return this.del(`/relationships/${relationshipId}`, options);
+  }
+  createContactRequest(request, options) {
+    return this.post("/contact-requests", request, options);
+  }
+  listContactRequestInbox(params, options) {
+    return this._get(
+      this.withQuery("/contact-requests/inbox", toQueryParams(params)),
+      options
+    );
+  }
+  listContactRequestSent(params, options) {
+    return this._get(
+      this.withQuery("/contact-requests/sent", toQueryParams(params)),
+      options
+    );
+  }
+  acceptContactRequest(requestId, options) {
+    return this.post(`/contact-requests/${requestId}/accept`, void 0, options);
+  }
+  ignoreContactRequest(requestId, options) {
+    return this.post(`/contact-requests/${requestId}/ignore`, void 0, options);
+  }
+  declineContactRequest(requestId, options) {
+    return this.post(`/contact-requests/${requestId}/decline`, void 0, options);
+  }
+  reportContactRequest(requestId, options) {
+    return this.post(`/contact-requests/${requestId}/report`, void 0, options);
+  }
+  block(request, options) {
+    return this.post("/block", request, options);
+  }
+  unblock(request, options) {
+    return this.post("/unblock", request, options);
+  }
+  mute(request, options) {
+    return this.post("/mute", request, options);
+  }
+  unmute(request, options) {
+    return this.post("/unmute", request, options);
+  }
+  report(request, options) {
+    return this.post("/report", request, options);
+  }
+  listPolicyPacks(options) {
+    return this._get("/policy-packs", options);
+  }
+};
+function withDefaultContext(request) {
+  return {
+    ...request,
+    context: request.context ?? {}
+  };
+}
+function toQueryParams(params) {
+  if (!params) return void 0;
+  const query = {};
+  for (const [key, value] of Object.entries(params)) {
+    query[key] = value;
+  }
+  return query;
+}
+
 // src/services/referrals.ts
 var ReferralsService = class extends ServiceModule {
   constructor() {
@@ -6566,6 +6805,15 @@ var PhotoService = class extends ServiceModule {
   async delete(id, options) {
     return this.del(`/${id}`, options);
   }
+  async getPresets(options) {
+    return this._get("/presets", options);
+  }
+  async getManifest(id, params, options) {
+    return this._get(this.withQuery(`/${id}/manifest`, params), options);
+  }
+  async getPublicManifest(id, params, options) {
+    return this._get(this.withQuery(`/public/${id}/manifest`, params), options);
+  }
   /**
    * Build an absolute URL for the on-demand transform endpoint.
    *
@@ -7025,13 +7273,14 @@ var MediaService = class extends ServiceModule {
     return this.get(fileId, void 0, options);
   }
   async getManifest(fileId, options, requestOptions) {
-    const asset = await this.get(fileId, options, requestOptions);
-    if (asset.error || !asset.data) {
-      return { data: null, error: asset.error };
+    const file = await this.storage.getInfo(fileId, requestOptions);
+    if (file.error || !file.data) {
+      return { data: null, error: file.error };
     }
-    return { data: asset.data.manifest, error: null };
+    const manifest = await this.fetchManifest(file.data, options, requestOptions);
+    return { data: manifest, error: null };
   }
-  buildAsset(file, options) {
+  buildAsset(file, options, manifest) {
     const visibility = resolveFileVisibility(file);
     const photoId = options?.photoId ?? null;
     const originalUrl = visibility === "anonymous_visible" ? file.cdn_url ?? file.url ?? null : file.url ?? file.cdn_url ?? null;
@@ -7048,7 +7297,7 @@ var MediaService = class extends ServiceModule {
       created_at: file.created_at,
       original_url: originalUrl,
       cdn_url: file.cdn_url ?? null,
-      manifest: this.buildManifest(file, options)
+      manifest: manifest ?? this.buildManifest(file, options)
     };
   }
   buildManifest(file, options) {
@@ -7102,19 +7351,27 @@ var MediaService = class extends ServiceModule {
       cdn_url: ready.cdnUrl ?? result.data.cdn_url,
       scan_status: ready.scanStatus
     };
-    const manifest = this.buildManifest(fileInfo, {
+    let manifest = this.buildManifest(fileInfo, {
       preset: options?.preset,
       customWidths: options?.customWidths
     });
-    if (kind === "image" && fileInfo.content_type !== "image/svg+xml" && options?.prewarm !== false) {
+    if (kind === "image" && fileInfo.content_type !== "image/svg+xml" && options?.preset !== "custom") {
       emit("optimizing", 100, result.data.id);
-      await this.prewarmManifest(manifest, options?.signal);
+      const persistedManifest = await this.waitForAnonymousManifest(fileInfo.id, options, requestOptions, emit);
+      if (persistedManifest.error) {
+        return { data: null, error: persistedManifest.error };
+      }
+      manifest = persistedManifest.manifest ?? manifest;
     }
-    const asset = this.buildAsset(fileInfo, {
-      photoId: null,
-      preset: options?.preset,
-      customWidths: options?.customWidths
-    });
+    const asset = this.buildAsset(
+      fileInfo,
+      {
+        photoId: null,
+        preset: options?.preset,
+        customWidths: options?.customWidths
+      },
+      manifest
+    );
     emit("ready", 100, result.data.id);
     return {
       data: {
@@ -7250,6 +7507,25 @@ var MediaService = class extends ServiceModule {
     const result = await this.storage.getInfo(fileId, requestOptions);
     return result.error || !result.data ? null : result.data;
   }
+  async fetchManifest(file, options, requestOptions) {
+    const kind = detectKind(file.content_type);
+    const visibility = resolveFileVisibility(file);
+    if (kind !== "image" || file.content_type === "image/svg+xml") {
+      return this.buildManifest(file, options);
+    }
+    if (visibility !== "anonymous_visible" || options?.preset === "custom") {
+      return this.buildManifest(file, options);
+    }
+    const persisted = await this.photo.getPublicManifest(
+      file.id,
+      { preset: options?.preset ?? "inline" },
+      requestOptions
+    );
+    if (persisted.error || !persisted.data) {
+      return this.buildManifest(file, options);
+    }
+    return persisted.data;
+  }
   async pollPhotoOptimizationComplete(photoId, requestOptions) {
     for (let attempt = 0; attempt < 40; attempt++) {
       const result = await this.photo.get(photoId, requestOptions);
@@ -7261,30 +7537,31 @@ var MediaService = class extends ServiceModule {
     }
     return null;
   }
-  async prewarmManifest(manifest, signal) {
-    if (!manifest || manifest.preset === "original") {
-      return;
+  async waitForAnonymousManifest(fileId, options, requestOptions, emit) {
+    const preset = options?.preset ?? "inline";
+    const delays = [500, 1e3, 1500, 2e3, 2500, 3e3];
+    for (let attempt = 0; attempt < 30; attempt++) {
+      if (options?.signal?.aborted) {
+        return {
+          manifest: null,
+          error: { code: "aborted", message: "Upload aborted", status: 0 }
+        };
+      }
+      const manifest = await this.photo.getPublicManifest(fileId, { preset }, requestOptions);
+      if (!manifest.error && manifest.data && manifest.data.ready) {
+        return { manifest: manifest.data, error: null };
+      }
+      emit("optimizing", Math.min(99, 15 + attempt * 3), fileId);
+      await sleep4(delays[Math.min(attempt, delays.length - 1)] ?? 3e3);
     }
-    const urls = Object.values(manifest.variants);
-    await Promise.all(
-      urls.map(async (url) => {
-        try {
-          const response = await fetch(url, {
-            method: "GET",
-            signal,
-            headers: {
-              Accept: "image/avif,image/webp,image/*,*/*;q=0.8"
-            }
-          });
-          if (!response.ok) {
-            throw new Error(`Prewarm failed with HTTP ${response.status}`);
-          }
-          await response.arrayBuffer();
-        } catch (error) {
-          console.warn("[scalemule-sdk] media prewarm failed", url, error);
-        }
-      })
-    );
+    return {
+      manifest: null,
+      error: {
+        code: "manifest_pending",
+        message: "Photo variants are still being generated. Re-fetch the public manifest once ready flips true.",
+        status: 202
+      }
+    };
   }
 };
 function detectKind(contentType) {
@@ -8298,6 +8575,7 @@ var ScaleMule = class {
     this.chat = new ChatService(this._client);
     this.conference = new ConferenceService(this._client);
     this.social = new SocialService(this._client);
+    this.socialPolicy = new SocialPolicyService(this._client);
     this.referrals = new ReferralsService(this._client);
     this.billing = new BillingService(this._client);
     this.analytics = new AnalyticsService(this._client);
@@ -8485,6 +8763,7 @@ var index_default = ScaleMule;
   FunctionsService,
   GraphService,
   IdentityService,
+  LEGACY_ANONYMOUS_ID_KEYS,
   LeaderboardService,
   ListingsService,
   LoggerService,
@@ -8499,11 +8778,13 @@ var index_default = ScaleMule;
   QueueService,
   RealtimeService,
   ReferralsService,
+  STORAGE_KEYS,
   ScaleMule,
   ScaleMuleClient,
   SchedulerService,
   SearchService,
   ServiceModule,
+  SocialPolicyService,
   SocialService,
   StorageService,
   TeamsService,
@@ -8523,9 +8804,11 @@ var index_default = ScaleMule;
   createUploadPlan,
   detectCountryFromE164,
   detectNetworkClass,
+  ensureAnonymousId,
   extractClientContext,
   findPhoneCountryByCode,
   findPhoneCountryByDialCode,
+  generateAnonymousId,
   generateUploadSessionId,
   getMeasuredBandwidthMbps,
   getPartRange,
@@ -8533,6 +8816,7 @@ var index_default = ScaleMule;
   isValidE164Phone,
   normalizeAndValidatePhone,
   normalizePhoneNumber,
+  readAnonymousId,
   resolveStrategy,
   uploadMultipartToS3,
   uploadSingleToS3,

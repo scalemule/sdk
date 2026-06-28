@@ -260,6 +260,13 @@ interface ClientContext {
     deviceFingerprint?: string;
     /** HTTP Referer header from the end-user's request */
     referrer?: string;
+    /**
+     * End-user anonymous visitor ID, forwarded as `x-anonymous-id`. Set on
+     * unauthenticated requests so the backend can link the visitor's pre-auth
+     * activity to a registered user on login/register. Populated automatically
+     * by `extractClientContext()` when the upstream request carries the header.
+     */
+    anonymousId?: string;
 }
 
 /**
@@ -331,6 +338,84 @@ declare function extractClientContext(request: IncomingRequestLike): ClientConte
  */
 declare function buildClientContextHeaders(context: ClientContext | undefined): Record<string, string>;
 
+/**
+ * Anonymous-ID Contract (Shared)
+ *
+ * Single source of truth for the visitor's anonymous ID across every
+ * ScaleMule client package (`@scalemule/sdk`, `@scalemule/nextjs`, future
+ * react-native, etc).
+ *
+ * Why this lives here, in `@scalemule/sdk`:
+ *   The platform contract is the HTTP header `x-anonymous-id`. The backend
+ *   (`ms/scalemule-auth/src/handlers/register.rs`, `login.rs`, `oauth.rs`)
+ *   reads that header to link anonymous activity to a newly registered user.
+ *   If two packages disagree on the localStorage key they read/write, the
+ *   visitor's analytics events and their `x-anonymous-id` header don't
+ *   match, and the link pipeline attributes events to the wrong identity.
+ *   Past drift: `@scalemule/nextjs` minted its own ID under `sm_anonymous_id`
+ *   while this package wrote `scalemule_anonymous_id`. This module collapses
+ *   that into one helper everyone calls.
+ *
+ * Migration:
+ *   `ensureAnonymousId()` reads canonical first, falls back to the legacy
+ *   key, and dual-writes both during the rollout window. The dual-write +
+ *   legacy-read can be retired once every maintained `@scalemule/nextjs`
+ *   consumer has been on a fixed version in production for two release
+ *   cycles. Tracked in code by the comment near `LEGACY_ANONYMOUS_ID_KEYS`.
+ */
+
+/**
+ * Canonical browser storage keys owned by `@scalemule/sdk`. Other packages
+ * MUST import these rather than redeclare their own strings.
+ */
+declare const STORAGE_KEYS: {
+    readonly SESSION: "scalemule_session";
+    readonly USER_ID: "scalemule_user_id";
+    readonly WORKSPACE_ID: "scalemule_workspace_id";
+    readonly ANONYMOUS_ID: "scalemule_anonymous_id";
+    readonly SESSION_POOL: "scalemule_session_pool";
+    readonly ACTIVE_ACCOUNT: "scalemule_active_account";
+    readonly KNOWN_ACCOUNTS: "scalemule_known_accounts";
+    readonly OFFLINE_QUEUE: "scalemule_offline_queue";
+};
+/**
+ * Legacy anonymous-ID keys read for migration. Drop entries from this list
+ * once we're confident no shipping client still writes them.
+ *
+ * - `sm_anonymous_id`: previously minted by the `useAnalytics` hook in
+ *   `@scalemule/nextjs` versions prior to the consolidation.
+ */
+declare const LEGACY_ANONYMOUS_ID_KEYS: readonly string[];
+/** UUIDv4 generator with a graceful fallback for environments without `crypto.randomUUID`. */
+declare function generateAnonymousId(): string;
+/**
+ * Sync-style read of the canonical anonymous-ID without minting.
+ *
+ * Returns `null` if storage hasn't been touched yet. Useful when you want
+ * to check "is there already a cached ID" without triggering an async
+ * write. For the create-if-missing path, use `ensureAnonymousId()`.
+ */
+declare function readAnonymousId(storage: StorageAdapter): Promise<string | null>;
+/**
+ * Read-or-create the anonymous ID with legacy-key migration and dual-write.
+ *
+ * Algorithm:
+ *   1. Read canonical key — if present, return it (no writes).
+ *   2. Read any legacy key — if present, promote it: write to canonical AND
+ *      keep the legacy key in step with it so a stale tab running old code
+ *      doesn't desync. Return the value.
+ *   3. No ID exists — mint a new UUID, dual-write canonical + legacy keys,
+ *      return it.
+ *
+ * Concurrent callers against the same storage adapter are single-flighted
+ * — the second caller receives the same promise as the first.
+ *
+ * Idempotent. Safe to call on every request that needs the header. If you
+ * cache the result in memory on the client, you can avoid the storage
+ * round-trip after the first call.
+ */
+declare function ensureAnonymousId(storage: StorageAdapter): Promise<string>;
+
 declare class ScaleMuleClient {
     private apiKey;
     private applicationId;
@@ -346,6 +431,7 @@ declare class ScaleMuleClient {
     private offlineQueue;
     private workspaceId;
     private anonymousId;
+    private anonymousIdPromise;
     private multiSessionEnabled;
     private sessionPool;
     private accountSwitcherEnabled;
@@ -365,7 +451,25 @@ declare class ScaleMuleClient {
     getApplicationId(): string | null;
     getUserId(): string | null;
     isAuthenticated(): boolean;
+    /**
+     * Sync accessor for the cached anonymous ID. Returns `null` until either
+     * `initialize()` has run or `ensureAnonymousId()` has been awaited at
+     * least once. Use `ensureAnonymousId()` if you need a guaranteed value.
+     */
     getAnonymousId(): string | null;
+    /**
+     * Lazy-mint or cache-then-return the anonymous ID.
+     *
+     * Always returns a usable string. Callers that need to attach the
+     * `x-anonymous-id` header before `initialize()` has completed (rare —
+     * usually only the very first unauthenticated request from a freshly
+     * constructed client) should `await` this rather than relying on
+     * `getAnonymousId()`.
+     *
+     * Concurrent callers receive the same in-flight promise — no risk of
+     * two simultaneous first requests minting two distinct IDs.
+     */
+    ensureAnonymousId(): Promise<string>;
     isMultiSessionEnabled(): boolean;
     /** Get all accounts in the session pool */
     getSessionPool(): SessionPoolEntry[];
@@ -2666,6 +2770,245 @@ declare class SocialService extends ServiceModule {
 }
 
 /**
+ * Social Policy Service Module
+ *
+ * Thin SDK wrapper for scalemule-social-policy. The SDK exposes decisions,
+ * settings, relationships, contact requests, blocks, mutes, reports, and
+ * policy packs; policy rules remain server-owned.
+ */
+
+type SocialPolicyIdentityType = 'person' | 'business' | 'workspace' | 'customer' | string;
+interface SocialPolicyIdentity {
+    identity_id: string;
+    identity_type: SocialPolicyIdentityType;
+    user_id?: string | null;
+    account_id?: string | null;
+}
+interface SocialPolicyContext {
+    context_type?: string | null;
+    context_id?: string | null;
+    workspace_id?: string | null;
+    conversation_id?: string | null;
+    customer_space_id?: string | null;
+    content_id?: string | null;
+}
+type SocialPolicyAction = 'message_direct' | 'message_request' | 'connect_request' | 'business_inquiry' | 'view_profile' | 'search_discover' | 'space_invite' | 'follow' | 'block' | 'report' | 'mute' | string;
+type SocialPolicyDecision = 'allow' | 'allow_with_warning' | 'route_to_requests' | 'route_to_business_inbox' | 'request_required' | 'deny_blocked' | 'throttle' | 'deny_policy' | string;
+interface SocialPolicyDecisionRequest {
+    app_key?: string | null;
+    account_id?: string | null;
+    policy_pack?: string | null;
+    actor: SocialPolicyIdentity;
+    target: SocialPolicyIdentity;
+    action: SocialPolicyAction;
+    context?: SocialPolicyContext;
+    metadata?: Record<string, unknown> | null;
+}
+interface SocialPolicyBatchDecisionTarget {
+    identity_id: string;
+    identity_type: SocialPolicyIdentityType;
+    context?: SocialPolicyContext;
+}
+interface SocialPolicyBatchDecisionRequest {
+    app_key?: string | null;
+    account_id?: string | null;
+    policy_pack?: string | null;
+    actor: SocialPolicyIdentity;
+    actions: SocialPolicyAction[];
+    targets: SocialPolicyBatchDecisionTarget[];
+    metadata?: Record<string, unknown> | null;
+}
+interface SocialPolicyDecisionLimits {
+    remaining_today: number;
+    reset_at: string;
+}
+interface SocialPolicyDecisionResponse {
+    decision: SocialPolicyDecision;
+    effective_decision: SocialPolicyDecision;
+    allowed: boolean;
+    effective_allowed: boolean;
+    reason: string;
+    policy_pack: string;
+    policy_version: string;
+    rollout_mode: 'shadow' | 'report_only' | 'enforce' | string;
+    would_have_denied: boolean;
+    route?: string | null;
+    ui_message?: string | null;
+    limits?: SocialPolicyDecisionLimits | null;
+    requirements: string[];
+    audit_id: string;
+}
+interface SocialPolicyBatchDecisionItem {
+    action: SocialPolicyAction;
+    target_identity_id: string;
+    decision: SocialPolicyDecisionResponse;
+}
+interface SocialPolicyBatchDecisionResponse {
+    decisions: SocialPolicyBatchDecisionItem[];
+}
+interface SocialPolicySettings {
+    identity_id: string;
+    policy_pack: string;
+    profile_visibility: string;
+    search_visibility: string;
+    direct_message_policy: string;
+    contact_request_policy: string;
+    follow_policy: string;
+    business_contact_policy: string;
+    presence_visibility: string;
+}
+interface SocialPolicyUpdateSettingsRequest {
+    account_id?: string | null;
+    policy_pack?: string | null;
+    profile_visibility?: string | null;
+    search_visibility?: string | null;
+    direct_message_policy?: string | null;
+    contact_request_policy?: string | null;
+    follow_policy?: string | null;
+    business_contact_policy?: string | null;
+    presence_visibility?: string | null;
+    relationship_visibility?: string | null;
+    mention_policy?: string | null;
+    comment_policy?: string | null;
+    invite_policy?: string | null;
+}
+interface SocialPolicyRelationshipRequest {
+    account_id?: string | null;
+    actor_identity_id: string;
+    target_identity_id: string;
+    relationship_type: string;
+    direction?: string | null;
+    status?: string | null;
+    source_context_type?: string | null;
+    source_context_id?: string | null;
+    metadata?: Record<string, unknown> | null;
+}
+interface SocialPolicyRelationship {
+    id: string;
+    actor_identity_id: string;
+    target_identity_id: string;
+    relationship_type: string;
+    status: string;
+}
+interface SocialPolicyRelationshipQuery {
+    account_id?: string | null;
+    identity_id?: string | null;
+    relationship_type?: string | null;
+}
+interface SocialPolicyContactRequestRequest {
+    account_id?: string | null;
+    actor_identity_id: string;
+    target_identity_id: string;
+    request_type: string;
+    intro_message?: string | null;
+    context_type?: string | null;
+    context_id?: string | null;
+    metadata?: Record<string, unknown> | null;
+}
+interface SocialPolicyContactRequest {
+    id: string;
+    status: string;
+}
+interface SocialPolicyContactRequestQuery {
+    account_id?: string | null;
+    identity_id: string;
+    status?: string | null;
+}
+interface SocialPolicyContactRequestListItem {
+    id: string;
+    actor_identity_id: string;
+    target_identity_id: string;
+    request_type: string;
+    intro_message?: string | null;
+    context_type?: string | null;
+    context_id?: string | null;
+    status: string;
+    created_at: string;
+}
+interface SocialPolicyBlockRequest {
+    account_id?: string | null;
+    blocker_identity_id: string;
+    blocked_identity_id: string;
+    scope?: string | null;
+    reason?: string | null;
+    metadata?: Record<string, unknown> | null;
+}
+interface SocialPolicyUnblockRequest {
+    account_id?: string | null;
+    blocker_identity_id: string;
+    blocked_identity_id: string;
+    scope?: string | null;
+}
+interface SocialPolicyMuteRequest {
+    account_id?: string | null;
+    actor_identity_id: string;
+    target_identity_id: string;
+    context_type?: string | null;
+    context_id?: string | null;
+    metadata?: Record<string, unknown> | null;
+}
+interface SocialPolicyReportRequest {
+    account_id?: string | null;
+    reporter_identity_id: string;
+    reported_identity_id: string;
+    context_type?: string | null;
+    context_id?: string | null;
+    reason: string;
+    details?: string | null;
+}
+interface SocialPolicyPolicyPack {
+    id: string;
+    version: string;
+    rollout_mode: string;
+}
+declare class SocialPolicyService extends ServiceModule {
+    protected basePath: string;
+    decide(request: SocialPolicyDecisionRequest, options?: RequestOptions): Promise<ApiResponse<SocialPolicyDecisionResponse>>;
+    batchDecide(request: SocialPolicyBatchDecisionRequest, options?: RequestOptions): Promise<ApiResponse<SocialPolicyBatchDecisionResponse>>;
+    decideAction(action: SocialPolicyAction, actor: SocialPolicyIdentity, target: SocialPolicyIdentity, options?: {
+        appKey?: string | null;
+        accountId?: string | null;
+        policyPack?: string | null;
+        context?: SocialPolicyContext;
+        metadata?: Record<string, unknown> | null;
+        requestOptions?: RequestOptions;
+    }): Promise<ApiResponse<SocialPolicyDecisionResponse>>;
+    decideFollow(actor: SocialPolicyIdentity, target: SocialPolicyIdentity, options?: Parameters<SocialPolicyService['decideAction']>[3]): Promise<ApiResponse<SocialPolicyDecisionResponse>>;
+    decideDirectMessage(actor: SocialPolicyIdentity, target: SocialPolicyIdentity, options?: Parameters<SocialPolicyService['decideAction']>[3]): Promise<ApiResponse<SocialPolicyDecisionResponse>>;
+    decideContactRequest(actor: SocialPolicyIdentity, target: SocialPolicyIdentity, options?: Parameters<SocialPolicyService['decideAction']>[3]): Promise<ApiResponse<SocialPolicyDecisionResponse>>;
+    getSettings(identityId: string, options?: RequestOptions): Promise<ApiResponse<SocialPolicySettings>>;
+    updateSettings(identityId: string, request: SocialPolicyUpdateSettingsRequest, options?: RequestOptions): Promise<ApiResponse<SocialPolicySettings>>;
+    createRelationship(request: SocialPolicyRelationshipRequest, options?: RequestOptions): Promise<ApiResponse<SocialPolicyRelationship>>;
+    listRelationships(params?: SocialPolicyRelationshipQuery, options?: RequestOptions): Promise<ApiResponse<SocialPolicyRelationship[]>>;
+    deleteRelationship(relationshipId: string, options?: RequestOptions): Promise<ApiResponse<{
+        deleted: boolean;
+    }>>;
+    createContactRequest(request: SocialPolicyContactRequestRequest, options?: RequestOptions): Promise<ApiResponse<SocialPolicyContactRequest>>;
+    listContactRequestInbox(params: SocialPolicyContactRequestQuery, options?: RequestOptions): Promise<ApiResponse<SocialPolicyContactRequestListItem[]>>;
+    listContactRequestSent(params: SocialPolicyContactRequestQuery, options?: RequestOptions): Promise<ApiResponse<SocialPolicyContactRequestListItem[]>>;
+    acceptContactRequest(requestId: string, options?: RequestOptions): Promise<ApiResponse<SocialPolicyContactRequest>>;
+    ignoreContactRequest(requestId: string, options?: RequestOptions): Promise<ApiResponse<SocialPolicyContactRequest>>;
+    declineContactRequest(requestId: string, options?: RequestOptions): Promise<ApiResponse<SocialPolicyContactRequest>>;
+    reportContactRequest(requestId: string, options?: RequestOptions): Promise<ApiResponse<SocialPolicyContactRequest>>;
+    block(request: SocialPolicyBlockRequest, options?: RequestOptions): Promise<ApiResponse<{
+        blocked: boolean;
+    }>>;
+    unblock(request: SocialPolicyUnblockRequest, options?: RequestOptions): Promise<ApiResponse<{
+        unblocked: boolean;
+    }>>;
+    mute(request: SocialPolicyMuteRequest, options?: RequestOptions): Promise<ApiResponse<{
+        muted: boolean;
+    }>>;
+    unmute(request: SocialPolicyMuteRequest, options?: RequestOptions): Promise<ApiResponse<{
+        unmuted: boolean;
+    }>>;
+    report(request: SocialPolicyReportRequest, options?: RequestOptions): Promise<ApiResponse<{
+        reported: boolean;
+    }>>;
+    listPolicyPacks(options?: RequestOptions): Promise<ApiResponse<SocialPolicyPolicyPack[]>>;
+}
+
+/**
  * Referrals Service Module
  *
  * Referral program management — share links, campaigns, attribution, rewards.
@@ -4687,6 +5030,17 @@ interface TransformResult {
     height: number;
     format: string;
 }
+type PhotoPreset = 'hero' | 'inline' | 'thumbnail' | 'avatar' | 'logo';
+interface PhotoManifest {
+    file_id: string;
+    photo_id: string;
+    content_type: string;
+    preset: PhotoPreset | 'original';
+    ready: boolean;
+    variants: Record<string, string>;
+    srcset: string | null;
+    default: string | null;
+}
 /** Options for building a transform URL or requesting a transform */
 interface TransformOptions {
     width?: number;
@@ -4745,6 +5099,15 @@ declare class PhotoService extends ServiceModule {
     delete(id: string, options?: RequestOptions): Promise<ApiResponse<{
         deleted: boolean;
     }>>;
+    getPresets(options?: RequestOptions): Promise<ApiResponse<Record<PhotoPreset, {
+        widths: number[];
+    }>>>;
+    getManifest(id: string, params?: {
+        preset?: PhotoPreset;
+    }, options?: RequestOptions): Promise<ApiResponse<PhotoManifest>>;
+    getPublicManifest(id: string, params?: {
+        preset?: PhotoPreset;
+    }, options?: RequestOptions): Promise<ApiResponse<PhotoManifest>>;
     /**
      * Build an absolute URL for the on-demand transform endpoint.
      *
@@ -5005,6 +5368,7 @@ interface MediaManifest {
     file_id: string;
     content_type: string;
     preset: MediaPreset | 'original';
+    ready?: boolean;
     variants: Record<string, string>;
     srcset: string | null;
     default: string | null;
@@ -5071,14 +5435,15 @@ declare class MediaService extends ServiceModule {
     getManifest(fileId: string, options?: MediaManifestOptions, requestOptions?: RequestOptions): Promise<ApiResponse<MediaManifest>>;
     buildAsset(file: FileInfo, options?: MediaManifestOptions & {
         photoId?: string | null;
-    }): MediaAsset;
+    }, manifest?: MediaManifest | null): MediaAsset;
     buildManifest(file: FileInfo, options?: MediaManifestOptions): MediaManifest | null;
     private uploadAnonymous;
     private uploadImage;
     private waitForAnonymousReady;
     private fetchInfoBestEffort;
+    private fetchManifest;
     private pollPhotoOptimizationComplete;
-    private prewarmManifest;
+    private waitForAnonymousManifest;
 }
 
 type TtsAccessMode = 'owner_private' | 'tenant_shared' | 'public';
@@ -6872,6 +7237,7 @@ declare class ScaleMule {
     readonly chat: ChatService;
     readonly conference: ConferenceService;
     readonly social: SocialService;
+    readonly socialPolicy: SocialPolicyService;
     readonly referrals: ReferralsService;
     readonly billing: BillingService;
     readonly analytics: AnalyticsService;
@@ -6974,4 +7340,4 @@ declare class ScaleMule {
     getClient(): ScaleMuleClient;
 }
 
-export { type AccountBalance, type AccountSwitcherPrivacy, AccountsService, type ActiveUsers, type ActivityItem, AgentAuthService, AgentModelsService, type AgentProfile, AgentProjectsService, type AgentResponse, type AgentSecurityPolicy, AgentSessionsService, type AgentSigningKey, type AgentToken, type AgentToolEntitlement, AgentToolsService, type Workspace as AgentWorkspace, AgentsService, type AggregateOptions, type AggregateResult, type AnalyticsEvent, AnalyticsService, type ApiError, type ApiKey, type ApiResponse, type Appeal, type Application, type Attachment, type Attendee, type AudioRegisterResult, AudioService, type AudioUploadViaStorageResult, type AuditLog, type AuthRegisterAgentRequest, type AuthRegisterAgentResponse, AuthService, type AuthSession, type AuthUser, type BackupCodes, BillingService, type CacheEntry, CacheService, type CalendarEvent, type CallParticipant, type CallSession, type CatalogEntry, CatalogService, type ChatMessage, type ChatReaction, ChatService, type ClaimResult, type Client, type ClientContext, type Collection, type Comment, CommunicationService, type CompletedPart, ComplianceService, type CompressionConfig, ConferenceService, type ConferenceSettings, type ConnectedAccount, type ConnectedAccountSubscription, type ConnectedSetupIntentResponse, type ConnectedSubscriptionListParams, type ConnectionStatus, type ContentFlag, type ContentPolicy, type Conversation, type CostReportDay, type CreateProjectInput as CreateCreatorProjectInput, type CreateFlagRequest, type CreateRuleRequest, type CreateSegmentRequest, type CreateSessionResponse, type CreateVariantRequest, type GenerationJob as CreatorJob, CreatorMakerService, type GenerationOutput as CreatorOutput, type CreatorProject, type CreatorUsage, type Credential, type CredentialScope, type Customer, type DataAccessPolicy, type DataExport, DataService, type DataSource, type DeadLetterJob, type DeviceInfo, type DirectoryUser, type DirectoryUserDetail, type DirectoryUsersListResponse, type Document, type ErrorCode, ErrorCodes, type EventAggregation, EventsService, type FileInfo, type FileStatus, type FlagAuditEntry, type FlagCheck, type FlagCondition, FlagContentService, type FlagDefinition, type FlagDetail, type FlagEnvironment, type FlagEvaluation, type FlagSegment, type FlagVariant, FlagsService, type FollowStatus, type FunctionExecution, type FunctionMetrics, FunctionsService, type Funnel, type FunnelConversion, type GdprRequest, type GenerateInput, type GrantInfo, type GraphEdge, type GraphNode, GraphService, IdentityService, type IdentityType, type IncomingRequestLike, type Invoice, type JobExecution, type JobStats, type JoinCallResponse, type KnownAccount, type KnownAccountDisplay, type Leaderboard, type LeaderboardEntry, LeaderboardService, type Like, type ListNotificationsParams, type Listing, ListingsService, type LogEntry, type LogInput, type LogQueryParams, type LogQueryResponse, type LogRecord, LoggerService, type LoginActivitySummary, type LoginDeviceInfo, type LoginHistoryEntry, type LoginRiskInfo, MEDIA_PRESETS, type MediaAsset, type MediaKind, type MediaManifest, type MediaManifestOptions, type MediaPolicy, type MediaPreset, type MediaPresetSpec, MediaService, type MediaUploadEvent, type MediaUploadOptions, type MediaUploadPhase, type MediaUploadResult, type MessageCallback, type MessagePin, type MessageStatus, type MetricDataPoint, type MfaStatus, type Model, type ModelEntitlement, type ModelPricing, type ModelProvider, type UsageSummary as ModelUsageSummary, type MultipartCompleteResponse, type MultipartConfig, type MultipartPartUrl, type MultipartPartUrlsResponse, type MultipartStartResponse, type NetworkClass, type Notification, type NotificationListResponse, NotificationsService, type OAuthProvider, type OAuthUrl, OrchestratorService, PHOTO_BREAKPOINTS, type PaginatedResponse, type PaginationMetadata, type PaginationParams, type PartResult, type PartUrl, type Participant, type Payment, type PaymentListParams, type PaymentMethod, type PaymentStatusResponse, type Payout, type PayoutSchedule, type PermissionCheck, type PermissionMatrix, PermissionsService, type PhotoInfo, PhotoService, type PinnedMessagesResponse, type Pipeline, type PipelineVersion, type Policy, type PresenceCallback, type PresenceEvent, type PresignedUploadResponse, type Price, type Product, type Project, type ProjectDocument, type ProjectGrant, type ProjectMember, type PushApiFetcher, type PushPreferences, type PushSettings, type PushSubscriptionInfo, type PushToken, type PushTokenAssociationResult, type PushTopic, type QueryFilter, type QueryOptions, type QuerySort, type QueueJob, QueueService, type ReadStatus, RealtimeService, type RedeemResult, type ReferralAnalytics, type ReferralCampaign, type ReferralProfile, type ReferralStats, ReferralsService, type Refund, type RegisterAgentRequest, type RegisterAgentResponse, type RegisterPushTokenData, type RequestOptions, type ResolvedReferral, type ResumeSession, type Role, type RuntimeTemplate, type RuntimeTemplateVersion, type S3MultipartOptions, type S3MultipartResult, type S3SingleUploadOptions, type S3SingleUploadResult, type S3UploadProgress, ScaleMule, ScaleMuleClient, type ScaleMuleConfig, type SchedulerJob, SchedulerService, type SearchResult, SearchService, type SearchUsersParams, type SecurityLayers, type ServerlessFunction, type ServiceHealth, ServiceModule, type Session, type SessionArtifact, type SessionInfo, type SessionLog, type SessionPoolEntry, type Severity, type ShareLink, type ShortestPathResult, type SignedUrlResponse, type SocialPost, SocialService, type SocialUser, type SsoConfig, type StatusCallback, type StorageAdapter, StorageService, type StorageSettings, type StrategyResult, type StylePreset, type SubmitResult, type Subscription, type TargetingRule, type Task, type TaskAttempt, type TaskTransition, type Team, type TeamInvitation, type TeamMember, TeamsService, type TelemetryPayload, type Tool, type ToolCapability, type ToolIntegration, type TopEvent, type TotpSetup, type Transaction, type TransactionListParams, type TransactionSummary, type TransactionSummaryParams, type Transfer, type TransformOptions, type TransformResult, type TraversalResult, type TtsAccessMode, type TtsAudioInfo, type TtsJobStatus, type TtsListVoicesParams, TtsService, type TtsSpeechMetadata, type TtsSpeechProfile, type TtsSynthesizeParams, type TtsSynthesizeQueuedResult, type TtsSynthesizeReadyResult, type TtsSynthesizeResult, type TtsVoice, type TtsVoicesResponse, type UnreadCountResponse, type UpdateFlagRequest, type UpdateRuleRequest, type UpdateSegmentRequest, type UpdateVariantRequest, type UploadCompleteResponse, type UploadEngineConfig, type UploadFailureReport, type UploadFailureReportResponse, type UploadOptions, type UploadPlan, UploadResumeStore, type UploadStrategy, UploadTelemetry, type UploadTelemetryConfig, type UploadTelemetryEvent, type UpsertEnvironmentRequest, type UsageRecord, type UsageSummary$1 as UsageSummary, type UserRank, type VideoInfo, VideoService, type VideoUploadOptions, WEB_PUSH_SERVICE_WORKER, WebPushManager, type WebPushManagerOptions, type WebPushSubscriptionData, type Webhook, WebhooksService, type WebrtcStats, type Workflow, type WorkflowExecution, type Workspace$1 as Workspace, type WorkspaceInvitation, type WorkspaceMember, WorkspacesService, buildClientContextHeaders, calculateTotalParts, canPerform, createUploadPlan, ScaleMule as default, detectNetworkClass, extractClientContext, generateUploadSessionId, getMeasuredBandwidthMbps, getPartRange, hasMinRoleLevel, resolveStrategy, uploadMultipartToS3, uploadSingleToS3, validateIP };
+export { type AccountBalance, type AccountSwitcherPrivacy, AccountsService, type ActiveUsers, type ActivityItem, AgentAuthService, AgentModelsService, type AgentProfile, AgentProjectsService, type AgentResponse, type AgentSecurityPolicy, AgentSessionsService, type AgentSigningKey, type AgentToken, type AgentToolEntitlement, AgentToolsService, type Workspace as AgentWorkspace, AgentsService, type AggregateOptions, type AggregateResult, type AnalyticsEvent, AnalyticsService, type ApiError, type ApiKey, type ApiResponse, type Appeal, type Application, type Attachment, type Attendee, type AudioRegisterResult, AudioService, type AudioUploadViaStorageResult, type AuditLog, type AuthRegisterAgentRequest, type AuthRegisterAgentResponse, AuthService, type AuthSession, type AuthUser, type BackupCodes, BillingService, type CacheEntry, CacheService, type CalendarEvent, type CallParticipant, type CallSession, type CatalogEntry, CatalogService, type ChatMessage, type ChatReaction, ChatService, type ClaimResult, type Client, type ClientContext, type Collection, type Comment, CommunicationService, type CompletedPart, ComplianceService, type CompressionConfig, ConferenceService, type ConferenceSettings, type ConnectedAccount, type ConnectedAccountSubscription, type ConnectedSetupIntentResponse, type ConnectedSubscriptionListParams, type ConnectionStatus, type ContentFlag, type ContentPolicy, type Conversation, type CostReportDay, type CreateProjectInput as CreateCreatorProjectInput, type CreateFlagRequest, type CreateRuleRequest, type CreateSegmentRequest, type CreateSessionResponse, type CreateVariantRequest, type GenerationJob as CreatorJob, CreatorMakerService, type GenerationOutput as CreatorOutput, type CreatorProject, type CreatorUsage, type Credential, type CredentialScope, type Customer, type DataAccessPolicy, type DataExport, DataService, type DataSource, type DeadLetterJob, type DeviceInfo, type DirectoryUser, type DirectoryUserDetail, type DirectoryUsersListResponse, type Document, type ErrorCode, ErrorCodes, type EventAggregation, EventsService, type FileInfo, type FileStatus, type FlagAuditEntry, type FlagCheck, type FlagCondition, FlagContentService, type FlagDefinition, type FlagDetail, type FlagEnvironment, type FlagEvaluation, type FlagSegment, type FlagVariant, FlagsService, type FollowStatus, type FunctionExecution, type FunctionMetrics, FunctionsService, type Funnel, type FunnelConversion, type GdprRequest, type GenerateInput, type GrantInfo, type GraphEdge, type GraphNode, GraphService, IdentityService, type IdentityType, type IncomingRequestLike, type Invoice, type JobExecution, type JobStats, type JoinCallResponse, type KnownAccount, type KnownAccountDisplay, LEGACY_ANONYMOUS_ID_KEYS, type Leaderboard, type LeaderboardEntry, LeaderboardService, type Like, type ListNotificationsParams, type Listing, ListingsService, type LogEntry, type LogInput, type LogQueryParams, type LogQueryResponse, type LogRecord, LoggerService, type LoginActivitySummary, type LoginDeviceInfo, type LoginHistoryEntry, type LoginRiskInfo, MEDIA_PRESETS, type MediaAsset, type MediaKind, type MediaManifest, type MediaManifestOptions, type MediaPolicy, type MediaPreset, type MediaPresetSpec, MediaService, type MediaUploadEvent, type MediaUploadOptions, type MediaUploadPhase, type MediaUploadResult, type MessageCallback, type MessagePin, type MessageStatus, type MetricDataPoint, type MfaStatus, type Model, type ModelEntitlement, type ModelPricing, type ModelProvider, type UsageSummary as ModelUsageSummary, type MultipartCompleteResponse, type MultipartConfig, type MultipartPartUrl, type MultipartPartUrlsResponse, type MultipartStartResponse, type NetworkClass, type Notification, type NotificationListResponse, NotificationsService, type OAuthProvider, type OAuthUrl, OrchestratorService, PHOTO_BREAKPOINTS, type PaginatedResponse, type PaginationMetadata, type PaginationParams, type PartResult, type PartUrl, type Participant, type Payment, type PaymentListParams, type PaymentMethod, type PaymentStatusResponse, type Payout, type PayoutSchedule, type PermissionCheck, type PermissionMatrix, PermissionsService, type PhotoInfo, PhotoService, type PinnedMessagesResponse, type Pipeline, type PipelineVersion, type Policy, type PresenceCallback, type PresenceEvent, type PresignedUploadResponse, type Price, type Product, type Project, type ProjectDocument, type ProjectGrant, type ProjectMember, type PushApiFetcher, type PushPreferences, type PushSettings, type PushSubscriptionInfo, type PushToken, type PushTokenAssociationResult, type PushTopic, type QueryFilter, type QueryOptions, type QuerySort, type QueueJob, QueueService, type ReadStatus, RealtimeService, type RedeemResult, type ReferralAnalytics, type ReferralCampaign, type ReferralProfile, type ReferralStats, ReferralsService, type Refund, type RegisterAgentRequest, type RegisterAgentResponse, type RegisterPushTokenData, type RequestOptions, type ResolvedReferral, type ResumeSession, type Role, type RuntimeTemplate, type RuntimeTemplateVersion, type S3MultipartOptions, type S3MultipartResult, type S3SingleUploadOptions, type S3SingleUploadResult, type S3UploadProgress, STORAGE_KEYS, ScaleMule, ScaleMuleClient, type ScaleMuleConfig, type SchedulerJob, SchedulerService, type SearchResult, SearchService, type SearchUsersParams, type SecurityLayers, type ServerlessFunction, type ServiceHealth, ServiceModule, type Session, type SessionArtifact, type SessionInfo, type SessionLog, type SessionPoolEntry, type Severity, type ShareLink, type ShortestPathResult, type SignedUrlResponse, type SocialPolicyAction, type SocialPolicyBatchDecisionItem, type SocialPolicyBatchDecisionRequest, type SocialPolicyBatchDecisionResponse, type SocialPolicyBatchDecisionTarget, type SocialPolicyBlockRequest, type SocialPolicyContactRequest, type SocialPolicyContactRequestListItem, type SocialPolicyContactRequestQuery, type SocialPolicyContactRequestRequest, type SocialPolicyContext, type SocialPolicyDecision, type SocialPolicyDecisionLimits, type SocialPolicyDecisionRequest, type SocialPolicyDecisionResponse, type SocialPolicyIdentity, type SocialPolicyIdentityType, type SocialPolicyMuteRequest, type SocialPolicyPolicyPack, type SocialPolicyRelationship, type SocialPolicyRelationshipQuery, type SocialPolicyRelationshipRequest, type SocialPolicyReportRequest, SocialPolicyService, type SocialPolicySettings, type SocialPolicyUnblockRequest, type SocialPolicyUpdateSettingsRequest, type SocialPost, SocialService, type SocialUser, type SsoConfig, type StatusCallback, type StorageAdapter, StorageService, type StorageSettings, type StrategyResult, type StylePreset, type SubmitResult, type Subscription, type TargetingRule, type Task, type TaskAttempt, type TaskTransition, type Team, type TeamInvitation, type TeamMember, TeamsService, type TelemetryPayload, type Tool, type ToolCapability, type ToolIntegration, type TopEvent, type TotpSetup, type Transaction, type TransactionListParams, type TransactionSummary, type TransactionSummaryParams, type Transfer, type TransformOptions, type TransformResult, type TraversalResult, type TtsAccessMode, type TtsAudioInfo, type TtsJobStatus, type TtsListVoicesParams, TtsService, type TtsSpeechMetadata, type TtsSpeechProfile, type TtsSynthesizeParams, type TtsSynthesizeQueuedResult, type TtsSynthesizeReadyResult, type TtsSynthesizeResult, type TtsVoice, type TtsVoicesResponse, type UnreadCountResponse, type UpdateFlagRequest, type UpdateRuleRequest, type UpdateSegmentRequest, type UpdateVariantRequest, type UploadCompleteResponse, type UploadEngineConfig, type UploadFailureReport, type UploadFailureReportResponse, type UploadOptions, type UploadPlan, UploadResumeStore, type UploadStrategy, UploadTelemetry, type UploadTelemetryConfig, type UploadTelemetryEvent, type UpsertEnvironmentRequest, type UsageRecord, type UsageSummary$1 as UsageSummary, type UserRank, type VideoInfo, VideoService, type VideoUploadOptions, WEB_PUSH_SERVICE_WORKER, WebPushManager, type WebPushManagerOptions, type WebPushSubscriptionData, type Webhook, WebhooksService, type WebrtcStats, type Workflow, type WorkflowExecution, type Workspace$1 as Workspace, type WorkspaceInvitation, type WorkspaceMember, WorkspacesService, buildClientContextHeaders, calculateTotalParts, canPerform, createUploadPlan, ScaleMule as default, detectNetworkClass, ensureAnonymousId, extractClientContext, generateAnonymousId, generateUploadSessionId, getMeasuredBandwidthMbps, getPartRange, hasMinRoleLevel, readAnonymousId, resolveStrategy, uploadMultipartToS3, uploadSingleToS3, validateIP };

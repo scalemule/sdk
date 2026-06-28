@@ -101,6 +101,7 @@ describe('Client Initialization', () => {
     expect(sm.realtime).toBeDefined();
     expect(sm.chat).toBeDefined();
     expect(sm.social).toBeDefined();
+    expect(sm.socialPolicy).toBeDefined();
     expect(sm.billing).toBeDefined();
     expect(sm.analytics).toBeDefined();
     expect(sm.flags).toBeDefined();
@@ -1618,6 +1619,185 @@ describe('SocialService', () => {
       await sm.social.markAllRead();
       expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/social/activity/read-all');
     });
+  });
+});
+
+// ============================================================================
+// SocialPolicyService
+// ============================================================================
+
+describe('SocialPolicyService', () => {
+  const actor = {
+    identity_id: '11111111-1111-1111-1111-111111111111',
+    identity_type: 'person',
+    user_id: 'u1'
+  };
+  const target = {
+    identity_id: '22222222-2222-2222-2222-222222222222',
+    identity_type: 'business',
+    account_id: 'a1'
+  };
+
+  it('should POST /decision without app-owned policy logic', async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({
+        data: {
+          decision: 'route_to_requests',
+          effective_decision: 'route_to_requests',
+          allowed: true,
+          effective_allowed: true,
+          reason: 'request_required',
+          policy_pack: 'coralmeet_default_v1',
+          policy_version: '1.0.0',
+          rollout_mode: 'enforce',
+          would_have_denied: false,
+          route: 'requests',
+          ui_message: null,
+          limits: null,
+          requirements: [],
+          audit_id: 'audit1'
+        }
+      })
+    );
+
+    const result = await sm.socialPolicy.decide({
+      app_key: 'coralmeet',
+      actor,
+      target,
+      action: 'message_request',
+      metadata: { source: 'personshare' }
+    });
+
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe('https://api.scalemule.com/v1/social-policy/decision');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body).action).toBe('message_request');
+    expect(JSON.parse(init.body).context).toEqual({});
+    expect(result.data!.effective_allowed).toBe(true);
+    expect(result.data!.route).toBe('requests');
+  });
+
+  it('should POST /decisions/batch', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ data: { decisions: [] } }));
+    await sm.socialPolicy.batchDecide({
+      actor,
+      actions: ['follow', 'message_direct'],
+      targets: [{ identity_id: target.identity_id, identity_type: target.identity_type }]
+    });
+
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe('https://api.scalemule.com/v1/social-policy/decisions/batch');
+    expect(JSON.parse(init.body).actions).toEqual(['follow', 'message_direct']);
+  });
+
+  it('should provide convenience decision helpers for common social actions', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ data: { effective_allowed: true } }));
+    await sm.socialPolicy.decideFollow(actor, target, {
+      appKey: 'coralmeet',
+      accountId: 'a1',
+      context: { context_type: 'personshare', context_id: 'share1' }
+    });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.action).toBe('follow');
+    expect(body.app_key).toBe('coralmeet');
+    expect(body.account_id).toBe('a1');
+    expect(body.context.context_type).toBe('personshare');
+  });
+
+  it('should GET and PATCH identity settings', async () => {
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({ data: { identity_id: actor.identity_id, follow_policy: 'request' } }))
+      .mockResolvedValueOnce(jsonResponse({ data: { identity_id: actor.identity_id, follow_policy: 'allow' } }));
+
+    await sm.socialPolicy.getSettings(actor.identity_id);
+    expect(mockFetch.mock.calls[0][0]).toBe(`https://api.scalemule.com/v1/social-policy/settings/${actor.identity_id}`);
+
+    await sm.socialPolicy.updateSettings(actor.identity_id, { follow_policy: 'allow' });
+    expect(mockFetch.mock.calls[1][1].method).toBe('PATCH');
+    expect(JSON.parse(mockFetch.mock.calls[1][1].body).follow_policy).toBe('allow');
+  });
+
+  it('should manage relationships and contact request routes', async () => {
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({ data: { id: 'rel1' } }))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(jsonResponse({ data: { id: 'cr1', status: 'pending' } }))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(jsonResponse({ data: { id: 'cr1', status: 'accepted' } }));
+
+    await sm.socialPolicy.createRelationship({
+      actor_identity_id: actor.identity_id,
+      target_identity_id: target.identity_id,
+      relationship_type: 'connection'
+    });
+    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/social-policy/relationships');
+
+    await sm.socialPolicy.listRelationships({ identity_id: actor.identity_id, relationship_type: 'connection' });
+    expect(mockFetch.mock.calls[1][0]).toContain('/v1/social-policy/relationships?');
+    expect(mockFetch.mock.calls[1][0]).toContain(`identity_id=${encodeURIComponent(actor.identity_id)}`);
+
+    await sm.socialPolicy.createContactRequest({
+      actor_identity_id: actor.identity_id,
+      target_identity_id: target.identity_id,
+      request_type: 'connect'
+    });
+    expect(mockFetch.mock.calls[2][0]).toBe('https://api.scalemule.com/v1/social-policy/contact-requests');
+
+    await sm.socialPolicy.listContactRequestInbox({ identity_id: target.identity_id, status: 'pending' });
+    expect(mockFetch.mock.calls[3][0]).toContain('/v1/social-policy/contact-requests/inbox?');
+
+    await sm.socialPolicy.listContactRequestSent({ identity_id: actor.identity_id });
+    expect(mockFetch.mock.calls[4][0]).toContain('/v1/social-policy/contact-requests/sent?');
+
+    await sm.socialPolicy.acceptContactRequest('cr1');
+    expect(mockFetch.mock.calls[5][0]).toBe('https://api.scalemule.com/v1/social-policy/contact-requests/cr1/accept');
+  });
+
+  it('should expose block, unblock, mute, unmute, report, and policy pack routes', async () => {
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({ data: { blocked: true } }))
+      .mockResolvedValueOnce(jsonResponse({ data: { unblocked: true } }))
+      .mockResolvedValueOnce(jsonResponse({ data: { muted: true } }))
+      .mockResolvedValueOnce(jsonResponse({ data: { unmuted: true } }))
+      .mockResolvedValueOnce(jsonResponse({ data: { reported: true } }))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }));
+
+    await sm.socialPolicy.block({
+      blocker_identity_id: actor.identity_id,
+      blocked_identity_id: target.identity_id,
+      reason: 'spam'
+    });
+    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/social-policy/block');
+
+    await sm.socialPolicy.unblock({
+      blocker_identity_id: actor.identity_id,
+      blocked_identity_id: target.identity_id
+    });
+    expect(mockFetch.mock.calls[1][0]).toBe('https://api.scalemule.com/v1/social-policy/unblock');
+
+    await sm.socialPolicy.mute({
+      actor_identity_id: actor.identity_id,
+      target_identity_id: target.identity_id
+    });
+    expect(mockFetch.mock.calls[2][0]).toBe('https://api.scalemule.com/v1/social-policy/mute');
+
+    await sm.socialPolicy.unmute({
+      actor_identity_id: actor.identity_id,
+      target_identity_id: target.identity_id
+    });
+    expect(mockFetch.mock.calls[3][0]).toBe('https://api.scalemule.com/v1/social-policy/unmute');
+
+    await sm.socialPolicy.report({
+      reporter_identity_id: actor.identity_id,
+      reported_identity_id: target.identity_id,
+      reason: 'spam'
+    });
+    expect(mockFetch.mock.calls[4][0]).toBe('https://api.scalemule.com/v1/social-policy/report');
+
+    await sm.socialPolicy.listPolicyPacks();
+    expect(mockFetch.mock.calls[5][0]).toBe('https://api.scalemule.com/v1/social-policy/policy-packs');
   });
 });
 
