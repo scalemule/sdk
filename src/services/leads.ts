@@ -68,7 +68,7 @@ export class LeadsService extends ServiceModule {
       ...(input.employees ? { employees: input.employees } : {}),
       ...(input.country ? { country: input.country } : {}),
       ...(input.planId ? { plan_id: input.planId } : {}),
-      ...(input.planName ? { plan_name: input.planName } : {}),
+      ...(input.planName ? { plan_name: input.planName } : {})
     };
     const body: Record<string, unknown> = {
       contact_name: input.contactName,
@@ -80,7 +80,7 @@ export class LeadsService extends ServiceModule {
       utm_medium: input.utmMedium,
       utm_campaign: input.utmCampaign,
       // Backend stores metadata as a JSON string (matches admin client shape).
-      metadata: JSON.stringify(metadata),
+      metadata: JSON.stringify(metadata)
     };
     return this.post<Lead>('', body, options);
   }
