@@ -159,7 +159,7 @@ export type {
   WebrtcStats
 } from './services/conference';
 export { SocialService } from './services/social';
-export type { SocialPost, Comment, FollowStatus, ActivityItem, SocialUser, Like } from './services/social';
+export type { SocialPost, Comment, FollowStatus, ActivityItem, SocialUser, Like, VoteState } from './services/social';
 export { SocialPolicyService } from './services/social-policy';
 export type {
   SocialPolicyAction,
@@ -190,6 +190,8 @@ export type {
   SocialPolicyUpdateSettingsRequest
 } from './services/social-policy';
 export { ReferralsService } from './services/referrals';
+export { LeadsService } from './services/leads';
+export type { Lead, CreateLeadInput } from './services/leads';
 export type {
   ReferralProfile,
   ReferralCampaign,
@@ -440,6 +442,7 @@ import { SocialService } from './services/social';
 import { SocialPolicyService } from './services/social-policy';
 import { ReferralsService } from './services/referrals';
 import { BillingService } from './services/billing';
+import { LeadsService } from './services/leads';
 import { AnalyticsService } from './services/analytics';
 import { FlagsService } from './services/flags';
 import { CommunicationService } from './services/communication';
@@ -531,6 +534,7 @@ export class ScaleMule {
   public readonly socialPolicy: SocialPolicyService;
   public readonly referrals: ReferralsService;
   public readonly billing: BillingService;
+  public readonly leads: LeadsService;
   public readonly analytics: AnalyticsService;
   public readonly flags: FlagsService;
   public readonly communication: CommunicationService;
@@ -603,6 +607,7 @@ export class ScaleMule {
     this.socialPolicy = new SocialPolicyService(this._client);
     this.referrals = new ReferralsService(this._client);
     this.billing = new BillingService(this._client);
+    this.leads = new LeadsService(this._client);
     this.analytics = new AnalyticsService(this._client);
     this.flags = new FlagsService(this._client);
     this.communication = new CommunicationService(this._client);

@@ -321,6 +321,7 @@ __export(index_exports, {
   IdentityService: () => IdentityService,
   LEGACY_ANONYMOUS_ID_KEYS: () => LEGACY_ANONYMOUS_ID_KEYS,
   LeaderboardService: () => LeaderboardService,
+  LeadsService: () => LeadsService,
   ListingsService: () => ListingsService,
   LoggerService: () => LoggerService,
   MEDIA_PRESETS: () => MEDIA_PRESETS,
@@ -5297,6 +5298,43 @@ var ReferralsService = class extends ServiceModule {
   }
 };
 
+// src/services/leads.ts
+var LeadsService = class extends ServiceModule {
+  constructor() {
+    super(...arguments);
+    this.basePath = "/v1/leads";
+  }
+  /**
+   * Submit a sales lead. Enterprise-form extras and the plan context are folded
+   * into `metadata` (the leads table has no native company/employees columns).
+   */
+  async create(input, options) {
+    const metadata = {
+      ...input.metadata ?? {},
+      ...input.message ? { message: input.message } : {},
+      ...input.company ? { company: input.company } : {},
+      ...input.jobTitle ? { job_title: input.jobTitle } : {},
+      ...input.employees ? { employees: input.employees } : {},
+      ...input.country ? { country: input.country } : {},
+      ...input.planId ? { plan_id: input.planId } : {},
+      ...input.planName ? { plan_name: input.planName } : {}
+    };
+    const body = {
+      contact_name: input.contactName,
+      contact_email: input.contactEmail,
+      contact_phone: input.contactPhone,
+      service_category: input.serviceCategory ?? "sales_inquiry",
+      lead_source: input.leadSource ?? "form",
+      utm_source: input.utmSource,
+      utm_medium: input.utmMedium,
+      utm_campaign: input.utmCampaign,
+      // Backend stores metadata as a JSON string (matches admin client shape).
+      metadata: JSON.stringify(metadata)
+    };
+    return this.post("", body, options);
+  }
+};
+
 // src/services/billing.ts
 var BillingService = class extends ServiceModule {
   constructor() {
@@ -8578,6 +8616,7 @@ var ScaleMule = class {
     this.socialPolicy = new SocialPolicyService(this._client);
     this.referrals = new ReferralsService(this._client);
     this.billing = new BillingService(this._client);
+    this.leads = new LeadsService(this._client);
     this.analytics = new AnalyticsService(this._client);
     this.flags = new FlagsService(this._client);
     this.communication = new CommunicationService(this._client);
@@ -8765,6 +8804,7 @@ var index_default = ScaleMule;
   IdentityService,
   LEGACY_ANONYMOUS_ID_KEYS,
   LeaderboardService,
+  LeadsService,
   ListingsService,
   LoggerService,
   MEDIA_PRESETS,
