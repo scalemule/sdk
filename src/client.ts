@@ -835,10 +835,7 @@ export class ScaleMuleClient {
       // JSON bodies must declare their content type: fetch() defaults string
       // bodies to text/plain, which the platform's strict JSON extractors
       // reject with 400 SM-VAL-TYP-802. Explicit caller headers win.
-      if (
-        bodyStr !== undefined &&
-        !Object.keys(headers).some((k) => k.toLowerCase() === 'content-type')
-      ) {
+      if (bodyStr !== undefined && !Object.keys(headers).some((k) => k.toLowerCase() === 'content-type')) {
         headers['Content-Type'] = 'application/json';
       }
       if (!init.skipAuth && this.sessionToken) {

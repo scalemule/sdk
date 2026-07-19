@@ -1152,7 +1152,7 @@ var ScaleMuleClient = class {
     const method = (init.method || "GET").toUpperCase();
     const timeout = init.timeout || this.defaultTimeout;
     const maxRetries = init.skipRetry ? 0 : init.retries ?? this.maxRetries;
-    const bodyStr = init.body ? JSON.stringify(init.body) : void 0;
+    const bodyStr = init.body !== void 0 && init.body !== null ? typeof init.body === "string" ? init.body : JSON.stringify(init.body) : void 0;
     let lastError = null;
     let idempotencyKey = null;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -1161,6 +1161,9 @@ var ScaleMuleClient = class {
         "User-Agent": `ScaleMule-SDK-TypeScript/${SDK_VERSION}`,
         ...init.headers
       };
+      if (bodyStr !== void 0 && !Object.keys(headers).some((k) => k.toLowerCase() === "content-type")) {
+        headers["Content-Type"] = "application/json";
+      }
       if (!init.skipAuth && this.sessionToken) {
         headers["Authorization"] = `Bearer ${this.sessionToken}`;
       }
