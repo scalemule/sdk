@@ -815,7 +815,12 @@ export class ScaleMuleClient {
     const method = (init.method || 'GET').toUpperCase();
     const timeout = init.timeout || this.defaultTimeout;
     const maxRetries = init.skipRetry ? 0 : (init.retries ?? this.maxRetries);
-    const bodyStr = init.body ? JSON.stringify(init.body) : undefined;
+    const bodyStr =
+      init.body !== undefined && init.body !== null
+        ? typeof init.body === 'string'
+          ? init.body
+          : JSON.stringify(init.body)
+        : undefined;
 
     let lastError: ApiError | null = null;
     let idempotencyKey: string | null = null;
@@ -827,6 +832,15 @@ export class ScaleMuleClient {
         'User-Agent': `ScaleMule-SDK-TypeScript/${SDK_VERSION}`,
         ...init.headers
       };
+      // JSON bodies must declare their content type: fetch() defaults string
+      // bodies to text/plain, which the platform's strict JSON extractors
+      // reject with 400 SM-VAL-TYP-802. Explicit caller headers win.
+      if (
+        bodyStr !== undefined &&
+        !Object.keys(headers).some((k) => k.toLowerCase() === 'content-type')
+      ) {
+        headers['Content-Type'] = 'application/json';
+      }
       if (!init.skipAuth && this.sessionToken) {
         headers['Authorization'] = `Bearer ${this.sessionToken}`;
       }
