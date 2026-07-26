@@ -235,7 +235,6 @@ export interface DirectoryUserDetail {
   created_at: string;
   locale?: string;
   time_zone?: string;
-  external_role?: string;
   auth_methods: string[];
 }
 
