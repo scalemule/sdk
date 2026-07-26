@@ -47,6 +47,14 @@ export interface PresenceEvent {
 const DEFAULT_RECONNECT_BASE_MS = 1000;
 const MAX_RECONNECT_MS = 30000;
 const HEARTBEAT_INTERVAL_MS = 30000;
+/** Abort the ticket fetch if it hangs (post-sleep fetches can stall forever). */
+const TICKET_FETCH_TIMEOUT_MS = 10000;
+/** Fail a connect attempt that never reaches `connected` (hung open/auth). */
+const CONNECT_WATCHDOG_MS = 20000;
+/** The server answers every ping with a pong, so a healthy socket receives
+ * traffic at least every HEARTBEAT_INTERVAL_MS. Silence beyond this means the
+ * socket is dead (half-open TCP, server reaped us) — force a reconnect. */
+const LIVENESS_TIMEOUT_MS = 75000;
 
 // ============================================================================
 // Realtime Service
@@ -64,7 +72,11 @@ export class RealtimeService extends ServiceModule {
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private connectWatchdogTimer: ReturnType<typeof setTimeout> | null = null;
   private authenticated = false;
+  private lastInboundAt = 0;
+  private wakeHandler: (() => void) | null = null;
+  private visibilityHandler: (() => void) | null = null;
 
   /** Current connection status */
   get status(): ConnectionStatus {
@@ -200,6 +212,7 @@ export class RealtimeService extends ServiceModule {
   /** Disconnect and clean up all subscriptions. */
   disconnect(): void {
     this.clearTimers();
+    this.removeWakeListeners();
     this.subscriptions.clear();
     this.presenceCallbacks.clear();
     this.statusCallbacks.clear();
@@ -222,6 +235,20 @@ export class RealtimeService extends ServiceModule {
     if (this._status === 'connecting' || this._status === 'connected') return;
 
     this.setStatus(this.reconnectAttempt > 0 ? 'reconnecting' : 'connecting');
+    this.installWakeListeners();
+
+    // A connect attempt that never reaches `connected` (hung fetch, hung WS
+    // open, auth_success never arriving) would previously wedge the client
+    // forever: `connect()` early-returns while status is connecting, and no
+    // close event ever fires. The watchdog fails the attempt and retries.
+    this.clearConnectWatchdog();
+    this.connectWatchdogTimer = setTimeout(() => {
+      this.connectWatchdogTimer = null;
+      if (this._status !== 'connected') {
+        this.teardownSocket();
+        this.scheduleReconnect();
+      }
+    }, CONNECT_WATCHDOG_MS);
 
     // Fetch a WebSocket ticket from the gateway, then connect with it
     this.fetchTicketAndConnect();
@@ -237,10 +264,18 @@ export class RealtimeService extends ServiceModule {
       if (apiKey) headers['x-api-key'] = apiKey;
       const token = this.client.getSessionToken();
       if (token) headers['Authorization'] = `Bearer ${token}`;
-      const ticketRes = await fetch(`${baseUrl}/v1/realtime/ws/ticket`, {
-        method: 'POST',
-        headers
-      });
+      const abort = new AbortController();
+      const abortTimer = setTimeout(() => abort.abort(), TICKET_FETCH_TIMEOUT_MS);
+      let ticketRes: Response;
+      try {
+        ticketRes = await fetch(`${baseUrl}/v1/realtime/ws/ticket`, {
+          method: 'POST',
+          headers,
+          signal: abort.signal
+        });
+      } finally {
+        clearTimeout(abortTimer);
+      }
 
       let wsUrl: string;
       if (ticketRes.ok) {
@@ -261,6 +296,7 @@ export class RealtimeService extends ServiceModule {
 
     this.ws.onopen = () => {
       this.reconnectAttempt = 0;
+      this.lastInboundAt = Date.now();
       if (!this.usedTicketAuth) {
         this.authenticate();
       }
@@ -281,6 +317,9 @@ export class RealtimeService extends ServiceModule {
     };
 
     this.ws.onmessage = (event) => {
+      // Any inbound traffic (including text "pong", which fails JSON.parse)
+      // proves the socket is alive.
+      this.lastInboundAt = Date.now();
       try {
         const msg = JSON.parse(event.data as string);
         this.handleMessage(msg);
@@ -332,6 +371,13 @@ export class RealtimeService extends ServiceModule {
 
       case 'error':
         // Could emit error event in future
+        break;
+
+      case 'reconnect':
+        // Server-initiated: our registration was dropped (stale-ping reap,
+        // cell relocation drain). Reconnect immediately with fresh state.
+        this.reconnectAttempt = 0;
+        this.forceReconnect();
         break;
 
       case 'presence_state':
@@ -397,6 +443,7 @@ export class RealtimeService extends ServiceModule {
   // --------------------------------------------------------------------------
 
   private scheduleReconnect(): void {
+    this.clearConnectWatchdog();
     if (this.subscriptions.size === 0 && this.presenceCallbacks.size === 0) {
       this.setStatus('disconnected');
       return;
@@ -405,9 +452,96 @@ export class RealtimeService extends ServiceModule {
     this.setStatus('reconnecting');
     const delay = this.getReconnectDelay();
     this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
       this.reconnectAttempt++;
       this.connect();
     }, delay);
+  }
+
+  /** Drop the current socket without triggering its onclose reconnect path. */
+  private teardownSocket(): void {
+    if (this.ws) {
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+      try {
+        this.ws.close();
+      } catch {
+        /* ignore */
+      }
+      this.ws = null;
+    }
+    this.authenticated = false;
+    this.clearHeartbeat();
+  }
+
+  /** Tear down a dead-but-open socket and reconnect. */
+  private forceReconnect(): void {
+    this.teardownSocket();
+    this.scheduleReconnect();
+  }
+
+  // --------------------------------------------------------------------------
+  // Private: Wake / network-change recovery
+  // --------------------------------------------------------------------------
+
+  /**
+   * Browsers suspend timers and silently kill sockets during sleep or network
+   * changes. When the page wakes (tab visible, window focused, network back),
+   * verify the connection instead of waiting for the next heartbeat tick.
+   */
+  private installWakeListeners(): void {
+    if (this.wakeHandler || typeof window === 'undefined') return;
+    this.wakeHandler = () => this.handleWake();
+    window.addEventListener('online', this.wakeHandler);
+    window.addEventListener('focus', this.wakeHandler);
+    if (typeof document !== 'undefined') {
+      this.visibilityHandler = () => {
+        if (document.visibilityState === 'visible') this.handleWake();
+      };
+      document.addEventListener('visibilitychange', this.visibilityHandler);
+    }
+  }
+
+  private removeWakeListeners(): void {
+    if (typeof window !== 'undefined' && this.wakeHandler) {
+      window.removeEventListener('online', this.wakeHandler);
+      window.removeEventListener('focus', this.wakeHandler);
+    }
+    if (typeof document !== 'undefined' && this.visibilityHandler) {
+      document.removeEventListener('visibilitychange', this.visibilityHandler);
+    }
+    this.wakeHandler = null;
+    this.visibilityHandler = null;
+  }
+
+  private handleWake(): void {
+    if (this.subscriptions.size === 0 && this.presenceCallbacks.size === 0) return;
+
+    if (this._status === 'connected') {
+      if (Date.now() - this.lastInboundAt > LIVENESS_TIMEOUT_MS) {
+        // Socket slept through multiple heartbeats — assume dead.
+        this.reconnectAttempt = 0;
+        this.forceReconnect();
+      } else if (this.ws?.readyState === WebSocket.OPEN) {
+        // Probe now; a dead socket then fails the next liveness check.
+        this.ws.send('ping');
+      }
+      return;
+    }
+
+    if (this._status === 'reconnecting' && this.reconnectTimer) {
+      // Skip the remaining backoff — the user is looking at the page.
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+      this.reconnectAttempt = 0;
+      this.connect();
+      return;
+    }
+
+    if (this._status === 'disconnected') {
+      this.connect();
+    }
+    // 'connecting' is covered by the connect watchdog.
   }
 
   private getReconnectDelay(): number {
@@ -423,6 +557,13 @@ export class RealtimeService extends ServiceModule {
   private startHeartbeat(): void {
     this.clearHeartbeat();
     this.heartbeatTimer = setInterval(() => {
+      // A socket that has received nothing for LIVENESS_TIMEOUT_MS is dead
+      // even if readyState still claims OPEN (half-open TCP after sleep or
+      // network change) — replace it instead of pinging into the void.
+      if (Date.now() - this.lastInboundAt > LIVENESS_TIMEOUT_MS) {
+        this.forceReconnect();
+        return;
+      }
       if (this.ws?.readyState === WebSocket.OPEN) {
         this.ws.send('ping');
       }
@@ -438,9 +579,17 @@ export class RealtimeService extends ServiceModule {
 
   private clearTimers(): void {
     this.clearHeartbeat();
+    this.clearConnectWatchdog();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+  }
+
+  private clearConnectWatchdog(): void {
+    if (this.connectWatchdogTimer) {
+      clearTimeout(this.connectWatchdogTimer);
+      this.connectWatchdogTimer = null;
     }
   }
 
@@ -451,6 +600,9 @@ export class RealtimeService extends ServiceModule {
   private setStatus(status: ConnectionStatus): void {
     if (this._status === status) return;
     this._status = status;
+    if (status === 'connected') {
+      this.clearConnectWatchdog();
+    }
     for (const cb of this.statusCallbacks) {
       try {
         cb(status);
