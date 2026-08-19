@@ -31,7 +31,14 @@ import type {
 /** Shape of a raw JSON response before it's narrowed to ApiResponse<T>. */
 interface RawApiResponse {
   data?: unknown;
-  error?: { code?: string; message?: string; details?: Record<string, unknown> };
+  error?: {
+    code?: string;
+    message?: string;
+    details?: Record<string, unknown>;
+    field?: string;
+    retryable?: boolean;
+  };
+  meta?: { request_id?: string; trace_id?: string; timestamp?: string };
   code?: string;
   message?: string;
   details?: Record<string, unknown>;
@@ -927,6 +934,22 @@ export class ScaleMuleClient {
             status: response.status,
             details: responseData?.error?.details || responseData?.details
           };
+
+          // Additive Signals context. Every field is optional and only set when
+          // the backend supplies it, so existing consumers see no shape change.
+          const field = responseData?.error?.field;
+          if (field !== undefined) error.field = field;
+
+          const requestId = responseData?.meta?.request_id ?? response.headers.get('x-request-id') ?? undefined;
+          if (requestId !== undefined) error.requestId = requestId;
+
+          const traceId = responseData?.meta?.trace_id;
+          if (traceId !== undefined) error.traceId = traceId;
+
+          const retryable = responseData?.error?.retryable;
+          if (retryable !== undefined) error.retryable = retryable;
+
+          if (responseData?.error !== undefined) error.problem = responseData.error;
 
           // Handle 401 Unauthorized — trigger auto-refresh unless this is already a refresh request
           if (response.status === 401 && this.sessionToken && !init.isAutoRefresh) {

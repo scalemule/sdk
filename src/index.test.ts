@@ -250,11 +250,15 @@ describe('Response Contract — { data, error }', () => {
     const result = await sm.auth.me();
 
     expect(result.data).toBeNull();
+    // `problem` is the additive Signals passthrough of the raw body `error`
+    // object; the four contract fields below are unchanged. Kept as a strict
+    // toEqual so any *further* growth of the error shape has to be deliberate.
     expect(result.error).toEqual({
       code: 'unauthorized',
       message: 'Invalid token',
       status: 401,
-      details: undefined
+      details: undefined,
+      problem: { code: 'unauthorized', message: 'Invalid token' }
     });
   });
 

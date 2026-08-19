@@ -7,6 +7,20 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.0.64] - 2026-08-18
+
+### Added
+- **Signals error context on `ApiError`** (`types.ts`, `client.ts`): failed requests now carry
+  optional `field`, `requestId`, `traceId`, `retryable` and `problem` alongside the existing
+  `code` / `message` / `status` / `details`. `field` and `retryable` come from the response body's
+  `error` object, `requestId` from `meta.request_id` falling back to the gateway's `x-request-id`
+  response header, `traceId` from `meta.trace_id`, and `problem` is the raw body `error` object
+  passed through untouched. This lets `@scalemule/signals` (`fromError`) attribute a failure to the
+  owning form field and correlate it with a request id.
+
+  Purely additive: every new field is optional and only set when the backend supplies it, and no
+  existing field was renamed, removed or changed. `code` remains lowercase_snake.
+
 ## [0.0.51] - 2026-05-02
 
 ### Fixed

@@ -40,6 +40,28 @@ export type ApiError = {
   status: number;
   /** Additional context (field errors, retryAfter, etc.) */
   details?: Record<string, unknown>;
+  /**
+   * Name of the input field this error is about, when the backend
+   * attributes it to one (e.g., 'email'). Used by ScaleMule Signals to
+   * route the message to the owning form control instead of a toast.
+   */
+  field?: string;
+  /**
+   * Correlation id for this request. Taken from the response envelope
+   * (`meta.request_id`) and falling back to the `x-request-id` response
+   * header echoed by the gateway.
+   */
+  requestId?: string;
+  /** Distributed-trace id, when the backend supplies `meta.trace_id`. */
+  traceId?: string;
+  /** Backend hint that retrying the same request may succeed. */
+  retryable?: boolean;
+  /**
+   * The raw `error` object from the response body, unmodified. Escape hatch
+   * for consumers (such as `@scalemule/signals` `fromError`) that need
+   * fields the SDK does not model yet.
+   */
+  problem?: unknown;
 };
 
 // ============================================================================
