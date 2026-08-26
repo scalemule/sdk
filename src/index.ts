@@ -280,6 +280,30 @@ export { WebPushManager } from './web-push';
 export type { PushApiFetcher, WebPushManagerOptions } from './web-push';
 export { WEB_PUSH_SERVICE_WORKER } from './web-push-sw';
 export { SchedulerService } from './services/scheduler';
+export { DecisionsService } from './services/decisions';
+export type {
+  DecisionOutcome,
+  DecisionTraceLevel,
+  DecisionEvaluateOptions,
+  DecisionReceipt,
+  DecisionVersions,
+  DecisionProposedAction,
+  DecisionResult,
+  DecisionBatchItem,
+  DecisionBatchResult,
+  AppointmentDepositValue,
+  ReceiptVerification
+} from './services/decisions';
+export { BookingsService } from './services/bookings';
+export type {
+  QuoteState,
+  CreateQuoteInput,
+  QuoteDeposit,
+  Quote,
+  AcceptQuoteInput,
+  CustomerStats,
+  BookingCompletionResult
+} from './services/bookings';
 export type { SchedulerJob, JobExecution, JobStats } from './services/scheduler';
 export { PermissionsService } from './services/permissions';
 export type { Role, PermissionCheck, Policy, PermissionMatrix, IdentityType } from './services/permissions';
@@ -448,6 +472,8 @@ import { FlagsService } from './services/flags';
 import { CommunicationService } from './services/communication';
 import { NotificationsService } from './services/notifications';
 import { SchedulerService } from './services/scheduler';
+import { DecisionsService } from './services/decisions';
+import { BookingsService } from './services/bookings';
 import { PermissionsService } from './services/permissions';
 import { WorkspacesService } from './services/workspaces';
 // TeamsService still exported for backward compat but not used internally
@@ -540,6 +566,8 @@ export class ScaleMule {
   public readonly communication: CommunicationService;
   public readonly notifications: NotificationsService;
   public readonly scheduler: SchedulerService;
+  public readonly decisions: DecisionsService;
+  public readonly bookings: BookingsService;
   public readonly permissions: PermissionsService;
   public readonly workspaces: WorkspacesService;
   /** @deprecated Use `workspaces` instead */
@@ -613,6 +641,8 @@ export class ScaleMule {
     this.communication = new CommunicationService(this._client);
     this.notifications = new NotificationsService(this._client);
     this.scheduler = new SchedulerService(this._client);
+    this.decisions = new DecisionsService(this._client);
+    this.bookings = new BookingsService(this._client);
     this.permissions = new PermissionsService(this._client);
     this.workspaces = new WorkspacesService(this._client);
 

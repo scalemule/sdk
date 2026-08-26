@@ -7,6 +7,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+- **`sm.decisions`** (`services/decisions.ts`): Business Logic Plane evaluation — `evaluate(key, inputs, options?)`,
+  `evaluateBatch(items)`, `getReceipt(id)`, `verifyReceipt(id)`. Results carry outcome, value, reason codes,
+  proposed actions (never dispatched), release versions, `facts_hash` and a signed receipt whose
+  `signed_document` can be handed to domain services. Idempotency via `options.idempotency_key`.
+- **`sm.bookings`** (`services/bookings.ts`): quotes (`createQuote`, `getQuote`, `acceptQuote` with a verified
+  `appointment.deposit` receipt), `getCustomerStats`, and host/admin `completeBooking` / `markNoShow`
+  which maintain the customer-stats projection decisions read.
+
 ## [0.0.64] - 2026-08-18
 
 ### Added
