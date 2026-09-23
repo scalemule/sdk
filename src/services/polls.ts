@@ -129,19 +129,21 @@ export class PollsService extends ServiceModule {
   }
 
   async getPublic(slug: string, params?: { voter_key?: string }, options?: RequestOptions): Promise<ApiResponse<Poll>> {
-    return this._get<Poll>(this.withQuery(`/public/${encodeURIComponent(slug)}`, params as Record<string, unknown> | undefined), options);
+    return this._get<Poll>(
+      this.withQuery(`/public/${encodeURIComponent(slug)}`, params as Record<string, unknown> | undefined),
+      options
+    );
   }
 
-  async vote(
-    slug: string,
-    choiceId: string,
-    voterKey?: string,
-    options?: RequestOptions
-  ): Promise<ApiResponse<Poll>> {
-    return this.post<Poll>(`/public/${encodeURIComponent(slug)}/votes`, {
-      choice_id: choiceId,
-      voter_key: voterKey,
-    }, options);
+  async vote(slug: string, choiceId: string, voterKey?: string, options?: RequestOptions): Promise<ApiResponse<Poll>> {
+    return this.post<Poll>(
+      `/public/${encodeURIComponent(slug)}/votes`,
+      {
+        choice_id: choiceId,
+        voter_key: voterKey
+      },
+      options
+    );
   }
 }
 
