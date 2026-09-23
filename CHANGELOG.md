@@ -7,6 +7,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.0.67] - 2026-09-22
+
+### Fixed
+- Format the polls client so the publish lint passes.
+
 ## [0.0.66] - 2026-09-22
 
 ### Fixed

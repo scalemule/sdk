@@ -331,7 +331,7 @@ export type {
   PollMedia,
   PollMediaKind,
   PollStatus,
-  UpdatePollInput,
+  UpdatePollInput
 } from './services/polls';
 export { EventsService } from './services/events';
 export type { CalendarEvent, Attendee } from './services/events';
