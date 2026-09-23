@@ -2504,6 +2504,39 @@ describe('FunctionsService', () => {
 // ListingsService
 // ============================================================================
 
+describe('PollsService', () => {
+  it('should POST /manage to create a poll with media', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ data: { id: 'p1', slug: 'downtown-housing' } }));
+    await sm.polls.create({
+      slug: 'downtown-housing',
+      question: 'Should Walnut Creek allow taller homes downtown?',
+      ballot: 'key',
+      media: [{ kind: 'text', text: 'This is about homes near BART.' }],
+      choices: [
+        { id: 'yes', label: 'Yes', media: [{ kind: 'image', url: 'https://cdn.example.com/a.jpg', alt: 'Downtown' }] },
+        { id: 'no', label: 'No' },
+      ],
+    });
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe('https://api.scalemule.com/v1/polls/manage');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body).choices[0].media[0].kind).toBe('image');
+  });
+
+  it('should GET a public poll and POST one vote', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ data: { slug: 'downtown-housing', total_votes: 0 } }));
+    await sm.polls.getPublic('downtown-housing');
+    expect(mockFetch.mock.calls[0][0]).toBe('https://api.scalemule.com/v1/polls/public/downtown-housing');
+
+    mockFetch.mockResolvedValueOnce(jsonResponse({ data: { my_choice_id: 'yes', total_votes: 1 } }));
+    await sm.polls.vote('downtown-housing', 'yes', 'a'.repeat(32));
+    const [url, init] = mockFetch.mock.calls[1];
+    expect(url).toBe('https://api.scalemule.com/v1/polls/public/downtown-housing/votes');
+    expect(JSON.parse(init.body).choice_id).toBe('yes');
+    expect(JSON.parse(init.body).voter_key).toHaveLength(32);
+  });
+});
+
 describe('ListingsService', () => {
   it('should POST / for create', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: { id: 'l1' } }));
