@@ -7,6 +7,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.0.66] - 2026-09-22
+
+### Fixed
+- Poll list query options satisfy the SDK query-string helper so the package type build succeeds.
+
 ## [0.0.65] - 2026-09-22
 
 ### Added

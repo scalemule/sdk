@@ -105,7 +105,7 @@ export class PollsService extends ServiceModule {
   }
 
   async list(params?: PollListOptions, options?: RequestOptions): Promise<ApiResponse<Poll[]>> {
-    return this._get<Poll[]>(this.withQuery('/manage', params), options);
+    return this._get<Poll[]>(this.withQuery('/manage', params as Record<string, unknown> | undefined), options);
   }
 
   async get(id: string, options?: RequestOptions): Promise<ApiResponse<Poll>> {
@@ -125,11 +125,11 @@ export class PollsService extends ServiceModule {
   }
 
   async listPublic(params?: PollListOptions, options?: RequestOptions): Promise<ApiResponse<Poll[]>> {
-    return this._get<Poll[]>(this.withQuery('/public', params), options);
+    return this._get<Poll[]>(this.withQuery('/public', params as Record<string, unknown> | undefined), options);
   }
 
   async getPublic(slug: string, params?: { voter_key?: string }, options?: RequestOptions): Promise<ApiResponse<Poll>> {
-    return this._get<Poll>(this.withQuery(`/public/${encodeURIComponent(slug)}`, params), options);
+    return this._get<Poll>(this.withQuery(`/public/${encodeURIComponent(slug)}`, params as Record<string, unknown> | undefined), options);
   }
 
   async vote(
