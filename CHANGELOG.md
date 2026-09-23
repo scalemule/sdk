@@ -7,6 +7,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.0.65] - 2026-09-22
+
+### Added
+- **PollsService** (`sm.polls`): create, publish, read, and vote on reader polls. Questions and choices can carry text, image, video, or audio. `pollVoterKey` stores a device key for public ballots.
+
 ### Added
 - **`sm.decisions`** (`services/decisions.ts`): Business Logic Plane evaluation — `evaluate(key, inputs, options?)`,
   `evaluateBatch(items)`, `getReceipt(id)`, `verifyReceipt(id)`. Results carry outcome, value, reason codes,

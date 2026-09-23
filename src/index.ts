@@ -320,6 +320,19 @@ export { FunctionsService } from './services/functions';
 export type { ServerlessFunction, FunctionExecution, FunctionMetrics } from './services/functions';
 export { ListingsService } from './services/listings';
 export type { Listing } from './services/listings';
+export { PollsService, pollSharePercent, pollVoterKey } from './services/polls';
+export type {
+  CreatePollInput,
+  Poll,
+  PollBallot,
+  PollChoice,
+  PollChoiceInput,
+  PollListOptions,
+  PollMedia,
+  PollMediaKind,
+  PollStatus,
+  UpdatePollInput,
+} from './services/polls';
 export { EventsService } from './services/events';
 export type { CalendarEvent, Attendee } from './services/events';
 export { LeaderboardService } from './services/leaderboard';
@@ -482,6 +495,7 @@ import { WorkspacesService } from './services/workspaces';
 import { GraphService } from './services/graph';
 import { FunctionsService } from './services/functions';
 import { ListingsService } from './services/listings';
+import { PollsService } from './services/polls';
 import { EventsService } from './services/events';
 import { LeaderboardService } from './services/leaderboard';
 import { WebhooksService } from './services/webhooks';
@@ -590,6 +604,7 @@ export class ScaleMule {
   // Feature services
   public readonly leaderboard: LeaderboardService;
   public readonly listings: ListingsService;
+  public readonly polls: PollsService;
   public readonly events: EventsService;
   public readonly graph: GraphService;
   public readonly functions: FunctionsService;
@@ -657,6 +672,7 @@ export class ScaleMule {
     this.webhooks = new WebhooksService(this._client);
     this.leaderboard = new LeaderboardService(this._client);
     this.listings = new ListingsService(this._client);
+    this.polls = new PollsService(this._client);
     this.events = new EventsService(this._client);
     this.graph = new GraphService(this._client);
     this.functions = new FunctionsService(this._client);
