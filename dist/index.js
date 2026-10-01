@@ -304,6 +304,7 @@ __export(index_exports, {
   AudioService: () => AudioService,
   AuthService: () => AuthService,
   BillingService: () => BillingService,
+  BookingsService: () => BookingsService,
   CacheService: () => CacheService,
   CatalogService: () => CatalogService,
   ChatService: () => ChatService,
@@ -312,6 +313,7 @@ __export(index_exports, {
   ConferenceService: () => ConferenceService,
   CreatorMakerService: () => CreatorMakerService,
   DataService: () => DataService,
+  DecisionsService: () => DecisionsService,
   ErrorCodes: () => ErrorCodes,
   EventsService: () => EventsService,
   FlagContentService: () => FlagContentService,
@@ -332,6 +334,7 @@ __export(index_exports, {
   PHOTO_BREAKPOINTS: () => PHOTO_BREAKPOINTS,
   PermissionsService: () => PermissionsService,
   PhotoService: () => PhotoService,
+  PollsService: () => PollsService,
   QueueService: () => QueueService,
   RealtimeService: () => RealtimeService,
   ReferralsService: () => ReferralsService,
@@ -374,6 +377,8 @@ __export(index_exports, {
   isValidE164Phone: () => isValidE164Phone,
   normalizeAndValidatePhone: () => normalizeAndValidatePhone,
   normalizePhoneNumber: () => normalizePhoneNumber,
+  pollSharePercent: () => pollSharePercent,
+  pollVoterKey: () => pollVoterKey,
   readAnonymousId: () => readAnonymousId,
   resolveStrategy: () => resolveStrategy,
   uploadMultipartToS3: () => uploadMultipartToS3,
@@ -1223,13 +1228,22 @@ var ScaleMuleClient = class {
             responseData = { message: text };
           }
         }
-        if (!response.ok) {
+        if (!response.ok || responseData?.success === false) {
           const error = {
             code: responseData?.error?.code || responseData?.code || statusToErrorCode(response.status),
             message: responseData?.error?.message || responseData?.message || response.statusText,
             status: response.status,
             details: responseData?.error?.details || responseData?.details
           };
+          const field = responseData?.error?.field;
+          if (field !== void 0) error.field = field;
+          const requestId = responseData?.meta?.request_id ?? response.headers.get("x-request-id") ?? void 0;
+          if (requestId !== void 0) error.requestId = requestId;
+          const traceId = responseData?.meta?.trace_id;
+          if (traceId !== void 0) error.traceId = traceId;
+          const retryable = responseData?.error?.retryable;
+          if (retryable !== void 0) error.retryable = retryable;
+          if (responseData?.error !== void 0) error.problem = responseData.error;
           if (response.status === 401 && this.sessionToken && !init.isAutoRefresh) {
             if (this.debug) console.log("[ScaleMule] 401 received, attempting auto-refresh...");
             let isPrimaryRefresh = false;
@@ -4152,6 +4166,9 @@ function sleep3(ms) {
 var DEFAULT_RECONNECT_BASE_MS = 1e3;
 var MAX_RECONNECT_MS = 3e4;
 var HEARTBEAT_INTERVAL_MS = 3e4;
+var TICKET_FETCH_TIMEOUT_MS = 1e4;
+var CONNECT_WATCHDOG_MS = 2e4;
+var LIVENESS_TIMEOUT_MS = 75e3;
 var RealtimeService = class extends ServiceModule {
   constructor() {
     super(...arguments);
@@ -4165,7 +4182,11 @@ var RealtimeService = class extends ServiceModule {
     this.reconnectAttempt = 0;
     this.reconnectTimer = null;
     this.heartbeatTimer = null;
+    this.connectWatchdogTimer = null;
     this.authenticated = false;
+    this.lastInboundAt = 0;
+    this.wakeHandler = null;
+    this.visibilityHandler = null;
   }
   /** Current connection status */
   get status() {
@@ -4269,6 +4290,7 @@ var RealtimeService = class extends ServiceModule {
   /** Disconnect and clean up all subscriptions. */
   disconnect() {
     this.clearTimers();
+    this.removeWakeListeners();
     this.subscriptions.clear();
     this.presenceCallbacks.clear();
     this.statusCallbacks.clear();
@@ -4287,6 +4309,15 @@ var RealtimeService = class extends ServiceModule {
   connect() {
     if (this._status === "connecting" || this._status === "connected") return;
     this.setStatus(this.reconnectAttempt > 0 ? "reconnecting" : "connecting");
+    this.installWakeListeners();
+    this.clearConnectWatchdog();
+    this.connectWatchdogTimer = setTimeout(() => {
+      this.connectWatchdogTimer = null;
+      if (this._status !== "connected") {
+        this.teardownSocket();
+        this.scheduleReconnect();
+      }
+    }, CONNECT_WATCHDOG_MS);
     this.fetchTicketAndConnect();
   }
   async fetchTicketAndConnect() {
@@ -4297,10 +4328,18 @@ var RealtimeService = class extends ServiceModule {
       if (apiKey) headers["x-api-key"] = apiKey;
       const token = this.client.getSessionToken();
       if (token) headers["Authorization"] = `Bearer ${token}`;
-      const ticketRes = await fetch(`${baseUrl}/v1/realtime/ws/ticket`, {
-        method: "POST",
-        headers
-      });
+      const abort = new AbortController();
+      const abortTimer = setTimeout(() => abort.abort(), TICKET_FETCH_TIMEOUT_MS);
+      let ticketRes;
+      try {
+        ticketRes = await fetch(`${baseUrl}/v1/realtime/ws/ticket`, {
+          method: "POST",
+          headers,
+          signal: abort.signal
+        });
+      } finally {
+        clearTimeout(abortTimer);
+      }
       let wsUrl;
       if (ticketRes.ok) {
         const ticketData = await ticketRes.json();
@@ -4318,6 +4357,7 @@ var RealtimeService = class extends ServiceModule {
     }
     this.ws.onopen = () => {
       this.reconnectAttempt = 0;
+      this.lastInboundAt = Date.now();
       if (!this.usedTicketAuth) {
         this.authenticate();
       }
@@ -4335,6 +4375,7 @@ var RealtimeService = class extends ServiceModule {
       }
     };
     this.ws.onmessage = (event) => {
+      this.lastInboundAt = Date.now();
       try {
         const msg = JSON.parse(event.data);
         this.handleMessage(msg);
@@ -4374,6 +4415,10 @@ var RealtimeService = class extends ServiceModule {
         this.dispatchMessage(msg.channel, msg.data);
         break;
       case "error":
+        break;
+      case "reconnect":
+        this.reconnectAttempt = 0;
+        this.forceReconnect();
         break;
       case "presence_state":
         this.dispatchPresence({
@@ -4429,6 +4474,7 @@ var RealtimeService = class extends ServiceModule {
   // Private: Reconnection
   // --------------------------------------------------------------------------
   scheduleReconnect() {
+    this.clearConnectWatchdog();
     if (this.subscriptions.size === 0 && this.presenceCallbacks.size === 0) {
       this.setStatus("disconnected");
       return;
@@ -4436,9 +4482,82 @@ var RealtimeService = class extends ServiceModule {
     this.setStatus("reconnecting");
     const delay = this.getReconnectDelay();
     this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
       this.reconnectAttempt++;
       this.connect();
     }, delay);
+  }
+  /** Drop the current socket without triggering its onclose reconnect path. */
+  teardownSocket() {
+    if (this.ws) {
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+      try {
+        this.ws.close();
+      } catch {
+      }
+      this.ws = null;
+    }
+    this.authenticated = false;
+    this.clearHeartbeat();
+  }
+  /** Tear down a dead-but-open socket and reconnect. */
+  forceReconnect() {
+    this.teardownSocket();
+    this.scheduleReconnect();
+  }
+  // --------------------------------------------------------------------------
+  // Private: Wake / network-change recovery
+  // --------------------------------------------------------------------------
+  /**
+   * Browsers suspend timers and silently kill sockets during sleep or network
+   * changes. When the page wakes (tab visible, window focused, network back),
+   * verify the connection instead of waiting for the next heartbeat tick.
+   */
+  installWakeListeners() {
+    if (this.wakeHandler || typeof window === "undefined") return;
+    this.wakeHandler = () => this.handleWake();
+    window.addEventListener("online", this.wakeHandler);
+    window.addEventListener("focus", this.wakeHandler);
+    if (typeof document !== "undefined") {
+      this.visibilityHandler = () => {
+        if (document.visibilityState === "visible") this.handleWake();
+      };
+      document.addEventListener("visibilitychange", this.visibilityHandler);
+    }
+  }
+  removeWakeListeners() {
+    if (typeof window !== "undefined" && this.wakeHandler) {
+      window.removeEventListener("online", this.wakeHandler);
+      window.removeEventListener("focus", this.wakeHandler);
+    }
+    if (typeof document !== "undefined" && this.visibilityHandler) {
+      document.removeEventListener("visibilitychange", this.visibilityHandler);
+    }
+    this.wakeHandler = null;
+    this.visibilityHandler = null;
+  }
+  handleWake() {
+    if (this.subscriptions.size === 0 && this.presenceCallbacks.size === 0) return;
+    if (this._status === "connected") {
+      if (Date.now() - this.lastInboundAt > LIVENESS_TIMEOUT_MS) {
+        this.reconnectAttempt = 0;
+        this.forceReconnect();
+      } else if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send("ping");
+      }
+      return;
+    }
+    if (this._status === "reconnecting" && this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+      this.reconnectAttempt = 0;
+      this.connect();
+      return;
+    }
+    if (this._status === "disconnected") {
+      this.connect();
+    }
   }
   getReconnectDelay() {
     const exponential = DEFAULT_RECONNECT_BASE_MS * Math.pow(2, this.reconnectAttempt);
@@ -4451,6 +4570,10 @@ var RealtimeService = class extends ServiceModule {
   startHeartbeat() {
     this.clearHeartbeat();
     this.heartbeatTimer = setInterval(() => {
+      if (Date.now() - this.lastInboundAt > LIVENESS_TIMEOUT_MS) {
+        this.forceReconnect();
+        return;
+      }
       if (this.ws?.readyState === WebSocket.OPEN) {
         this.ws.send("ping");
       }
@@ -4464,9 +4587,16 @@ var RealtimeService = class extends ServiceModule {
   }
   clearTimers() {
     this.clearHeartbeat();
+    this.clearConnectWatchdog();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+  }
+  clearConnectWatchdog() {
+    if (this.connectWatchdogTimer) {
+      clearTimeout(this.connectWatchdogTimer);
+      this.connectWatchdogTimer = null;
     }
   }
   // --------------------------------------------------------------------------
@@ -4475,6 +4605,9 @@ var RealtimeService = class extends ServiceModule {
   setStatus(status) {
     if (this._status === status) return;
     this._status = status;
+    if (status === "connected") {
+      this.clearConnectWatchdog();
+    }
     for (const cb of this.statusCallbacks) {
       try {
         cb(status);
@@ -6320,6 +6453,90 @@ var SchedulerService = class extends ServiceModule {
   }
 };
 
+// src/services/decisions.ts
+var DecisionsService = class extends ServiceModule {
+  constructor() {
+    super(...arguments);
+    this.basePath = "/v1/decisions";
+  }
+  /**
+   * Evaluate a decision on the tenant's active release.
+   *
+   * @example
+   * const { data } = await sm.decisions.evaluate<AppointmentDepositValue>(
+   *   'appointment.deposit',
+   *   { appointment: { quote_id }, customer: { ref: customerRef } },
+   *   { idempotency_key: `event:${eventId}` },
+   *   { headers: { 'x-requested-account-id': accountId } },
+   * );
+   */
+  async evaluate(decisionKey, inputs, options, requestOptions) {
+    return this.post(
+      `/evaluate/${encodeURIComponent(decisionKey)}`,
+      { inputs, options: options ?? {} },
+      requestOptions
+    );
+  }
+  /** Evaluate up to 100 decisions in one call (per-item success/error). */
+  async evaluateBatch(items, requestOptions) {
+    return this.post("/evaluate/batch", { items }, requestOptions);
+  }
+  /** Fetch a stored receipt (end users only see their own). */
+  async getReceipt(receiptId, requestOptions) {
+    return this._get(`/receipts/${encodeURIComponent(receiptId)}`, requestOptions);
+  }
+  /** Server-side verification of a stored receipt against the receipt ring. */
+  async verifyReceipt(receiptId, requestOptions) {
+    return this.post(
+      `/receipts/${encodeURIComponent(receiptId)}/verify`,
+      void 0,
+      requestOptions
+    );
+  }
+};
+
+// src/services/bookings.ts
+var BookingsService = class extends ServiceModule {
+  constructor() {
+    super(...arguments);
+    this.basePath = "/v1/bookings";
+  }
+  /** Create an offered quote for a customer in the active workspace. */
+  async createQuote(input, requestOptions) {
+    return this.post("/quotes", input, requestOptions);
+  }
+  async getQuote(quoteId, requestOptions) {
+    return this._get(`/quotes/${encodeURIComponent(quoteId)}`, requestOptions);
+  }
+  /**
+   * Accept a quote with a verified deposit receipt. Bookings re-verifies the
+   * receipt signature and binding server-side and commits the receipt id/hash
+   * and deposit on the quote.
+   */
+  async acceptQuote(quoteId, input, requestOptions) {
+    return this.post(`/quotes/${encodeURIComponent(quoteId)}/accept`, input, requestOptions);
+  }
+  async getCustomerStats(customerRef, requestOptions) {
+    return this._get(`/customers/${encodeURIComponent(customerRef)}/stats`, requestOptions);
+  }
+  /** Host/admin: mark a booking completed (maintains the customer stats projection). */
+  async completeBooking(bookingId, reason, requestOptions) {
+    return this.post(
+      `/dashboard/bookings/${encodeURIComponent(bookingId)}/complete`,
+      { reason },
+      requestOptions
+    );
+  }
+  /** Host/admin: mark a booking as a no-show (maintains the customer stats projection). */
+  async markNoShow(bookingId, reason, requestOptions) {
+    return this.post(
+      `/dashboard/bookings/${encodeURIComponent(bookingId)}/no-show`,
+      { reason },
+      requestOptions
+    );
+  }
+};
+
 // src/services/permissions.ts
 function canPerform(matrix, resource, action) {
   if (!matrix) return false;
@@ -6679,6 +6896,72 @@ var ListingsService = class extends ServiceModule {
     return this.get(id);
   }
 };
+
+// src/services/polls.ts
+var PollsService = class extends ServiceModule {
+  constructor() {
+    super(...arguments);
+    this.basePath = "/v1/polls";
+  }
+  async create(data, options) {
+    return this.post("/manage", data, options);
+  }
+  async list(params, options) {
+    return this._get(this.withQuery("/manage", params), options);
+  }
+  async get(id, options) {
+    return this._get(`/manage/${encodeURIComponent(id)}`, options);
+  }
+  async update(id, data, options) {
+    return this.patch(`/manage/${encodeURIComponent(id)}`, data, options);
+  }
+  async publish(id, options) {
+    return this.post(`/manage/${encodeURIComponent(id)}/publish`, {}, options);
+  }
+  async close(id, options) {
+    return this.post(`/manage/${encodeURIComponent(id)}/close`, {}, options);
+  }
+  async listPublic(params, options) {
+    return this._get(this.withQuery("/public", params), options);
+  }
+  async getPublic(slug, params, options) {
+    return this._get(
+      this.withQuery(`/public/${encodeURIComponent(slug)}`, params),
+      options
+    );
+  }
+  async vote(slug, choiceId, voterKey, options) {
+    return this.post(
+      `/public/${encodeURIComponent(slug)}/votes`,
+      {
+        choice_id: choiceId,
+        voter_key: voterKey
+      },
+      options
+    );
+  }
+};
+var VOTER_KEY_STORAGE = "sm_poll_voter_key";
+function pollVoterKey(storage) {
+  const target = storage ?? (typeof localStorage === "undefined" ? void 0 : localStorage);
+  const existing = target?.getItem(VOTER_KEY_STORAGE);
+  if (existing && /^[A-Za-z0-9_-]{32,128}$/.test(existing)) return existing;
+  const bytes = new Uint8Array(32);
+  const cryptoRef = typeof crypto !== "undefined" ? crypto : void 0;
+  if (!cryptoRef?.getRandomValues) {
+    throw new Error("A browser crypto source is required to create a voter key.");
+  }
+  cryptoRef.getRandomValues(bytes);
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let key = "";
+  for (const byte of bytes) key += alphabet[byte % alphabet.length];
+  target?.setItem(VOTER_KEY_STORAGE, key);
+  return key;
+}
+function pollSharePercent(votes, total) {
+  if (!Number.isFinite(votes) || !Number.isFinite(total) || total <= 0 || votes <= 0) return 0;
+  return Math.floor(votes * 100 / total);
+}
 
 // src/services/events.ts
 var EventsService = class extends ServiceModule {
@@ -8625,6 +8908,8 @@ var ScaleMule = class {
     this.communication = new CommunicationService(this._client);
     this.notifications = new NotificationsService(this._client);
     this.scheduler = new SchedulerService(this._client);
+    this.decisions = new DecisionsService(this._client);
+    this.bookings = new BookingsService(this._client);
     this.permissions = new PermissionsService(this._client);
     this.workspaces = new WorkspacesService(this._client);
     this.accounts = new AccountsService(this._client);
@@ -8637,6 +8922,7 @@ var ScaleMule = class {
     this.webhooks = new WebhooksService(this._client);
     this.leaderboard = new LeaderboardService(this._client);
     this.listings = new ListingsService(this._client);
+    this.polls = new PollsService(this._client);
     this.events = new EventsService(this._client);
     this.graph = new GraphService(this._client);
     this.functions = new FunctionsService(this._client);
@@ -8790,6 +9076,7 @@ var index_default = ScaleMule;
   AudioService,
   AuthService,
   BillingService,
+  BookingsService,
   CacheService,
   CatalogService,
   ChatService,
@@ -8798,6 +9085,7 @@ var index_default = ScaleMule;
   ConferenceService,
   CreatorMakerService,
   DataService,
+  DecisionsService,
   ErrorCodes,
   EventsService,
   FlagContentService,
@@ -8818,6 +9106,7 @@ var index_default = ScaleMule;
   PHOTO_BREAKPOINTS,
   PermissionsService,
   PhotoService,
+  PollsService,
   QueueService,
   RealtimeService,
   ReferralsService,
@@ -8859,6 +9148,8 @@ var index_default = ScaleMule;
   isValidE164Phone,
   normalizeAndValidatePhone,
   normalizePhoneNumber,
+  pollSharePercent,
+  pollVoterKey,
   readAnonymousId,
   resolveStrategy,
   uploadMultipartToS3,

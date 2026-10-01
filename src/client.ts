@@ -30,6 +30,7 @@ import type {
 
 /** Shape of a raw JSON response before it's narrowed to ApiResponse<T>. */
 interface RawApiResponse {
+  success?: boolean;
   data?: unknown;
   error?: {
     code?: string;
@@ -927,7 +928,7 @@ export class ScaleMuleClient {
         }
 
         // Handle error responses
-        if (!response.ok) {
+        if (!response.ok || responseData?.success === false) {
           const error: ApiError = {
             code: responseData?.error?.code || responseData?.code || statusToErrorCode(response.status),
             message: responseData?.error?.message || responseData?.message || response.statusText,
