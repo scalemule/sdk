@@ -75,7 +75,7 @@ describe('RealtimeService connection resilience', () => {
   }
 
   it('exchanges a cookie-proxy ticket without exposing a session token', async () => {
-    sm = new ScaleMule({ apiKey: 'sm_pk_test', baseUrl: '/api/auth/client', realtimeUrl: 'https://api.example.com' });
+    sm = new ScaleMule({ apiKey: 'sm_pb_test', baseUrl: '/api/auth/client', realtimeUrl: 'https://api.example.com' });
     const ws = await connectAndOpen();
     expect(mockFetch.mock.calls[0][0]).toBe('/api/auth/client/v1/realtime/ws/ticket');
     expect(mockFetch.mock.calls[0][1].headers.Authorization).toBeUndefined();
@@ -84,8 +84,16 @@ describe('RealtimeService connection resilience', () => {
   });
 
   it('never falls back to bearer auth when a cookie-proxy ticket is refused', async () => {
-    sm = new ScaleMule({ apiKey: 'sm_pk_test', baseUrl: '/api/auth/client', realtimeUrl: 'https://api.example.com' });
+    sm = new ScaleMule({ apiKey: 'sm_pb_test', baseUrl: '/api/auth/client', realtimeUrl: 'https://api.example.com' });
     mockFetch.mockResolvedValue(new Response('{}', { status: 401 }));
+    sm.realtime.subscribe('test:channel', () => {});
+    await vi.advanceTimersByTimeAsync(0);
+    expect(MockWebSocket.instances).toHaveLength(0);
+  });
+
+  it.each([{}, { ticket: '' }, { ticket: 123 }])('rejects malformed successful tickets: %j', async (body) => {
+    sm = new ScaleMule({ apiKey: 'sm_pb_test', baseUrl: '/api/auth/client', realtimeUrl: 'https://api.example.com' });
+    mockFetch.mockResolvedValue(Response.json(body));
     sm.realtime.subscribe('test:channel', () => {});
     await vi.advanceTimersByTimeAsync(0);
     expect(MockWebSocket.instances).toHaveLength(0);
