@@ -721,6 +721,7 @@ var ScaleMuleClient = class {
     this.apiKey = config.apiKey;
     this.applicationId = config.applicationId || null;
     this.baseUrl = config.baseUrl || GATEWAY_URLS[config.environment || "prod"];
+    this.realtimeUrl = config.realtimeUrl;
     this.debug = config.debug || false;
     this.storage = config.storage || createDefaultStorage();
     this.defaultTimeout = config.timeout || DEFAULT_TIMEOUT;
@@ -1012,6 +1013,12 @@ var ScaleMuleClient = class {
   }
   getBaseUrl() {
     return this.baseUrl;
+  }
+  getRealtimeUrl() {
+    return this.realtimeUrl || this.baseUrl;
+  }
+  requiresRealtimeTicket() {
+    return this.realtimeUrl !== void 0;
   }
   getApiKey() {
     return this.apiKey;
@@ -4213,6 +4220,7 @@ var RealtimeService = class extends ServiceModule {
   }
   async fetchTicketAndConnect() {
     const baseUrl = this.client.getBaseUrl();
+    const realtimeUrl = this.client.getRealtimeUrl();
     try {
       const headers = { "Content-Type": "application/json" };
       const apiKey = this.client.getApiKey();
@@ -4235,10 +4243,12 @@ var RealtimeService = class extends ServiceModule {
       if (ticketRes.ok) {
         const ticketData = await ticketRes.json();
         const ticket = ticketData.ticket;
-        wsUrl = baseUrl.replace(/^http/, "ws") + `/v1/realtime/ws?ticket=${encodeURIComponent(ticket)}`;
+        if (typeof ticket !== "string" || !ticket) throw new Error("Missing realtime ticket");
+        wsUrl = realtimeUrl.replace(/^http/, "ws") + `/v1/realtime/ws?ticket=${encodeURIComponent(ticket)}`;
         this.usedTicketAuth = true;
       } else {
-        wsUrl = baseUrl.replace(/^http/, "ws") + "/v1/realtime/ws";
+        if (this.client.requiresRealtimeTicket()) throw new Error("Realtime ticket required");
+        wsUrl = realtimeUrl.replace(/^http/, "ws") + "/v1/realtime/ws";
         this.usedTicketAuth = false;
       }
       this.ws = new WebSocket(wsUrl);

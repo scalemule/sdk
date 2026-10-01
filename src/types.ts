@@ -168,6 +168,9 @@ export interface ScaleMuleConfig {
   applicationId?: string;
   /** Base URL for API requests. Overrides environment preset. */
   baseUrl?: string;
+  /** Public gateway for WebSockets when HTTP uses a same-origin cookie proxy.
+   * When set, realtime requires a successful ticket exchange; bearer fallback is disabled. */
+  realtimeUrl?: string;
   /** Environment preset ('dev' or 'prod'). Defaults to 'prod'. */
   environment?: 'dev' | 'prod';
   /** Retry configuration for transient failures */
