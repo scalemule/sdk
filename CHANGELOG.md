@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.68
+
+- Preserve HTTP 202 authentication challenges as API errors with no session, and allow login challenge proof fields. Framework-independent clients still render their own challenge UI; the Next.js SDK supplies it.
+
 All notable changes to this package are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)

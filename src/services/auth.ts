@@ -438,6 +438,8 @@ export class AuthService extends ServiceModule {
 
   async login(
     data: {
+      challenge_token?: string;
+      challenge_code?: string;
       email: string;
       password: string;
       remember_me?: boolean;

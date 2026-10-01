@@ -35,6 +35,15 @@ describe('ApiError Signals context', () => {
     sm = new ScaleMule({ apiKey: 'sm_pb_test', baseUrl: 'https://api.test' });
   });
 
+  it('preserves HTTP 202 login challenges instead of returning a session', async () => {
+    mockFetch.mockResolvedValue(errorResponse({ success: false, error: {
+      code: 'LOGIN_CHALLENGE_REQUIRED', message: JSON.stringify({ challenge_token: 'opaque' })
+    } }, 202));
+    const result = await sm.auth.login({ email: 'a@example.com', password: 'password' });
+    expect(result.error?.code).toBe('LOGIN_CHALLENGE_REQUIRED');
+    expect(result.data).toBeNull();
+  });
+
   it('carries field, requestId, traceId, retryable and the raw problem', async () => {
     mockFetch.mockResolvedValue(
       errorResponse(

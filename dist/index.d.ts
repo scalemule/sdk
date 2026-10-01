@@ -36,6 +36,28 @@ type ApiError = {
     status: number;
     /** Additional context (field errors, retryAfter, etc.) */
     details?: Record<string, unknown>;
+    /**
+     * Name of the input field this error is about, when the backend
+     * attributes it to one (e.g., 'email'). Used by ScaleMule Signals to
+     * route the message to the owning form control instead of a toast.
+     */
+    field?: string;
+    /**
+     * Correlation id for this request. Taken from the response envelope
+     * (`meta.request_id`) and falling back to the `x-request-id` response
+     * header echoed by the gateway.
+     */
+    requestId?: string;
+    /** Distributed-trace id, when the backend supplies `meta.trace_id`. */
+    traceId?: string;
+    /** Backend hint that retrying the same request may succeed. */
+    retryable?: boolean;
+    /**
+     * The raw `error` object from the response body, unmodified. Escape hatch
+     * for consumers (such as `@scalemule/signals` `fromError`) that need
+     * fields the SDK does not model yet.
+     */
+    problem?: unknown;
 };
 /**
  * Paginated response envelope.
@@ -777,7 +799,6 @@ interface DirectoryUserDetail {
     created_at: string;
     locale?: string;
     time_zone?: string;
-    external_role?: string;
     auth_methods: string[];
 }
 interface DirectoryUsersListResponse {
@@ -887,6 +908,8 @@ declare class AuthService extends ServiceModule {
         session_id?: string;
     }, options?: RequestOptions): Promise<ApiResponse<AuthSession>>;
     login(data: {
+        challenge_token?: string;
+        challenge_code?: string;
         email: string;
         password: string;
         remember_me?: boolean;
@@ -2011,7 +2034,11 @@ declare class RealtimeService extends ServiceModule {
     private reconnectAttempt;
     private reconnectTimer;
     private heartbeatTimer;
+    private connectWatchdogTimer;
     private authenticated;
+    private lastInboundAt;
+    private wakeHandler;
+    private visibilityHandler;
     /** Current connection status */
     get status(): ConnectionStatus;
     /**
@@ -2051,10 +2078,23 @@ declare class RealtimeService extends ServiceModule {
     private dispatchPresence;
     private sendWs;
     private scheduleReconnect;
+    /** Drop the current socket without triggering its onclose reconnect path. */
+    private teardownSocket;
+    /** Tear down a dead-but-open socket and reconnect. */
+    private forceReconnect;
+    /**
+     * Browsers suspend timers and silently kill sockets during sleep or network
+     * changes. When the page wakes (tab visible, window focused, network back),
+     * verify the connection instead of waiting for the next heartbeat tick.
+     */
+    private installWakeListeners;
+    private removeWakeListeners;
+    private handleWake;
     private getReconnectDelay;
     private startHeartbeat;
     private clearHeartbeat;
     private clearTimers;
+    private clearConnectWatchdog;
     private setStatus;
 }
 
@@ -4261,6 +4301,226 @@ declare class SchedulerService extends ServiceModule {
 }
 
 /**
+ * Decisions Service Module — ScaleMule Business Logic Plane
+ *
+ * Deterministic, explainable business decisions evaluated on the tenant's
+ * active sealed release. Evaluation returns proposed actions and a signed
+ * receipt; it never dispatches side effects.
+ *
+ * Routes (gateway prefix /v1/decisions, evaluate role):
+ *   POST   /evaluate/{key}          → evaluate one decision
+ *   POST   /evaluate/batch          → up to 100 evaluations
+ *   GET    /receipts/{id}           → signed receipt (audience-gated)
+ *   POST   /receipts/{id}/verify    → verify with the receipt-ring public keys
+ *
+ * Workspace scope: pass `headers: { 'x-requested-account-id': accountId }`
+ * (the gateway validates membership and forwards the effective account),
+ * the same convention as other account-scoped services.
+ */
+
+type DecisionOutcome = 'value' | 'denied' | 'unavailable';
+type DecisionTraceLevel = 'none' | 'summary' | 'full';
+interface DecisionEvaluateOptions {
+    /** Trace verbosity (audience `max_trace` still applies). */
+    trace?: DecisionTraceLevel;
+    /**
+     * Idempotency key: the same key + same inputs replays the stored receipt
+     * (`replayed: true`); the same key with different inputs is a 409
+     * `IDEMPOTENCY_KEY_REUSED`.
+     */
+    idempotency_key?: string;
+}
+interface DecisionReceipt {
+    id: string;
+    content_hash: string;
+    /** Ed25519 signature, hex, over `SM-DECISION-RECEIPT-v1\0` + content_hash. */
+    signature: string;
+    signature_kid: string;
+    issued_at: string;
+    expires_at: string;
+    has_snapshot: boolean;
+    /** The exact signed document — pass it whole to domain services (bookings). */
+    signed_document: Record<string, unknown>;
+}
+interface DecisionVersions {
+    release_id: string;
+    release_number?: number;
+    activation_version?: number;
+    registry_revision: number;
+    schema_revision: number;
+    artifact_hash: string;
+    compiler_version: string;
+    evaluator_semantics_version: string;
+    ir_version?: string;
+}
+interface DecisionProposedAction {
+    action_key: string;
+    params: Record<string, unknown>;
+}
+interface DecisionResult<TValue = unknown> {
+    decision_key: string;
+    outcome: DecisionOutcome;
+    value: TValue | null;
+    reason_codes: string[];
+    violations: {
+        rule_key: string;
+        reason_codes: string[];
+    }[];
+    recommendations: {
+        rule_key: string;
+        reason_codes: string[];
+    }[];
+    proposed_actions: DecisionProposedAction[];
+    versions: DecisionVersions;
+    facts_hash: string;
+    fact_sources: Record<string, string>;
+    trace: Record<string, unknown> | null;
+    receipt: DecisionReceipt | null;
+    record_class: string;
+    replayed: boolean;
+    diverged: boolean;
+    latency_us: number;
+    resolve_us: number;
+}
+interface DecisionBatchItem {
+    decision_key: string;
+    inputs: Record<string, unknown>;
+    options?: DecisionEvaluateOptions;
+}
+interface DecisionBatchResult {
+    decision_key: string;
+    success: boolean;
+    data?: DecisionResult;
+    error?: string;
+}
+/** `appointment.deposit` (home_services pack) result value. */
+interface AppointmentDepositValue {
+    required: boolean;
+    percent_bps: number;
+    amount_minor: number;
+}
+interface ReceiptVerification {
+    receipt_id: string;
+    verified: boolean;
+    error: string | null;
+    content_hash: string;
+    signature_kid: string;
+    expired: boolean;
+}
+declare class DecisionsService extends ServiceModule {
+    protected basePath: string;
+    /**
+     * Evaluate a decision on the tenant's active release.
+     *
+     * @example
+     * const { data } = await sm.decisions.evaluate<AppointmentDepositValue>(
+     *   'appointment.deposit',
+     *   { appointment: { quote_id }, customer: { ref: customerRef } },
+     *   { idempotency_key: `event:${eventId}` },
+     *   { headers: { 'x-requested-account-id': accountId } },
+     * );
+     */
+    evaluate<TValue = unknown>(decisionKey: string, inputs: Record<string, unknown>, options?: DecisionEvaluateOptions, requestOptions?: RequestOptions): Promise<ApiResponse<DecisionResult<TValue>>>;
+    /** Evaluate up to 100 decisions in one call (per-item success/error). */
+    evaluateBatch(items: DecisionBatchItem[], requestOptions?: RequestOptions): Promise<ApiResponse<DecisionBatchResult[]>>;
+    /** Fetch a stored receipt (end users only see their own). */
+    getReceipt(receiptId: string, requestOptions?: RequestOptions): Promise<ApiResponse<Record<string, unknown>>>;
+    /** Server-side verification of a stored receipt against the receipt ring. */
+    verifyReceipt(receiptId: string, requestOptions?: RequestOptions): Promise<ApiResponse<ReceiptVerification>>;
+}
+
+/**
+ * Bookings Service Module — quotes, customer stats and booking completion
+ * (the appointment system of record for Business Logic Plane decisions).
+ *
+ * Routes (gateway prefix /v1/bookings):
+ *   POST   /quotes                          → create an offered quote (workspace-scoped)
+ *   GET    /quotes/{id}                     → get a quote
+ *   POST   /quotes/{id}/accept              → accept with a verified `appointment.deposit` receipt
+ *   GET    /customers/{ref}/stats           → customer stats projection
+ *   POST   /dashboard/bookings/{id}/complete → mark completed (host/admin; updates stats)
+ *   POST   /dashboard/bookings/{id}/no-show  → mark no-show (host/admin; updates stats)
+ *
+ * Workspace scope: pass `headers: { 'x-requested-account-id': accountId }`.
+ */
+
+type QuoteState = 'draft' | 'offered' | 'accepted' | 'expired' | 'cancelled';
+interface CreateQuoteInput {
+    /** Customer-space / user reference (opaque; also `customer.ref` for decisions). */
+    customer_ref: string;
+    total_minor: number;
+    /** ISO-4217. */
+    currency: string;
+    event_type_id?: string;
+    location_ref?: string;
+    expires_at?: string;
+    metadata?: Record<string, unknown>;
+}
+interface QuoteDeposit {
+    required: boolean;
+    amount_minor: number;
+    percent_bps: number;
+    currency: string;
+    receipt_id: string;
+    receipt_hash: string;
+    decided_at: string;
+}
+interface Quote {
+    id: string;
+    account_id: string;
+    event_type_id: string | null;
+    customer_ref: string;
+    location_ref: string | null;
+    total_minor: number;
+    currency: string;
+    state: QuoteState;
+    expires_at: string | null;
+    version: number;
+    decision_receipt_id: string | null;
+    decision_receipt_hash: string | null;
+    metadata: (Record<string, unknown> & {
+        deposit?: QuoteDeposit;
+    }) | null;
+    created_at: string;
+    updated_at: string;
+}
+interface AcceptQuoteInput {
+    /** The quote version last seen (optimistic concurrency). */
+    expected_version: number;
+    /** The `receipt` object returned by `sm.decisions.evaluate('appointment.deposit', …)`. */
+    decision_receipt: Pick<DecisionReceipt, 'id' | 'content_hash' | 'signature' | 'signature_kid' | 'signed_document'>;
+}
+interface CustomerStats {
+    customer_ref: string;
+    completed_count: number;
+    no_show_count: number;
+    cancelled_count: number;
+    last_completed_at: string | null;
+}
+interface BookingCompletionResult {
+    ok: boolean;
+    status: 'completed' | 'no_show';
+    customer_stats: CustomerStats | null;
+}
+declare class BookingsService extends ServiceModule {
+    protected basePath: string;
+    /** Create an offered quote for a customer in the active workspace. */
+    createQuote(input: CreateQuoteInput, requestOptions?: RequestOptions): Promise<ApiResponse<Quote>>;
+    getQuote(quoteId: string, requestOptions?: RequestOptions): Promise<ApiResponse<Quote>>;
+    /**
+     * Accept a quote with a verified deposit receipt. Bookings re-verifies the
+     * receipt signature and binding server-side and commits the receipt id/hash
+     * and deposit on the quote.
+     */
+    acceptQuote(quoteId: string, input: AcceptQuoteInput, requestOptions?: RequestOptions): Promise<ApiResponse<Quote>>;
+    getCustomerStats(customerRef: string, requestOptions?: RequestOptions): Promise<ApiResponse<CustomerStats>>;
+    /** Host/admin: mark a booking completed (maintains the customer stats projection). */
+    completeBooking(bookingId: string, reason?: string, requestOptions?: RequestOptions): Promise<ApiResponse<BookingCompletionResult>>;
+    /** Host/admin: mark a booking as a no-show (maintains the customer stats projection). */
+    markNoShow(bookingId: string, reason?: string, requestOptions?: RequestOptions): Promise<ApiResponse<BookingCompletionResult>>;
+}
+
+/**
  * Permissions Service Module
  *
  * RBAC: roles, permissions, policies, checks.
@@ -4824,6 +5084,113 @@ declare class ListingsService extends ServiceModule {
     /** @deprecated Use get() instead */
     getListing(id: string): Promise<ApiResponse<Listing>>;
 }
+
+/**
+ * Polls Service Module
+ *
+ * Reader polls for any ScaleMule application. A poll can carry text, an image,
+ * a video, or audio on the question and on each choice. Totals are public.
+ * One account, or one device voter key, holds one ballot and may change it.
+ *
+ * Routes:
+ *   POST   /manage                 → create
+ *   GET    /manage                 → list, including drafts
+ *   GET    /manage/{id}            → staff read
+ *   PATCH  /manage/{id}            → update
+ *   POST   /manage/{id}/publish    → open
+ *   POST   /manage/{id}/close      → close
+ *   GET    /public                 → published polls
+ *   GET    /public/{slug}          → one published poll
+ *   POST   /public/{slug}/votes    → cast or change a ballot
+ */
+
+type PollMediaKind = 'text' | 'image' | 'video' | 'audio';
+type PollBallot = 'account' | 'key';
+type PollStatus = 'draft' | 'open' | 'closed' | 'archived';
+interface PollMedia {
+    kind: PollMediaKind;
+    url?: string;
+    text?: string;
+    alt?: string;
+    storage_id?: string;
+    duration_ms?: number;
+}
+interface PollChoiceInput {
+    id: string;
+    label: string;
+    media?: PollMedia[];
+}
+interface PollChoice extends PollChoiceInput {
+    media: PollMedia[];
+    votes: number;
+}
+interface Poll {
+    id: string;
+    slug: string;
+    question: string;
+    description?: string;
+    media: PollMedia[];
+    choices: PollChoice[];
+    ballot: PollBallot;
+    status: PollStatus;
+    opens_at?: string;
+    closes_at?: string;
+    subject_type?: string;
+    subject_id?: string;
+    total_votes: number;
+    votable: boolean;
+    my_choice_id?: string;
+}
+interface CreatePollInput {
+    slug: string;
+    question: string;
+    description?: string;
+    media?: PollMedia[];
+    choices: PollChoiceInput[];
+    ballot?: PollBallot;
+    opens_at?: string;
+    closes_at?: string;
+    subject_type?: string;
+    subject_id?: string;
+}
+interface UpdatePollInput {
+    question?: string;
+    description?: string;
+    media?: PollMedia[];
+    choices?: PollChoiceInput[];
+    opens_at?: string;
+    closes_at?: string;
+    subject_type?: string;
+    subject_id?: string;
+    clear_description?: boolean;
+    clear_schedule?: boolean;
+    clear_subject?: boolean;
+}
+interface PollListOptions {
+    status?: PollStatus;
+    subject_type?: string;
+    subject_id?: string;
+    limit?: number;
+    voter_key?: string;
+}
+declare class PollsService extends ServiceModule {
+    protected basePath: string;
+    create(data: CreatePollInput, options?: RequestOptions): Promise<ApiResponse<Poll>>;
+    list(params?: PollListOptions, options?: RequestOptions): Promise<ApiResponse<Poll[]>>;
+    get(id: string, options?: RequestOptions): Promise<ApiResponse<Poll>>;
+    update(id: string, data: UpdatePollInput, options?: RequestOptions): Promise<ApiResponse<Poll>>;
+    publish(id: string, options?: RequestOptions): Promise<ApiResponse<Poll>>;
+    close(id: string, options?: RequestOptions): Promise<ApiResponse<Poll>>;
+    listPublic(params?: PollListOptions, options?: RequestOptions): Promise<ApiResponse<Poll[]>>;
+    getPublic(slug: string, params?: {
+        voter_key?: string;
+    }, options?: RequestOptions): Promise<ApiResponse<Poll>>;
+    vote(slug: string, choiceId: string, voterKey?: string, options?: RequestOptions): Promise<ApiResponse<Poll>>;
+}
+/** Stable ASCII voter key for `ballot: "key"` polls. Pass it to getPublic and vote. */
+declare function pollVoterKey(storage?: Pick<Storage, 'getItem' | 'setItem'>): string;
+/** Whole-number percent from a choice count. The last displayed point can be short of 100. */
+declare function pollSharePercent(votes: number, total: number): number;
 
 /**
  * Events Service Module
@@ -7304,6 +7671,8 @@ declare class ScaleMule {
     readonly communication: CommunicationService;
     readonly notifications: NotificationsService;
     readonly scheduler: SchedulerService;
+    readonly decisions: DecisionsService;
+    readonly bookings: BookingsService;
     readonly permissions: PermissionsService;
     readonly workspaces: WorkspacesService;
     /** @deprecated Use `workspaces` instead */
@@ -7318,6 +7687,7 @@ declare class ScaleMule {
     readonly webhooks: WebhooksService;
     readonly leaderboard: LeaderboardService;
     readonly listings: ListingsService;
+    readonly polls: PollsService;
     readonly events: EventsService;
     readonly graph: GraphService;
     readonly functions: FunctionsService;
@@ -7399,4 +7769,4 @@ declare class ScaleMule {
     getClient(): ScaleMuleClient;
 }
 
-export { type AccountBalance, type AccountSwitcherPrivacy, AccountsService, type ActiveUsers, type ActivityItem, AgentAuthService, AgentModelsService, type AgentProfile, AgentProjectsService, type AgentResponse, type AgentSecurityPolicy, AgentSessionsService, type AgentSigningKey, type AgentToken, type AgentToolEntitlement, AgentToolsService, type Workspace as AgentWorkspace, AgentsService, type AggregateOptions, type AggregateResult, type AnalyticsEvent, AnalyticsService, type ApiError, type ApiKey, type ApiResponse, type Appeal, type Application, type Attachment, type Attendee, type AudioRegisterResult, AudioService, type AudioUploadViaStorageResult, type AuditLog, type AuthRegisterAgentRequest, type AuthRegisterAgentResponse, AuthService, type AuthSession, type AuthUser, type BackupCodes, BillingService, type CacheEntry, CacheService, type CalendarEvent, type CallParticipant, type CallSession, type CatalogEntry, CatalogService, type ChatMessage, type ChatReaction, ChatService, type ClaimResult, type Client, type ClientContext, type Collection, type Comment, CommunicationService, type CompletedPart, ComplianceService, type CompressionConfig, ConferenceService, type ConferenceSettings, type ConnectedAccount, type ConnectedAccountSubscription, type ConnectedSetupIntentResponse, type ConnectedSubscriptionListParams, type ConnectionStatus, type ContentFlag, type ContentPolicy, type Conversation, type CostReportDay, type CreateProjectInput as CreateCreatorProjectInput, type CreateFlagRequest, type CreateLeadInput, type CreateRuleRequest, type CreateSegmentRequest, type CreateSessionResponse, type CreateVariantRequest, type GenerationJob as CreatorJob, CreatorMakerService, type GenerationOutput as CreatorOutput, type CreatorProject, type CreatorUsage, type Credential, type CredentialScope, type Customer, type DataAccessPolicy, type DataExport, DataService, type DataSource, type DeadLetterJob, type DeviceInfo, type DirectoryUser, type DirectoryUserDetail, type DirectoryUsersListResponse, type Document, type ErrorCode, ErrorCodes, type EventAggregation, EventsService, type FileInfo, type FileStatus, type FlagAuditEntry, type FlagCheck, type FlagCondition, FlagContentService, type FlagDefinition, type FlagDetail, type FlagEnvironment, type FlagEvaluation, type FlagSegment, type FlagVariant, FlagsService, type FollowStatus, type FunctionExecution, type FunctionMetrics, FunctionsService, type Funnel, type FunnelConversion, type GdprRequest, type GenerateInput, type GrantInfo, type GraphEdge, type GraphNode, GraphService, IdentityService, type IdentityType, type IncomingRequestLike, type Invoice, type JobExecution, type JobStats, type JoinCallResponse, type KnownAccount, type KnownAccountDisplay, LEGACY_ANONYMOUS_ID_KEYS, type Lead, type Leaderboard, type LeaderboardEntry, LeaderboardService, LeadsService, type Like, type ListNotificationsParams, type Listing, ListingsService, type LogEntry, type LogInput, type LogQueryParams, type LogQueryResponse, type LogRecord, LoggerService, type LoginActivitySummary, type LoginDeviceInfo, type LoginHistoryEntry, type LoginRiskInfo, MEDIA_PRESETS, type MediaAsset, type MediaKind, type MediaManifest, type MediaManifestOptions, type MediaPolicy, type MediaPreset, type MediaPresetSpec, MediaService, type MediaUploadEvent, type MediaUploadOptions, type MediaUploadPhase, type MediaUploadResult, type MessageCallback, type MessagePin, type MessageStatus, type MetricDataPoint, type MfaStatus, type Model, type ModelEntitlement, type ModelPricing, type ModelProvider, type UsageSummary as ModelUsageSummary, type MultipartCompleteResponse, type MultipartConfig, type MultipartPartUrl, type MultipartPartUrlsResponse, type MultipartStartResponse, type NetworkClass, type Notification, type NotificationListResponse, NotificationsService, type OAuthProvider, type OAuthUrl, OrchestratorService, PHOTO_BREAKPOINTS, type PaginatedResponse, type PaginationMetadata, type PaginationParams, type PartResult, type PartUrl, type Participant, type Payment, type PaymentListParams, type PaymentMethod, type PaymentStatusResponse, type Payout, type PayoutSchedule, type PermissionCheck, type PermissionMatrix, PermissionsService, type PhotoInfo, PhotoService, type PinnedMessagesResponse, type Pipeline, type PipelineVersion, type Policy, type PresenceCallback, type PresenceEvent, type PresignedUploadResponse, type Price, type Product, type Project, type ProjectDocument, type ProjectGrant, type ProjectMember, type PushApiFetcher, type PushPreferences, type PushSettings, type PushSubscriptionInfo, type PushToken, type PushTokenAssociationResult, type PushTopic, type QueryFilter, type QueryOptions, type QuerySort, type QueueJob, QueueService, type ReadStatus, RealtimeService, type RedeemResult, type ReferralAnalytics, type ReferralCampaign, type ReferralProfile, type ReferralStats, ReferralsService, type Refund, type RegisterAgentRequest, type RegisterAgentResponse, type RegisterPushTokenData, type RequestOptions, type ResolvedReferral, type ResumeSession, type Role, type RuntimeTemplate, type RuntimeTemplateVersion, type S3MultipartOptions, type S3MultipartResult, type S3SingleUploadOptions, type S3SingleUploadResult, type S3UploadProgress, STORAGE_KEYS, ScaleMule, ScaleMuleClient, type ScaleMuleConfig, type SchedulerJob, SchedulerService, type SearchResult, SearchService, type SearchUsersParams, type SecurityLayers, type ServerlessFunction, type ServiceHealth, ServiceModule, type Session, type SessionArtifact, type SessionInfo, type SessionLog, type SessionPoolEntry, type Severity, type ShareLink, type ShortestPathResult, type SignedUrlResponse, type SocialPolicyAction, type SocialPolicyBatchDecisionItem, type SocialPolicyBatchDecisionRequest, type SocialPolicyBatchDecisionResponse, type SocialPolicyBatchDecisionTarget, type SocialPolicyBlockRequest, type SocialPolicyContactRequest, type SocialPolicyContactRequestListItem, type SocialPolicyContactRequestQuery, type SocialPolicyContactRequestRequest, type SocialPolicyContext, type SocialPolicyDecision, type SocialPolicyDecisionLimits, type SocialPolicyDecisionRequest, type SocialPolicyDecisionResponse, type SocialPolicyIdentity, type SocialPolicyIdentityType, type SocialPolicyMuteRequest, type SocialPolicyPolicyPack, type SocialPolicyRelationship, type SocialPolicyRelationshipQuery, type SocialPolicyRelationshipRequest, type SocialPolicyReportRequest, SocialPolicyService, type SocialPolicySettings, type SocialPolicyUnblockRequest, type SocialPolicyUpdateSettingsRequest, type SocialPost, SocialService, type SocialUser, type SsoConfig, type StatusCallback, type StorageAdapter, StorageService, type StorageSettings, type StrategyResult, type StylePreset, type SubmitResult, type Subscription, type TargetingRule, type Task, type TaskAttempt, type TaskTransition, type Team, type TeamInvitation, type TeamMember, TeamsService, type TelemetryPayload, type Tool, type ToolCapability, type ToolIntegration, type TopEvent, type TotpSetup, type Transaction, type TransactionListParams, type TransactionSummary, type TransactionSummaryParams, type Transfer, type TransformOptions, type TransformResult, type TraversalResult, type TtsAccessMode, type TtsAudioInfo, type TtsJobStatus, type TtsListVoicesParams, TtsService, type TtsSpeechMetadata, type TtsSpeechProfile, type TtsSynthesizeParams, type TtsSynthesizeQueuedResult, type TtsSynthesizeReadyResult, type TtsSynthesizeResult, type TtsVoice, type TtsVoicesResponse, type UnreadCountResponse, type UpdateFlagRequest, type UpdateRuleRequest, type UpdateSegmentRequest, type UpdateVariantRequest, type UploadCompleteResponse, type UploadEngineConfig, type UploadFailureReport, type UploadFailureReportResponse, type UploadOptions, type UploadPlan, UploadResumeStore, type UploadStrategy, UploadTelemetry, type UploadTelemetryConfig, type UploadTelemetryEvent, type UpsertEnvironmentRequest, type UsageRecord, type UsageSummary$1 as UsageSummary, type UserRank, type VideoInfo, VideoService, type VideoUploadOptions, type VoteState, WEB_PUSH_SERVICE_WORKER, WebPushManager, type WebPushManagerOptions, type WebPushSubscriptionData, type Webhook, WebhooksService, type WebrtcStats, type Workflow, type WorkflowExecution, type Workspace$1 as Workspace, type WorkspaceInvitation, type WorkspaceMember, WorkspacesService, buildClientContextHeaders, calculateTotalParts, canPerform, createUploadPlan, ScaleMule as default, detectNetworkClass, ensureAnonymousId, extractClientContext, generateAnonymousId, generateUploadSessionId, getMeasuredBandwidthMbps, getPartRange, hasMinRoleLevel, readAnonymousId, resolveStrategy, uploadMultipartToS3, uploadSingleToS3, validateIP };
+export { type AcceptQuoteInput, type AccountBalance, type AccountSwitcherPrivacy, AccountsService, type ActiveUsers, type ActivityItem, AgentAuthService, AgentModelsService, type AgentProfile, AgentProjectsService, type AgentResponse, type AgentSecurityPolicy, AgentSessionsService, type AgentSigningKey, type AgentToken, type AgentToolEntitlement, AgentToolsService, type Workspace as AgentWorkspace, AgentsService, type AggregateOptions, type AggregateResult, type AnalyticsEvent, AnalyticsService, type ApiError, type ApiKey, type ApiResponse, type Appeal, type Application, type AppointmentDepositValue, type Attachment, type Attendee, type AudioRegisterResult, AudioService, type AudioUploadViaStorageResult, type AuditLog, type AuthRegisterAgentRequest, type AuthRegisterAgentResponse, AuthService, type AuthSession, type AuthUser, type BackupCodes, BillingService, type BookingCompletionResult, BookingsService, type CacheEntry, CacheService, type CalendarEvent, type CallParticipant, type CallSession, type CatalogEntry, CatalogService, type ChatMessage, type ChatReaction, ChatService, type ClaimResult, type Client, type ClientContext, type Collection, type Comment, CommunicationService, type CompletedPart, ComplianceService, type CompressionConfig, ConferenceService, type ConferenceSettings, type ConnectedAccount, type ConnectedAccountSubscription, type ConnectedSetupIntentResponse, type ConnectedSubscriptionListParams, type ConnectionStatus, type ContentFlag, type ContentPolicy, type Conversation, type CostReportDay, type CreateProjectInput as CreateCreatorProjectInput, type CreateFlagRequest, type CreateLeadInput, type CreatePollInput, type CreateQuoteInput, type CreateRuleRequest, type CreateSegmentRequest, type CreateSessionResponse, type CreateVariantRequest, type GenerationJob as CreatorJob, CreatorMakerService, type GenerationOutput as CreatorOutput, type CreatorProject, type CreatorUsage, type Credential, type CredentialScope, type Customer, type CustomerStats, type DataAccessPolicy, type DataExport, DataService, type DataSource, type DeadLetterJob, type DecisionBatchItem, type DecisionBatchResult, type DecisionEvaluateOptions, type DecisionOutcome, type DecisionProposedAction, type DecisionReceipt, type DecisionResult, type DecisionTraceLevel, type DecisionVersions, DecisionsService, type DeviceInfo, type DirectoryUser, type DirectoryUserDetail, type DirectoryUsersListResponse, type Document, type ErrorCode, ErrorCodes, type EventAggregation, EventsService, type FileInfo, type FileStatus, type FlagAuditEntry, type FlagCheck, type FlagCondition, FlagContentService, type FlagDefinition, type FlagDetail, type FlagEnvironment, type FlagEvaluation, type FlagSegment, type FlagVariant, FlagsService, type FollowStatus, type FunctionExecution, type FunctionMetrics, FunctionsService, type Funnel, type FunnelConversion, type GdprRequest, type GenerateInput, type GrantInfo, type GraphEdge, type GraphNode, GraphService, IdentityService, type IdentityType, type IncomingRequestLike, type Invoice, type JobExecution, type JobStats, type JoinCallResponse, type KnownAccount, type KnownAccountDisplay, LEGACY_ANONYMOUS_ID_KEYS, type Lead, type Leaderboard, type LeaderboardEntry, LeaderboardService, LeadsService, type Like, type ListNotificationsParams, type Listing, ListingsService, type LogEntry, type LogInput, type LogQueryParams, type LogQueryResponse, type LogRecord, LoggerService, type LoginActivitySummary, type LoginDeviceInfo, type LoginHistoryEntry, type LoginRiskInfo, MEDIA_PRESETS, type MediaAsset, type MediaKind, type MediaManifest, type MediaManifestOptions, type MediaPolicy, type MediaPreset, type MediaPresetSpec, MediaService, type MediaUploadEvent, type MediaUploadOptions, type MediaUploadPhase, type MediaUploadResult, type MessageCallback, type MessagePin, type MessageStatus, type MetricDataPoint, type MfaStatus, type Model, type ModelEntitlement, type ModelPricing, type ModelProvider, type UsageSummary as ModelUsageSummary, type MultipartCompleteResponse, type MultipartConfig, type MultipartPartUrl, type MultipartPartUrlsResponse, type MultipartStartResponse, type NetworkClass, type Notification, type NotificationListResponse, NotificationsService, type OAuthProvider, type OAuthUrl, OrchestratorService, PHOTO_BREAKPOINTS, type PaginatedResponse, type PaginationMetadata, type PaginationParams, type PartResult, type PartUrl, type Participant, type Payment, type PaymentListParams, type PaymentMethod, type PaymentStatusResponse, type Payout, type PayoutSchedule, type PermissionCheck, type PermissionMatrix, PermissionsService, type PhotoInfo, PhotoService, type PinnedMessagesResponse, type Pipeline, type PipelineVersion, type Policy, type Poll, type PollBallot, type PollChoice, type PollChoiceInput, type PollListOptions, type PollMedia, type PollMediaKind, type PollStatus, PollsService, type PresenceCallback, type PresenceEvent, type PresignedUploadResponse, type Price, type Product, type Project, type ProjectDocument, type ProjectGrant, type ProjectMember, type PushApiFetcher, type PushPreferences, type PushSettings, type PushSubscriptionInfo, type PushToken, type PushTokenAssociationResult, type PushTopic, type QueryFilter, type QueryOptions, type QuerySort, type QueueJob, QueueService, type Quote, type QuoteDeposit, type QuoteState, type ReadStatus, RealtimeService, type ReceiptVerification, type RedeemResult, type ReferralAnalytics, type ReferralCampaign, type ReferralProfile, type ReferralStats, ReferralsService, type Refund, type RegisterAgentRequest, type RegisterAgentResponse, type RegisterPushTokenData, type RequestOptions, type ResolvedReferral, type ResumeSession, type Role, type RuntimeTemplate, type RuntimeTemplateVersion, type S3MultipartOptions, type S3MultipartResult, type S3SingleUploadOptions, type S3SingleUploadResult, type S3UploadProgress, STORAGE_KEYS, ScaleMule, ScaleMuleClient, type ScaleMuleConfig, type SchedulerJob, SchedulerService, type SearchResult, SearchService, type SearchUsersParams, type SecurityLayers, type ServerlessFunction, type ServiceHealth, ServiceModule, type Session, type SessionArtifact, type SessionInfo, type SessionLog, type SessionPoolEntry, type Severity, type ShareLink, type ShortestPathResult, type SignedUrlResponse, type SocialPolicyAction, type SocialPolicyBatchDecisionItem, type SocialPolicyBatchDecisionRequest, type SocialPolicyBatchDecisionResponse, type SocialPolicyBatchDecisionTarget, type SocialPolicyBlockRequest, type SocialPolicyContactRequest, type SocialPolicyContactRequestListItem, type SocialPolicyContactRequestQuery, type SocialPolicyContactRequestRequest, type SocialPolicyContext, type SocialPolicyDecision, type SocialPolicyDecisionLimits, type SocialPolicyDecisionRequest, type SocialPolicyDecisionResponse, type SocialPolicyIdentity, type SocialPolicyIdentityType, type SocialPolicyMuteRequest, type SocialPolicyPolicyPack, type SocialPolicyRelationship, type SocialPolicyRelationshipQuery, type SocialPolicyRelationshipRequest, type SocialPolicyReportRequest, SocialPolicyService, type SocialPolicySettings, type SocialPolicyUnblockRequest, type SocialPolicyUpdateSettingsRequest, type SocialPost, SocialService, type SocialUser, type SsoConfig, type StatusCallback, type StorageAdapter, StorageService, type StorageSettings, type StrategyResult, type StylePreset, type SubmitResult, type Subscription, type TargetingRule, type Task, type TaskAttempt, type TaskTransition, type Team, type TeamInvitation, type TeamMember, TeamsService, type TelemetryPayload, type Tool, type ToolCapability, type ToolIntegration, type TopEvent, type TotpSetup, type Transaction, type TransactionListParams, type TransactionSummary, type TransactionSummaryParams, type Transfer, type TransformOptions, type TransformResult, type TraversalResult, type TtsAccessMode, type TtsAudioInfo, type TtsJobStatus, type TtsListVoicesParams, TtsService, type TtsSpeechMetadata, type TtsSpeechProfile, type TtsSynthesizeParams, type TtsSynthesizeQueuedResult, type TtsSynthesizeReadyResult, type TtsSynthesizeResult, type TtsVoice, type TtsVoicesResponse, type UnreadCountResponse, type UpdateFlagRequest, type UpdatePollInput, type UpdateRuleRequest, type UpdateSegmentRequest, type UpdateVariantRequest, type UploadCompleteResponse, type UploadEngineConfig, type UploadFailureReport, type UploadFailureReportResponse, type UploadOptions, type UploadPlan, UploadResumeStore, type UploadStrategy, UploadTelemetry, type UploadTelemetryConfig, type UploadTelemetryEvent, type UpsertEnvironmentRequest, type UsageRecord, type UsageSummary$1 as UsageSummary, type UserRank, type VideoInfo, VideoService, type VideoUploadOptions, type VoteState, WEB_PUSH_SERVICE_WORKER, WebPushManager, type WebPushManagerOptions, type WebPushSubscriptionData, type Webhook, WebhooksService, type WebrtcStats, type Workflow, type WorkflowExecution, type Workspace$1 as Workspace, type WorkspaceInvitation, type WorkspaceMember, WorkspacesService, buildClientContextHeaders, calculateTotalParts, canPerform, createUploadPlan, ScaleMule as default, detectNetworkClass, ensureAnonymousId, extractClientContext, generateAnonymousId, generateUploadSessionId, getMeasuredBandwidthMbps, getPartRange, hasMinRoleLevel, pollSharePercent, pollVoterKey, readAnonymousId, resolveStrategy, uploadMultipartToS3, uploadSingleToS3, validateIP };
