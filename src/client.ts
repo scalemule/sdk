@@ -395,6 +395,7 @@ export class ScaleMuleClient {
   private apiKey: string;
   private applicationId: string | null = null;
   private baseUrl: string;
+  private realtimeUrl?: string;
   private debug: boolean;
   private storage: StorageAdapter;
   private defaultTimeout: number;
@@ -425,6 +426,7 @@ export class ScaleMuleClient {
     this.apiKey = config.apiKey;
     this.applicationId = config.applicationId || null;
     this.baseUrl = config.baseUrl || GATEWAY_URLS[config.environment || 'prod'];
+    this.realtimeUrl = config.realtimeUrl;
     this.debug = config.debug || false;
     this.storage = config.storage || createDefaultStorage();
     this.defaultTimeout = config.timeout || DEFAULT_TIMEOUT;
@@ -767,6 +769,12 @@ export class ScaleMuleClient {
 
   getBaseUrl(): string {
     return this.baseUrl;
+  }
+  getRealtimeUrl(): string {
+    return this.realtimeUrl || this.baseUrl;
+  }
+  requiresRealtimeTicket(): boolean {
+    return this.realtimeUrl !== undefined;
   }
   getApiKey(): string {
     return this.apiKey;

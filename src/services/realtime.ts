@@ -256,6 +256,7 @@ export class RealtimeService extends ServiceModule {
 
   private async fetchTicketAndConnect(): Promise<void> {
     const baseUrl = this.client.getBaseUrl();
+    const realtimeUrl = this.client.getRealtimeUrl();
 
     try {
       // Exchange API key + session token for a short-lived WS ticket
@@ -281,10 +282,12 @@ export class RealtimeService extends ServiceModule {
       if (ticketRes.ok) {
         const ticketData = await ticketRes.json();
         const ticket = ticketData.ticket;
-        wsUrl = baseUrl.replace(/^http/, 'ws') + `/v1/realtime/ws?ticket=${encodeURIComponent(ticket)}`;
+        if (typeof ticket !== 'string' || !ticket) throw new Error('Missing realtime ticket');
+        wsUrl = realtimeUrl.replace(/^http/, 'ws') + `/v1/realtime/ws?ticket=${encodeURIComponent(ticket)}`;
         this.usedTicketAuth = true;
       } else {
-        wsUrl = baseUrl.replace(/^http/, 'ws') + '/v1/realtime/ws';
+        if (this.client.requiresRealtimeTicket()) throw new Error('Realtime ticket required');
+        wsUrl = realtimeUrl.replace(/^http/, 'ws') + '/v1/realtime/ws';
         this.usedTicketAuth = false;
       }
 

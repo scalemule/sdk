@@ -74,6 +74,23 @@ describe('RealtimeService connection resilience', () => {
     return ws;
   }
 
+  it('exchanges a cookie-proxy ticket without exposing a session token', async () => {
+    sm = new ScaleMule({ apiKey: 'sm_pk_test', baseUrl: '/api/auth/client', realtimeUrl: 'https://api.example.com' });
+    const ws = await connectAndOpen();
+    expect(mockFetch.mock.calls[0][0]).toBe('/api/auth/client/v1/realtime/ws/ticket');
+    expect(mockFetch.mock.calls[0][1].headers.Authorization).toBeUndefined();
+    expect(ws.url).toBe('wss://api.example.com/v1/realtime/ws?ticket=test-ticket');
+    expect(ws.sent.some(message => JSON.parse(message).type === 'auth')).toBe(false);
+  });
+
+  it('never falls back to bearer auth when a cookie-proxy ticket is refused', async () => {
+    sm = new ScaleMule({ apiKey: 'sm_pk_test', baseUrl: '/api/auth/client', realtimeUrl: 'https://api.example.com' });
+    mockFetch.mockResolvedValue(new Response('{}', { status: 401 }));
+    sm.realtime.subscribe('test:channel', () => {});
+    await vi.advanceTimersByTimeAsync(0);
+    expect(MockWebSocket.instances).toHaveLength(0);
+  });
+
   it('recovers from a ticket fetch that hangs forever', async () => {
     // Fetch resolves only when aborted (rejects on abort like real fetch)
     mockFetch.mockImplementation(
