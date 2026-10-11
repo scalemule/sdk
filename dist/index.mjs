@@ -5057,6 +5057,13 @@ var SocialService = class extends ServiceModule {
     super(...arguments);
     this.basePath = "/v1/social";
   }
+  /** Client API-key route; never send an internal platform token from an app. */
+  async upsertContentPost(input, options) {
+    return this.post("/client/content-posts/upsert", input, options);
+  }
+  async upsertDiscoveryCreator(input, options) {
+    return this.post("/client/discovery/creators/upsert", input, options);
+  }
   // --------------------------------------------------------------------------
   // Follow / Unfollow
   // --------------------------------------------------------------------------

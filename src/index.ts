@@ -159,7 +159,18 @@ export type {
   WebrtcStats
 } from './services/conference';
 export { SocialService } from './services/social';
-export type { SocialPost, Comment, FollowStatus, ActivityItem, SocialUser, Like, VoteState } from './services/social';
+export type {
+  SocialPost,
+  SocialContentProjectionInput,
+  SocialContentProjection,
+  SocialDiscoveryCreatorInput,
+  Comment,
+  FollowStatus,
+  ActivityItem,
+  SocialUser,
+  Like,
+  VoteState
+} from './services/social';
 export { SocialPolicyService } from './services/social-policy';
 export type {
   SocialPolicyAction,
