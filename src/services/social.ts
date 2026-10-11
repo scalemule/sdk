@@ -43,6 +43,36 @@ export interface SocialPost {
   created_at: string;
 }
 
+/** A canonical app record projected into Social after the app's moderation workflow. */
+export interface SocialContentProjectionInput {
+  author_user_id: string;
+  source_kind: string;
+  source_id: string;
+  distribution_state: 'published' | 'hidden' | 'unpublished' | 'moderated_removed' | 'deleted';
+  access_policy?: 'public' | 'followers' | 'premium' | 'private' | 'subscribers';
+  content_type?: 'image' | 'video' | 'audio' | 'mixed' | 'text';
+  preview_mode?: 'clear' | 'blurred' | 'none';
+  title?: string;
+  caption?: string;
+  preview_photo_id?: string;
+  published_at?: string;
+}
+
+export interface SocialContentProjection extends SocialContentProjectionInput {
+  id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SocialDiscoveryCreatorInput {
+  creator_user_id: string;
+  username: string;
+  display_name?: string;
+  primary_category?: string;
+  avatar_asset_ref?: string;
+  is_discoverable: boolean;
+}
+
 export interface Comment {
   id: string;
   post_id: string;
@@ -111,6 +141,21 @@ export interface ViewState {
 
 export class SocialService extends ServiceModule {
   protected basePath = '/v1/social';
+
+  /** Client API-key route; never send an internal platform token from an app. */
+  async upsertContentPost(
+    input: SocialContentProjectionInput,
+    options?: RequestOptions
+  ): Promise<ApiResponse<SocialContentProjection>> {
+    return this.post<SocialContentProjection>('/client/content-posts/upsert', input, options);
+  }
+
+  async upsertDiscoveryCreator(
+    input: SocialDiscoveryCreatorInput,
+    options?: RequestOptions
+  ): Promise<ApiResponse<unknown>> {
+    return this.post<unknown>('/client/discovery/creators/upsert', input, options);
+  }
 
   // --------------------------------------------------------------------------
   // Follow / Unfollow

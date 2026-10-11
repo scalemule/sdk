@@ -1534,6 +1534,34 @@ describe('SocialService', () => {
   });
 
   describe('posts', () => {
+    it('upserts a moderated app post through the client projection route', async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse({ data: { id: 'p1' } }));
+      await sm.social.upsertContentPost({
+        author_user_id: 'author',
+        source_kind: 'bulgarsko_post',
+        source_id: 'source',
+        distribution_state: 'published',
+        access_policy: 'public',
+        content_type: 'text',
+        title: 'A community post'
+      });
+      const [url, init] = mockFetch.mock.calls[0];
+      expect(url).toBe('https://api.scalemule.com/v1/social/client/content-posts/upsert');
+      expect(JSON.parse(init.body).source_id).toBe('source');
+    });
+
+    it('updates creator discoverability through the client route', async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse({ data: {} }));
+      await sm.social.upsertDiscoveryCreator({
+        creator_user_id: 'author',
+        username: 'bg-author',
+        is_discoverable: false
+      });
+      const [url, init] = mockFetch.mock.calls[0];
+      expect(url).toBe('https://api.scalemule.com/v1/social/client/discovery/creators/upsert');
+      expect(JSON.parse(init.body).is_discoverable).toBe(false);
+    });
+
     it('should POST /posts for createPost', async () => {
       mockFetch.mockResolvedValueOnce(jsonResponse({ data: { id: 'p1' } }));
       await sm.social.createPost({ content: 'Hello world', visibility: 'public' });
@@ -2514,8 +2542,8 @@ describe('PollsService', () => {
       media: [{ kind: 'text', text: 'This is about homes near BART.' }],
       choices: [
         { id: 'yes', label: 'Yes', media: [{ kind: 'image', url: 'https://cdn.example.com/a.jpg', alt: 'Downtown' }] },
-        { id: 'no', label: 'No' },
-      ],
+        { id: 'no', label: 'No' }
+      ]
     });
     const [url, init] = mockFetch.mock.calls[0];
     expect(url).toBe('https://api.scalemule.com/v1/polls/manage');

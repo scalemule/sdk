@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.70
+
+- Add typed client API-key methods for idempotent Social content projections and creator discovery settings. Customer apps still own their moderation and canonical records; this patch does not add a hosted moderation workflow.
+
 ## 0.0.68
 
 - Preserve HTTP 202 authentication challenges as API errors with no session, and allow login challenge proof fields. Framework-independent clients still render their own challenge UI; the Next.js SDK supplies it.

@@ -357,6 +357,28 @@ await sm.social.like('post', postId)
 const { data } = await sm.social.getComments(postId)
 ```
 
+For apps that moderate posts in their own canonical store, project a reviewed
+post into Social with the client API key from a server route. The projection is
+idempotent for each application, `source_kind`, and `source_id`. Keep the creator's
+discovery setting aligned with the app's public-profile preference.
+
+```ts
+await sm.social.upsertDiscoveryCreator({
+  creator_user_id: authorId,
+  username: authorHandle,
+  is_discoverable: profileIsPublic,
+})
+await sm.social.upsertContentPost({
+  author_user_id: authorId,
+  source_kind: 'community_post',
+  source_id: canonicalPostId,
+  distribution_state: 'published',
+  access_policy: 'public',
+  content_type: 'text',
+  title: reviewedTitle,
+})
+```
+
 ## Teams
 
 ```ts
