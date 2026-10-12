@@ -1578,7 +1578,7 @@ function asString(parent, key) {
   return typeof value === "string" ? value : void 0;
 }
 
-// node_modules/@scalemule/ui/dist/phone/index.mjs
+// ../sdk/node_modules/@scalemule/ui/dist/phone/index.mjs
 var PHONE_COUNTRIES = [
   { code: "US", name: "United States", dialCode: "+1" },
   { code: "CA", name: "Canada", dialCode: "+1" },
@@ -6839,11 +6839,45 @@ var CommunityMapsService = class extends ServiceModule {
   createSubmission(slug, data, options) {
     return this.post("/collections/" + segment(slug) + "/submissions", data, options);
   }
-  uploadPhoto(slug, submission, file, fields, options) {
+  uploadMedia(slug, submission, file, fields, options) {
     return this._upload(
       "/collections/" + segment(slug) + "/submissions/" + segment(submission) + "/media",
       file,
-      { caption: fields.caption, attribution: fields.attribution, rights_confirmed: String(fields.rights_confirmed) },
+      {
+        caption: fields.caption,
+        attribution: fields.attribution,
+        rights_confirmed: String(fields.rights_confirmed),
+        consent_version: fields.consent_version
+      },
+      options
+    );
+  }
+  /** @deprecated Use uploadMedia for photos, video and audio. Explicit publication permission is required. */
+  uploadPhoto(slug, submission, file, fields, options) {
+    return this.uploadMedia(
+      slug,
+      submission,
+      file,
+      { ...fields, consent_version: fields.consent_version || "" },
+      options
+    );
+  }
+  /** Read public totals and the signed-in reader's current vote. */
+  getVote(slug, feature, options) {
+    return this._get("/collections/" + segment(slug) + "/features/" + segment(feature) + "/vote", options);
+  }
+  /** One vote per signed-in reader: 1 up, -1 down, 0 clear. */
+  vote(slug, feature, value, options) {
+    return this.post("/collections/" + segment(slug) + "/features/" + segment(feature) + "/vote", { value }, options);
+  }
+  listComments(slug, query = {}, options) {
+    return this._get(this.withQuery("/collections/" + segment(slug) + "/comments", query), options);
+  }
+  /** All Community Maps comments require editorial review, including authenticated replies. */
+  createComment(slug, data, featureId, options) {
+    return this.post(
+      this.withQuery("/collections/" + segment(slug) + "/comments", { feature_id: featureId }),
+      data,
       options
     );
   }
@@ -6873,6 +6907,12 @@ var CommunityMapsEditorialService = class _CommunityMapsEditorialService extends
   }
   path(path, query = {}) {
     return this.withQuery(path, { ...query, ...this.applicationId ? { application_id: this.applicationId } : {} });
+  }
+  listComments(collection, query = {}, options) {
+    return this._get(this.path("/collections/" + segment(collection) + "/comments", query), options);
+  }
+  reviewComment(collection, comment, data, options) {
+    return this.put(this.path("/collections/" + segment(collection) + "/comments/" + segment(comment)), data, options);
   }
   listCollections(query = {}, options) {
     return this._get(this.path("/collections", { ...query }), options);

@@ -40,3 +40,38 @@ describe('Community Maps SDK contracts', () => {
     expect(get.mock.calls[1][0]).not.toContain('application_id');
   });
 });
+
+describe('Community Maps engagement contracts', () => {
+  it('preserves vote values, comment consent, reply and editorial revision boundaries', async () => {
+    const get = vi.fn(async () => ({ data: {}, error: null }));
+    const post = vi.fn(async () => ({ data: {}, error: null }));
+    const put = vi.fn(async () => ({ data: {}, error: null }));
+    const maps = new CommunityMapsService({ get, post, put } as unknown as ScaleMuleClient);
+    await maps.vote('holiday/map', 'feature', -1);
+    await maps.vote('holiday/map', 'feature', 0);
+    await maps.listComments('holiday/map', { feature_id: 'feature', page: 2 });
+    await maps.createComment(
+      'holiday/map',
+      {
+        body: 'Здравей 🎃',
+        author_name: 'Neighbor',
+        parent_comment_id: 'parent',
+        consent: { version: 'policy', accepted: true }
+      },
+      'feature'
+    );
+    await maps.editorial
+      .forApplication('owner')
+      .reviewComment('collection', 'comment', { status: 'approved', expected_revision: 2, guidelines_reviewed: true });
+    expect(post.mock.calls[0][0]).toContain('/collections/holiday%2Fmap/features/feature/vote');
+    expect(post.mock.calls[0][1]).toEqual({ value: -1 });
+    expect(post.mock.calls[1][1]).toEqual({ value: 0 });
+    expect(get.mock.calls[0][0]).toContain('feature_id=feature');
+    expect(post.mock.calls[2][1]).toMatchObject({
+      parent_comment_id: 'parent',
+      consent: { version: 'policy', accepted: true }
+    });
+    expect(put.mock.calls[0][0]).toContain('/comments/comment?application_id=owner');
+    expect(put.mock.calls[0][1]).toMatchObject({ expected_revision: 2, guidelines_reviewed: true });
+  });
+});

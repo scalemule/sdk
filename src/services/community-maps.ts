@@ -28,6 +28,8 @@ export interface CommunityMapReactionDefinition {
   icon: string;
 }
 export interface CommunityMapCollectionConfig {
+  voting_enabled?: boolean;
+  comments_enabled?: boolean;
   title: string;
   description: string;
   kind: string;
@@ -96,6 +98,45 @@ export interface CommunityMapFeature {
 export interface CommunityMapPage<T> {
   items: T[];
   next_cursor: string | null;
+}
+export interface CommunityMapVote {
+  value: -1 | 0 | 1;
+  up_count: number;
+  down_count: number;
+  score: number;
+  can_vote: boolean;
+}
+export interface CommunityMapComment {
+  id: string;
+  body: string;
+  author_name: string | null;
+  parent_comment_id: string | null;
+  depth: number;
+  status: 'approved';
+  created_at: string;
+  updated_at: string;
+}
+export interface CommunityMapCommentInput {
+  body: string;
+  author_name: string;
+  parent_comment_id?: string | null;
+  consent: { version: string; accepted: boolean };
+}
+export interface CommunityMapCommentPage<T = CommunityMapComment> {
+  items: T[];
+  next_page: number | null;
+}
+export interface CommunityMapEditorialComment extends Omit<CommunityMapComment, 'status'> {
+  status: 'pending' | 'approved' | 'spam' | 'deleted';
+  revision: number;
+  thread_id: string;
+  target_type: 'community_map_collection' | 'community_map_feature';
+  target_id: string;
+  scope_type: 'community_map_collection';
+  scope_id: string;
+  author_user_id: string | null;
+  author_email: string | null;
+  consent?: CommunityMapConsent | null;
 }
 export interface CommunityMapFeatureQuery {
   after?: string;
@@ -297,6 +338,39 @@ export class CommunityMapsService extends ServiceModule {
       options
     );
   }
+  /** Read public totals and the signed-in reader's current vote. */
+  getVote(slug: string, feature: string, options?: RequestOptions): Promise<ApiResponse<CommunityMapVote>> {
+    return this._get('/collections/' + segment(slug) + '/features/' + segment(feature) + '/vote', options);
+  }
+  /** One vote per signed-in reader: 1 up, -1 down, 0 clear. */
+  vote(
+    slug: string,
+    feature: string,
+    value: -1 | 0 | 1,
+    options?: RequestOptions
+  ): Promise<ApiResponse<CommunityMapVote>> {
+    return this.post('/collections/' + segment(slug) + '/features/' + segment(feature) + '/vote', { value }, options);
+  }
+  listComments(
+    slug: string,
+    query: { feature_id?: string; page?: number } = {},
+    options?: RequestOptions
+  ): Promise<ApiResponse<CommunityMapCommentPage>> {
+    return this._get(this.withQuery('/collections/' + segment(slug) + '/comments', query), options);
+  }
+  /** All Community Maps comments require editorial review, including authenticated replies. */
+  createComment(
+    slug: string,
+    data: CommunityMapCommentInput,
+    featureId?: string,
+    options?: RequestOptions
+  ): Promise<ApiResponse<{ id: string; status: 'pending' }>> {
+    return this.post(
+      this.withQuery('/collections/' + segment(slug) + '/comments', { feature_id: featureId }),
+      data,
+      options
+    );
+  }
   react(
     slug: string,
     feature: string,
@@ -338,6 +412,21 @@ export class CommunityMapsEditorialService extends ServiceModule {
   }
   private path(path: string, query: Record<string, unknown> = {}): string {
     return this.withQuery(path, { ...query, ...(this.applicationId ? { application_id: this.applicationId } : {}) });
+  }
+  listComments(
+    collection: string,
+    query: { feature_id?: string; page?: number; status?: CommunityMapEditorialComment['status'] } = {},
+    options?: RequestOptions
+  ): Promise<ApiResponse<CommunityMapCommentPage<CommunityMapEditorialComment>>> {
+    return this._get(this.path('/collections/' + segment(collection) + '/comments', query), options);
+  }
+  reviewComment(
+    collection: string,
+    comment: string,
+    data: { status: CommunityMapEditorialComment['status']; expected_revision: number; guidelines_reviewed?: boolean },
+    options?: RequestOptions
+  ): Promise<ApiResponse<CommunityMapEditorialComment>> {
+    return this.put(this.path('/collections/' + segment(collection) + '/comments/' + segment(comment)), data, options);
   }
   listCollections(
     query: CommunityMapQueueQuery = {},
