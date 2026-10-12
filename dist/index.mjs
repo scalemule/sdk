@@ -6805,6 +6805,167 @@ var ListingsService = class extends ServiceModule {
   }
 };
 
+// src/services/community-maps.ts
+var segment = (value) => encodeURIComponent(value);
+var CommunityMapsService = class extends ServiceModule {
+  constructor(client) {
+    super(client);
+    this.basePath = "/v1/knowledge/community-maps";
+    this.editorial = new CommunityMapsEditorialService(client);
+    this.geography = new CommunityMapsGeographyService(client);
+  }
+  listCollections(query = {}, options) {
+    return this._get(this.withQuery("/collections", { ...query }), options);
+  }
+  getCollection(slug, options) {
+    return this._get("/collections/" + segment(slug), options);
+  }
+  listFeatures(slug, query = {}, options) {
+    return this._get(this.withQuery("/collections/" + segment(slug) + "/features", { ...query }), options);
+  }
+  getFeature(slug, id, options) {
+    return this._get("/collections/" + segment(slug) + "/features/" + segment(id), options);
+  }
+  createSubmission(slug, data, options) {
+    return this.post("/collections/" + segment(slug) + "/submissions", data, options);
+  }
+  uploadPhoto(slug, submission, file, fields, options) {
+    return this._upload(
+      "/collections/" + segment(slug) + "/submissions/" + segment(submission) + "/media",
+      file,
+      { caption: fields.caption, attribution: fields.attribution, rights_confirmed: String(fields.rights_confirmed) },
+      options
+    );
+  }
+  react(slug, feature, reaction, active = true, options) {
+    return this.post(
+      "/collections/" + segment(slug) + "/features/" + segment(feature) + "/reactions",
+      { reaction, active },
+      options
+    );
+  }
+  report(slug, feature, data, options) {
+    return this.post("/collections/" + segment(slug) + "/features/" + segment(feature) + "/reports", data, options);
+  }
+  /** Proxy this path through your server; never append a secret API key to an image URL. */
+  mediaPath(slug, media) {
+    return this.basePath + "/collections/" + segment(slug) + "/media/" + segment(media);
+  }
+};
+var CommunityMapsEditorialService = class _CommunityMapsEditorialService extends ServiceModule {
+  constructor(client, applicationId) {
+    super(client);
+    this.applicationId = applicationId;
+    this.basePath = "/v1/knowledge/community-maps/manage";
+  }
+  forApplication(id) {
+    return new _CommunityMapsEditorialService(this.client, id);
+  }
+  path(path, query = {}) {
+    return this.withQuery(path, { ...query, ...this.applicationId ? { application_id: this.applicationId } : {} });
+  }
+  listCollections(query = {}, options) {
+    return this._get(this.path("/collections", { ...query }), options);
+  }
+  getCollection(id, options) {
+    return this._get(this.path("/collections/" + segment(id)), options);
+  }
+  createCollection(data, options) {
+    return this.post(this.path("/collections"), data, options);
+  }
+  updateCollection(id, data, options) {
+    return this.put(this.path("/collections/" + segment(id)), data, options);
+  }
+  listFeatures(collection, query = {}, options) {
+    return this._get(this.path("/collections/" + segment(collection) + "/features", { ...query }), options);
+  }
+  getFeature(collection, id, options) {
+    return this._get(this.path("/collections/" + segment(collection) + "/features/" + segment(id)), options);
+  }
+  createFeature(collection, data, options) {
+    return this.post(this.path("/collections/" + segment(collection) + "/features"), data, options);
+  }
+  updateFeature(collection, id, data, options) {
+    return this.put(this.path("/collections/" + segment(collection) + "/features/" + segment(id)), data, options);
+  }
+  featureCommand(collection, id, data, options) {
+    return this.post(
+      this.path("/collections/" + segment(collection) + "/features/" + segment(id) + "/commands"),
+      data,
+      options
+    );
+  }
+  listSubmissions(collection, query = {}, options) {
+    return this._get(this.path("/collections/" + segment(collection) + "/submissions", { ...query }), options);
+  }
+  reviewSubmission(collection, id, data, options) {
+    return this.post(
+      this.path("/collections/" + segment(collection) + "/submissions/" + segment(id) + "/commands"),
+      data,
+      options
+    );
+  }
+  duplicates(collection, submission, options) {
+    return this._get(
+      this.path("/collections/" + segment(collection) + "/submissions/" + segment(submission) + "/duplicates"),
+      options
+    );
+  }
+  listReports(collection, query = {}, options) {
+    return this._get(this.path("/collections/" + segment(collection) + "/reports", { ...query }), options);
+  }
+  reviewReport(collection, id, data, options) {
+    return this.post(
+      this.path("/collections/" + segment(collection) + "/reports/" + segment(id) + "/commands"),
+      data,
+      options
+    );
+  }
+  listMedia(collection, query = {}, options) {
+    return this._get(this.path("/collections/" + segment(collection) + "/media", { ...query }), options);
+  }
+  reviewMedia(collection, id, data, options) {
+    return this.put(this.path("/collections/" + segment(collection) + "/media/" + segment(id)), data, options);
+  }
+  inviteView(collection, data, options) {
+    return this.post(this.path("/collections/" + segment(collection) + "/views"), data, options);
+  }
+  listViews(query = {}, options) {
+    return this._get(this.path("/views", { ...query }), options);
+  }
+  acceptView(id, data, options) {
+    return this.put(this.path("/views/" + segment(id)), data, options);
+  }
+  revokeView(collection, view, options) {
+    return this.del(this.path("/collections/" + segment(collection) + "/views/" + segment(view)), options);
+  }
+  getCoverage(publication, options) {
+    return this._get(this.path("/coverage/" + segment(publication)), options);
+  }
+  setCoverage(publication, areaIds, expectedRevision, options) {
+    return this.put(
+      this.path("/coverage/" + segment(publication)),
+      { area_ids: areaIds, expected_revision: expectedRevision },
+      options
+    );
+  }
+};
+var CommunityMapsGeographyService = class extends ServiceModule {
+  constructor() {
+    super(...arguments);
+    this.basePath = "/v1/knowledge/community-maps/admin/geography";
+  }
+  list(query = {}, options) {
+    return this._get(this.withQuery("", { ...query }), options);
+  }
+  save(data, options) {
+    return this.post("", data, options);
+  }
+  referencePlaces(query, options) {
+    return this._get(this.withQuery("/reference-places", query), options);
+  }
+};
+
 // src/services/polls.ts
 var PollsService = class extends ServiceModule {
   constructor() {
@@ -8830,6 +8991,7 @@ var ScaleMule = class {
     this.webhooks = new WebhooksService(this._client);
     this.leaderboard = new LeaderboardService(this._client);
     this.listings = new ListingsService(this._client);
+    this.communityMaps = new CommunityMapsService(this._client);
     this.polls = new PollsService(this._client);
     this.events = new EventsService(this._client);
     this.graph = new GraphService(this._client);
@@ -8988,6 +9150,9 @@ export {
   CatalogService,
   ChatService,
   CommunicationService,
+  CommunityMapsEditorialService,
+  CommunityMapsGeographyService,
+  CommunityMapsService,
   ComplianceService,
   ConferenceService,
   CreatorMakerService,

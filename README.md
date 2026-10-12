@@ -540,3 +540,30 @@ import type {
 ## License
 
 Proprietary - ScaleMule Inc.
+
+## Community Maps
+
+`sm.communityMaps` provides reusable geographic collections. Public responses contain
+approved public geometry and published media references. Private proposals, contacts,
+and moderation notes are available only through authorized `editorial` methods.
+
+```ts
+const guide = await sm.communityMaps.getCollection('halloween-2026');
+const places = await sm.communityMaps.listFeatures('halloween-2026', {
+  area_id: selectedAreaId, geometry_type: 'LineString', limit: 50,
+});
+// Use places.data.next_cursor as `after` for the next page.
+const queue = await sm.communityMaps.editorial.listSubmissions(collectionId);
+```
+
+Use the normal ScaleMule client credentials and request context. Server API keys
+stay on the server. Anonymous writes need a stable reader UUID and trusted network
+context. The news-publication server adapter supplies a signed HttpOnly reader cookie.
+`forApplication(id)` selects an administrative scope; it does not grant access.
+Canonical geography maintenance uses `communityMaps.geography` and requires a
+platform administrator. Public geographic areas are included in each collection.
+
+Mutations require optimistic revisions. Collection/feature edits never auto-publish.
+Submission/report retries reuse the same UUID `idempotency_key` for unchanged input.
+Residential `EXACT_PUBLIC` locations are rejected. Photo approval and publication
+are separate actions; `mediaPath()` returns a path to proxy, never a signed file URL.
