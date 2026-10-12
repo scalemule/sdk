@@ -866,7 +866,11 @@ export class ScaleMuleClient {
       // or login call before any other SDK method has touched storage. The
       // instance-level single-flight on `ensureAnonymousId()` guarantees that a
       // burst of concurrent first requests all see the same minted value.
-      if (!init.skipAuth && !this.sessionToken) {
+      if (
+        !init.skipAuth &&
+        !this.sessionToken &&
+        !Object.keys(headers).some((key) => key.toLowerCase() === 'x-anonymous-id')
+      ) {
         if (!this.anonymousId) {
           try {
             await this.ensureAnonymousId();
@@ -1133,7 +1137,7 @@ export class ScaleMuleClient {
 
     // Use XMLHttpRequest for progress support in browser
     if (options?.onProgress && typeof XMLHttpRequest !== 'undefined') {
-      return this.uploadWithXHR<T>(url, buildFormData, options.onProgress, options?.signal);
+      return this.uploadWithXHR<T>(url, buildFormData, options.onProgress, options);
     }
 
     // Fetch-based upload with retry
@@ -1141,9 +1145,7 @@ export class ScaleMuleClient {
     let lastError: ApiError | null = null;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      const headers: Record<string, string> = { 'x-api-key': this.apiKey };
-      if (this.sessionToken) headers['Authorization'] = `Bearer ${this.sessionToken}`;
-      if (this.workspaceId) headers['x-sm-workspace-id'] = this.workspaceId;
+      const headers = await this.uploadHeaders(options);
 
       try {
         const response = await fetch(url, {
@@ -1192,6 +1194,21 @@ export class ScaleMuleClient {
     return { data: null, error: lastError || { code: 'upload_error', message: 'Upload failed', status: 0 } };
   }
 
+  /** Preserve forwarded reader/auth context for both multipart transports. */
+  private async uploadHeaders(options?: RequestOptions): Promise<Record<string, string>> {
+    const headers: Record<string, string> = { 'x-api-key': this.apiKey, ...options?.headers };
+    // The transport must generate the multipart boundary for the actual body.
+    for (const name of Object.keys(headers)) {
+      if (name.toLowerCase() === 'content-type') delete headers[name];
+    }
+    if (this.sessionToken) headers['Authorization'] = `Bearer ${this.sessionToken}`;
+    if (this.workspaceId) headers['x-sm-workspace-id'] = this.workspaceId;
+    if (!this.sessionToken && !Object.keys(headers).some((key) => key.toLowerCase() === 'x-anonymous-id')) {
+      headers['x-anonymous-id'] = await this.ensureAnonymousId();
+    }
+    return headers;
+  }
+
   /**
    * Single upload with XMLHttpRequest for progress tracking.
    * Supports abort via AbortSignal.
@@ -1200,12 +1217,14 @@ export class ScaleMuleClient {
     url: string,
     buildFormData: () => FormData,
     onProgress: (progress: number) => void,
-    signal?: AbortSignal,
-    maxRetries = this.maxRetries
+    options?: RequestOptions
   ): Promise<ApiResponse<T>> {
+    const signal = options?.signal;
+    const maxRetries = options?.retries ?? this.maxRetries;
     let lastError: ApiError | null = null;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const headers = await this.uploadHeaders(options);
       const result = await new Promise<ApiResponse<T>>((res) => {
         const xhr = new XMLHttpRequest();
 
@@ -1255,12 +1274,8 @@ export class ScaleMuleClient {
         });
 
         xhr.open('POST', url);
-        xhr.setRequestHeader('x-api-key', this.apiKey);
-        if (this.sessionToken) {
-          xhr.setRequestHeader('Authorization', `Bearer ${this.sessionToken}`);
-        }
-        if (this.workspaceId) {
-          xhr.setRequestHeader('x-sm-workspace-id', this.workspaceId);
+        for (const [name, value] of Object.entries(headers)) {
+          xhr.setRequestHeader(name, value);
         }
         xhr.send(buildFormData());
       });

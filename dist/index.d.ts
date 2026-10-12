@@ -565,6 +565,8 @@ declare class ScaleMuleClient {
     upload<T>(path: string, file: File | Blob, additionalFields?: Record<string, string>, options?: RequestOptions & {
         onProgress?: (progress: number) => void;
     }): Promise<ApiResponse<T>>;
+    /** Preserve forwarded reader/auth context for both multipart transports. */
+    private uploadHeaders;
     /**
      * Single upload with XMLHttpRequest for progress tracking.
      * Supports abort via AbortSignal.
