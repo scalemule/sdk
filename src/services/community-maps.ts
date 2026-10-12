@@ -39,7 +39,17 @@ export interface CommunityMapCollectionConfig {
   reactions: CommunityMapReactionDefinition[];
   presentation: { accent?: string | null; season?: string | null; map_style_url?: string | null };
 }
+export interface CommunityMapSubmissionPolicy {
+  version: string;
+  text: string;
+  guidelines: string;
+}
+export interface CommunityMapConsent extends CommunityMapSubmissionPolicy {
+  accepted: true;
+  accepted_at: string;
+}
 export interface CommunityMapCollection {
+  submission_policy?: CommunityMapSubmissionPolicy;
   id: string;
   slug: string;
   revision: number;
@@ -64,6 +74,7 @@ export interface CommunityMapPublicContent {
   metadata: Record<string, string | number | boolean | null>;
 }
 export interface CommunityMapMedia {
+  content_type?: string;
   id: string;
   caption: string;
   attribution: string;
@@ -112,6 +123,7 @@ export interface CommunityMapProposal {
   correction_for?: string | null;
 }
 export interface CommunityMapSubmissionInput {
+  consent: { version: string; accepted: boolean };
   area_id: string;
   idempotency_key: string;
   proposal: CommunityMapProposal;
@@ -160,6 +172,7 @@ export interface CommunityMapEditorialFeature extends Omit<CommunityMapFeature, 
 }
 /** Returned only by editorial endpoints after server-side authorization. */
 export interface CommunityMapPrivateSubmission {
+  consent?: CommunityMapConsent | null;
   id: string;
   area_id: string;
   feature_id: string | null;
@@ -199,6 +212,7 @@ export interface CommunityMapPrivateReport {
   created_at: string;
 }
 export interface CommunityMapEditorialMedia extends CommunityMapMedia {
+  consent?: CommunityMapConsent | null;
   submission_id: string | null;
   feature_id: string | null;
   status: string;
@@ -248,17 +262,38 @@ export class CommunityMapsService extends ServiceModule {
   ): Promise<ApiResponse<CommunityMapReceipt>> {
     return this.post('/collections/' + segment(slug) + '/submissions', data, options);
   }
-  uploadPhoto(
+  uploadMedia(
     slug: string,
     submission: string,
     file: File | Blob,
-    fields: { caption: string; attribution: string; rights_confirmed: boolean },
+    fields: { caption: string; attribution: string; rights_confirmed: boolean; consent_version: string },
     options?: RequestOptions
   ): Promise<ApiResponse<{ id: string; status: string }>> {
     return this._upload(
       '/collections/' + segment(slug) + '/submissions/' + segment(submission) + '/media',
       file,
-      { caption: fields.caption, attribution: fields.attribution, rights_confirmed: String(fields.rights_confirmed) },
+      {
+        caption: fields.caption,
+        attribution: fields.attribution,
+        rights_confirmed: String(fields.rights_confirmed),
+        consent_version: fields.consent_version
+      },
+      options
+    );
+  }
+  /** @deprecated Use uploadMedia for photos, video and audio. Explicit publication permission is required. */
+  uploadPhoto(
+    slug: string,
+    submission: string,
+    file: File | Blob,
+    fields: { caption: string; attribution: string; rights_confirmed: boolean; consent_version?: string },
+    options?: RequestOptions
+  ): Promise<ApiResponse<{ id: string; status: string }>> {
+    return this.uploadMedia(
+      slug,
+      submission,
+      file,
+      { ...fields, consent_version: fields.consent_version || '' },
       options
     );
   }
@@ -447,6 +482,7 @@ export class CommunityMapsEditorialService extends ServiceModule {
     data: {
       expected_revision: number;
       status: 'APPROVED' | 'PUBLISHED' | 'REJECTED' | 'REMOVED';
+      guidelines_reviewed?: boolean;
       feature_id?: string | null;
       caption: string;
       attribution: string;
