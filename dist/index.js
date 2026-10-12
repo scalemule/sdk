@@ -1185,7 +1185,7 @@ var ScaleMuleClient = class {
       if (this.workspaceId) {
         headers["x-sm-workspace-id"] = this.workspaceId;
       }
-      if (!init.skipAuth && !this.sessionToken) {
+      if (!init.skipAuth && !this.sessionToken && !Object.keys(headers).some((key) => key.toLowerCase() === "x-anonymous-id")) {
         if (!this.anonymousId) {
           try {
             await this.ensureAnonymousId();
@@ -1382,14 +1382,12 @@ var ScaleMuleClient = class {
       return { data: null, error: { code: "aborted", message: "Upload aborted", status: 0 } };
     }
     if (options?.onProgress && typeof XMLHttpRequest !== "undefined") {
-      return this.uploadWithXHR(url, buildFormData, options.onProgress, options?.signal);
+      return this.uploadWithXHR(url, buildFormData, options.onProgress, options);
     }
     const maxRetries = options?.retries ?? this.maxRetries;
     let lastError = null;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      const headers = { "x-api-key": this.apiKey };
-      if (this.sessionToken) headers["Authorization"] = `Bearer ${this.sessionToken}`;
-      if (this.workspaceId) headers["x-sm-workspace-id"] = this.workspaceId;
+      const headers = await this.uploadHeaders(options);
       try {
         const response = await fetch(url, {
           method: "POST",
@@ -1431,13 +1429,29 @@ var ScaleMuleClient = class {
     }
     return { data: null, error: lastError || { code: "upload_error", message: "Upload failed", status: 0 } };
   }
+  /** Preserve forwarded reader/auth context for both multipart transports. */
+  async uploadHeaders(options) {
+    const headers = { "x-api-key": this.apiKey, ...options?.headers };
+    for (const name of Object.keys(headers)) {
+      if (name.toLowerCase() === "content-type") delete headers[name];
+    }
+    if (this.sessionToken) headers["Authorization"] = `Bearer ${this.sessionToken}`;
+    if (this.workspaceId) headers["x-sm-workspace-id"] = this.workspaceId;
+    if (!this.sessionToken && !Object.keys(headers).some((key) => key.toLowerCase() === "x-anonymous-id")) {
+      headers["x-anonymous-id"] = await this.ensureAnonymousId();
+    }
+    return headers;
+  }
   /**
    * Single upload with XMLHttpRequest for progress tracking.
    * Supports abort via AbortSignal.
    */
-  async uploadWithXHR(url, buildFormData, onProgress, signal, maxRetries = this.maxRetries) {
+  async uploadWithXHR(url, buildFormData, onProgress, options) {
+    const signal = options?.signal;
+    const maxRetries = options?.retries ?? this.maxRetries;
     let lastError = null;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const headers = await this.uploadHeaders(options);
       const result = await new Promise((res) => {
         const xhr = new XMLHttpRequest();
         if (signal) {
@@ -1480,12 +1494,8 @@ var ScaleMuleClient = class {
           res({ data: null, error: { code: "aborted", message: "Upload aborted", status: 0 } });
         });
         xhr.open("POST", url);
-        xhr.setRequestHeader("x-api-key", this.apiKey);
-        if (this.sessionToken) {
-          xhr.setRequestHeader("Authorization", `Bearer ${this.sessionToken}`);
-        }
-        if (this.workspaceId) {
-          xhr.setRequestHeader("x-sm-workspace-id", this.workspaceId);
+        for (const [name, value] of Object.entries(headers)) {
+          xhr.setRequestHeader(name, value);
         }
         xhr.send(buildFormData());
       });
