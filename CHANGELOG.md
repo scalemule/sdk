@@ -1,10 +1,16 @@
+# Changelog
+
+## 0.0.76 - 2026-10-13
+
+- Add the opt-in `localIntelligence` News/BaseNews client and scoped, expiring agent-cache helper. Existing authentication and publication workflows are unchanged.
+- Publication UI, BaseNews hosting and broad agent activation remain subsequent rollout work.
+
 ## 0.0.75
 
 - Add bounded browser photo preparation and 15-second video / 60-second voice capture, following CoralMeet capture limits. Recording tracks are released on completion, cancellation, or permission races.
 - Add contributor-owned Community Maps history/updates and stable attachment retry keys. The publication backend still owns authorization and moderation.
 - Make browser image compression a normal, lazily loaded dependency so bundlers can resolve it without eval. HEIC conversion and uploads while the browser is closed remain unsupported.
 
-# Changelog
 
 ## 0.0.70
 
@@ -19,7 +25,7 @@ All notable changes to this package are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.0.76] - 2026-10-13
 
 ## [0.0.67] - 2026-09-22
 

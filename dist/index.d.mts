@@ -5626,6 +5626,242 @@ declare class CommunityMapsGeographyService extends ServiceModule {
     }>>;
 }
 
+/** BaseNews delivery through the existing News service and ScaleMule identity.
+ * Records are evidence-backed projections; a release is not an article.
+ * Honor refresh_after and removals. Never use this API as a source-text archive.
+ */
+
+type IntelligenceKind = 'event' | 'development' | 'community_story' | 'opportunity' | 'public_notice';
+type IntelligenceStatus = 'proposed' | 'approved' | 'scheduled' | 'ongoing' | 'completed' | 'canceled' | 'postponed' | 'disputed';
+type IntelligenceVerification = 'unverified' | 'community_submitted' | 'supported' | 'officially_confirmed' | 'independently_verified' | 'disputed';
+type IntelligenceSection = 'important' | 'around_you' | 'people' | 'discover' | 'participate';
+type CommunityValueOutcome = 'understand' | 'discover' | 'decide' | 'participate' | 'not_relevant';
+interface IntelligenceEvent {
+    starts_at: string;
+    ends_at: string;
+    time_zone: string;
+    place_entity_id: string | null;
+    organizer_entity_id: string | null;
+    series_entity_id: string | null;
+    cost: string | null;
+    accessibility: string | null;
+}
+interface IntelligenceAction {
+    label: string;
+    url: string;
+    deadline: string | null;
+}
+interface IntelligenceSource {
+    id: string;
+    title: string;
+    publisher: string;
+    url: string;
+    published_at: string | null;
+    retrieved_at: string | null;
+    kind: string;
+    distance: string;
+    interested_party: boolean | null;
+}
+interface IntelligenceClaim {
+    id: string;
+    text: string;
+    verification: 'UNVERIFIED' | 'SUPPORTED' | 'VERIFIED' | 'DISPUTED';
+    attribution: string | null;
+    evidence: {
+        source_id: string;
+        role: 'DIRECT' | 'CORROBORATING' | 'CONTEXT' | 'CONTRADICTING' | 'ATTRIBUTED_CLAIM';
+    }[];
+}
+interface LocalIntelligenceRecord {
+    contract_version: 'basenews/1';
+    id: string;
+    revision: number;
+    title: string;
+    why_it_matters: string;
+    kind: IntelligenceKind;
+    status: IntelligenceStatus;
+    section: IntelligenceSection;
+    civic_importance: boolean;
+    geography_ids: string[];
+    related_entity_ids: string[];
+    issue_entity_ids: string[];
+    topics: string[];
+    event: IntelligenceEvent | null;
+    actions: IntelligenceAction[];
+    claims: IntelligenceClaim[];
+    sources: IntelligenceSource[];
+    verification: IntelligenceVerification;
+    last_verified_at: string | null;
+    observed_at: string;
+    effective_at: string | null;
+    review_due_at: string;
+    published_at: string;
+    original_reporting_url: string | null;
+    original_byline: string;
+    originating_publication_id: string;
+    license: string;
+    supersedes_revision: number | null;
+    canonical_references: {
+        reporting_package_id: string;
+        reporting_revision: number;
+        event_id: string | null;
+        event_version: number | null;
+    };
+    /** Refresh or remove the record after this time. Access may have been revoked. */
+    refresh_after: string;
+    relevance_reasons?: string[];
+}
+interface LocalIntelligencePreferences {
+    personalized: boolean;
+    geography_ids: string[];
+    topic_codes: string[];
+    entity_ids: string[];
+    issue_ids: string[];
+    record_ids: string[];
+}
+interface IntelligenceRecordPage {
+    contract_version: 'basenews/1';
+    items: LocalIntelligenceRecord[];
+    next_cursor: string | null;
+    /** Keep the FIRST page's checkpoint while bootstrapping the inventory. */
+    changes_cursor: string;
+    /** Initialize IntelligenceCache.sequence from the FIRST page's value. */
+    changes_sequence: string;
+}
+interface IntelligenceChangePage {
+    contract_version: 'basenews/1';
+    scope: {
+        application_id: string;
+        publication_id: string;
+    };
+    items: {
+        sequence: string;
+        id: string;
+        changed_at: string;
+        removed: boolean;
+        record: LocalIntelligenceRecord | null;
+    }[];
+    next_cursor: string;
+    has_more: boolean;
+    lease_seconds: number;
+}
+interface LocalBriefing {
+    contract_version: 'basenews/1';
+    policy_version: string;
+    as_of: string;
+    geography_id: string;
+    personalized: boolean;
+    items: LocalIntelligenceRecord[];
+    more_available: boolean;
+    lease_seconds: number;
+}
+interface IntelligenceRelease {
+    package_id: string;
+    package_revision: number;
+    expected_revision: number;
+    title: string;
+    why_it_matters: string;
+    kind: IntelligenceKind;
+    status: IntelligenceStatus;
+    section: IntelligenceSection;
+    civic_importance: boolean;
+    claim_ids: string[];
+    geography_ids: string[];
+    related_entity_ids: string[];
+    issue_entity_ids: string[];
+    topics: string[];
+    event: IntelligenceEvent | null;
+    actions: IntelligenceAction[];
+    verification: IntelligenceVerification;
+    last_verified_at: string | null;
+    observed_at: string;
+    effective_at: string | null;
+    review_due_at: string;
+    original_reporting_url: string | null;
+    redistribution_permitted: boolean;
+    privacy_and_consent_reviewed: boolean;
+    license: string;
+    reason: string;
+    destinations: {
+        application_id: string;
+        publication_id: string;
+        expires_at: string;
+    }[];
+    sensitivity_review: {
+        policy_version: string;
+        rule_ids: string[];
+        reason: string;
+    } | null;
+}
+interface IntelligenceReleaseReceipt {
+    id: string;
+    revision: number;
+    contract_version: 'basenews/1';
+}
+/** API keys remain server-side in publication apps. Personal preference writes
+ * use the reader's authenticated session; agents cannot impersonate a reader.
+ * Methods retain the SDK's {data,error} contract and RequestOptions propagation.
+ */
+declare class LocalIntelligenceService extends ServiceModule {
+    protected basePath: string;
+    private scope;
+    records(publication: string, params?: {
+        cursor?: string;
+        limit?: number;
+        geography?: string;
+        kind?: IntelligenceKind;
+    }, options?: RequestOptions): Promise<ApiResponse<IntelligenceRecordPage>>;
+    get(publication: string, record: string, options?: RequestOptions): Promise<ApiResponse<LocalIntelligenceRecord>>;
+    changes(publication: string, params?: {
+        cursor?: string;
+        limit?: number;
+    }, options?: RequestOptions): Promise<ApiResponse<IntelligenceChangePage>>;
+    briefing(publication: string, params: {
+        geography: string;
+        limit?: number;
+        personalized?: boolean;
+    }, options?: RequestOptions): Promise<ApiResponse<LocalBriefing>>;
+    /** Agent-safe explicit preferences: evaluated for this request and never saved. */
+    briefingForPreferences(publication: string, input: {
+        geography: string;
+        preferences: LocalIntelligencePreferences;
+        limit?: number;
+    }, options?: RequestOptions): Promise<ApiResponse<LocalBriefing>>;
+    preferences(publication: string, options?: RequestOptions): Promise<ApiResponse<{
+        revision: number;
+        preferences: LocalIntelligencePreferences;
+    }>>;
+    savePreferences(publication: string, expectedRevision: number, preferences: LocalIntelligencePreferences, options?: RequestOptions): Promise<ApiResponse<{
+        revision: number;
+        preferences: LocalIntelligencePreferences;
+    }>>;
+    deletePreferences(publication: string, options?: RequestOptions): Promise<ApiResponse<void>>;
+    feedback(publication: string, record: string, recordRevision: number, outcome: CommunityValueOutcome, options?: RequestOptions): Promise<ApiResponse<{
+        recorded: boolean;
+    }>>;
+    deleteFeedback(publication: string, record: string, options?: RequestOptions): Promise<ApiResponse<void>>;
+    /** Requires a human editor with publication publish authority. */
+    release(publication: string, input: IntelligenceRelease, idempotencyKey: string, options?: RequestOptions): Promise<ApiResponse<IntelligenceReleaseReceipt>>;
+    withdraw(publication: string, record: string, expectedRevision: number, reason: string, options?: RequestOptions): Promise<ApiResponse<{
+        id: string;
+        revision: number;
+        removed: true;
+    }>>;
+}
+/** Apply a change batch only to a cache already scoped by application AND
+ * publication. Lease expiry is mandatory even when no change notification arrives.
+ * No persistence, tracking or cross-publication identity joins are performed.
+ */
+interface IntelligenceCache {
+    scope: {
+        application_id: string;
+        publication_id: string;
+    };
+    sequence: string;
+    records: ReadonlyMap<string, LocalIntelligenceRecord>;
+}
+declare function applyIntelligenceChanges(current: IntelligenceCache, changes: IntelligenceChangePage, now?: number): IntelligenceCache;
+
 /**
  * Polls Service Module
  *
@@ -8239,6 +8475,7 @@ declare class ScaleMule {
     readonly leaderboard: LeaderboardService;
     readonly listings: ListingsService;
     readonly communityMaps: CommunityMapsService;
+    readonly localIntelligence: LocalIntelligenceService;
     readonly polls: PollsService;
     readonly events: EventsService;
     readonly graph: GraphService;
@@ -8321,4 +8558,4 @@ declare class ScaleMule {
     getClient(): ScaleMuleClient;
 }
 
-export { type AcceptQuoteInput, type AccountBalance, type AccountSwitcherPrivacy, AccountsService, type ActiveUsers, type ActivityItem, AgentAuthService, AgentModelsService, type AgentProfile, AgentProjectsService, type AgentResponse, type AgentSecurityPolicy, AgentSessionsService, type AgentSigningKey, type AgentToken, type AgentToolEntitlement, AgentToolsService, type Workspace as AgentWorkspace, AgentsService, type AggregateOptions, type AggregateResult, type AnalyticsEvent, AnalyticsService, type ApiError, type ApiKey, type ApiResponse, type Appeal, type Application, type AppointmentDepositValue, type Attachment, type Attendee, type AudioRegisterResult, AudioService, type AudioUploadViaStorageResult, type AuditLog, type AuthRegisterAgentRequest, type AuthRegisterAgentResponse, AuthService, type AuthSession, type AuthUser, type BackupCodes, BillingService, type BookingCompletionResult, BookingsService, type CacheEntry, CacheService, type CalendarEvent, type CallParticipant, type CallSession, type CatalogEntry, CatalogService, type ChatMessage, type ChatReaction, ChatService, type ClaimResult, type Client, type ClientContext, type Collection, type Comment, CommunicationService, type CommunityMapArea, type CommunityMapCanonicalArea, type CommunityMapCollection, type CommunityMapCollectionConfig, type CommunityMapComment, type CommunityMapCommentInput, type CommunityMapCommentPage, type CommunityMapConsent, type CommunityMapEditorialCollection, type CommunityMapEditorialComment, type CommunityMapEditorialFeature, type CommunityMapEditorialMedia, type CommunityMapFeature, type CommunityMapFeatureDraft, type CommunityMapFeatureQuery, type CommunityMapFeatureStatus, type CommunityMapGeometry, type CommunityMapMedia, type CommunityMapOwnSubmission, type CommunityMapOwnSubmissionPage, type CommunityMapPage, type CommunityMapPosition, type CommunityMapPrecision, type CommunityMapPrivateReport, type CommunityMapPrivateSubmission, type CommunityMapProposal, type CommunityMapPublicContent, type CommunityMapQueueQuery, type CommunityMapReactionDefinition, type CommunityMapReceipt, type CommunityMapReportInput, type CommunityMapReportReason, type CommunityMapRevision, type CommunityMapSource, type CommunityMapSubmissionInput, type CommunityMapSubmissionPolicy, type CommunityMapSubmissionStatus, type CommunityMapSubmissionUpdate, type CommunityMapView, type CommunityMapVote, CommunityMapsEditorialService, CommunityMapsGeographyService, CommunityMapsService, type CompletedPart, ComplianceService, type CompressionConfig, ConferenceService, type ConferenceSettings, type ConnectedAccount, type ConnectedAccountSubscription, type ConnectedSetupIntentResponse, type ConnectedSubscriptionListParams, type ConnectionStatus, type ContentFlag, type ContentPolicy, type Conversation, type CostReportDay, type CreateProjectInput as CreateCreatorProjectInput, type CreateFlagRequest, type CreateLeadInput, type CreatePollInput, type CreateQuoteInput, type CreateRuleRequest, type CreateSegmentRequest, type CreateSessionResponse, type CreateVariantRequest, type GenerationJob as CreatorJob, CreatorMakerService, type GenerationOutput as CreatorOutput, type CreatorProject, type CreatorUsage, type Credential, type CredentialScope, type Customer, type CustomerStats, type DataAccessPolicy, type DataExport, DataService, type DataSource, type DeadLetterJob, type DecisionBatchItem, type DecisionBatchResult, type DecisionEvaluateOptions, type DecisionOutcome, type DecisionProposedAction, type DecisionReceipt, type DecisionResult, type DecisionTraceLevel, type DecisionVersions, DecisionsService, type DeviceInfo, type DirectoryUser, type DirectoryUserDetail, type DirectoryUsersListResponse, type Document, type ErrorCode, ErrorCodes, type EventAggregation, EventsService, type FileInfo, type FileStatus, type FlagAuditEntry, type FlagCheck, type FlagCondition, FlagContentService, type FlagDefinition, type FlagDetail, type FlagEnvironment, type FlagEvaluation, type FlagSegment, type FlagVariant, FlagsService, type FollowStatus, type FunctionExecution, type FunctionMetrics, FunctionsService, type Funnel, type FunnelConversion, type GdprRequest, type GenerateInput, type GrantInfo, type GraphEdge, type GraphNode, GraphService, IdentityService, type IdentityType, type IncomingRequestLike, type Invoice, type JobExecution, type JobStats, type JoinCallResponse, type KnownAccount, type KnownAccountDisplay, LEGACY_ANONYMOUS_ID_KEYS, type Lead, type Leaderboard, type LeaderboardEntry, LeaderboardService, LeadsService, type Like, type ListNotificationsParams, type Listing, ListingsService, type LogEntry, type LogInput, type LogQueryParams, type LogQueryResponse, type LogRecord, LoggerService, type LoginActivitySummary, type LoginDeviceInfo, type LoginHistoryEntry, type LoginRiskInfo, MEDIA_PRESETS, type MediaAsset, type MediaCaptureSession, type MediaKind, type MediaManifest, type MediaManifestOptions, type MediaPolicy, type MediaPreset, type MediaPresetSpec, MediaService, type MediaUploadEvent, type MediaUploadOptions, type MediaUploadPhase, type MediaUploadResult, type MessageCallback, type MessagePin, type MessageStatus, type MetricDataPoint, type MfaStatus, type Model, type ModelEntitlement, type ModelPricing, type ModelProvider, type UsageSummary as ModelUsageSummary, type MultipartCompleteResponse, type MultipartConfig, type MultipartPartUrl, type MultipartPartUrlsResponse, type MultipartStartResponse, type NetworkClass, type Notification, type NotificationListResponse, NotificationsService, type OAuthProvider, type OAuthUrl, OrchestratorService, PHOTO_BREAKPOINTS, type PaginatedResponse, type PaginationMetadata, type PaginationParams, type PartResult, type PartUrl, type Participant, type Payment, type PaymentListParams, type PaymentMethod, type PaymentStatusResponse, type Payout, type PayoutSchedule, type PermissionCheck, type PermissionMatrix, PermissionsService, type PhotoInfo, PhotoService, type PinnedMessagesResponse, type Pipeline, type PipelineVersion, type Policy, type Poll, type PollBallot, type PollChoice, type PollChoiceInput, type PollListOptions, type PollMedia, type PollMediaKind, type PollStatus, PollsService, type PresenceCallback, type PresenceEvent, type PresignedUploadResponse, type Price, type Product, type Project, type ProjectDocument, type ProjectGrant, type ProjectMember, type PushApiFetcher, type PushPreferences, type PushSettings, type PushSubscriptionInfo, type PushToken, type PushTokenAssociationResult, type PushTopic, type QueryFilter, type QueryOptions, type QuerySort, type QueueJob, QueueService, type Quote, type QuoteDeposit, type QuoteState, type ReadStatus, RealtimeService, type ReceiptVerification, type RedeemResult, type ReferralAnalytics, type ReferralCampaign, type ReferralProfile, type ReferralStats, ReferralsService, type Refund, type RegisterAgentRequest, type RegisterAgentResponse, type RegisterPushTokenData, type RequestOptions, type ResolvedReferral, type ResumeSession, type Role, type RuntimeTemplate, type RuntimeTemplateVersion, type S3MultipartOptions, type S3MultipartResult, type S3SingleUploadOptions, type S3SingleUploadResult, type S3UploadProgress, STORAGE_KEYS, ScaleMule, ScaleMuleClient, type ScaleMuleConfig, type SchedulerJob, SchedulerService, type SearchResult, SearchService, type SearchUsersParams, type SecurityLayers, type ServerlessFunction, type ServiceHealth, ServiceModule, type Session, type SessionArtifact, type SessionInfo, type SessionLog, type SessionPoolEntry, type Severity, type ShareLink, type ShortestPathResult, type SignedUrlResponse, type SocialContentProjection, type SocialContentProjectionInput, type SocialDiscoveryCreatorInput, type SocialPolicyAction, type SocialPolicyBatchDecisionItem, type SocialPolicyBatchDecisionRequest, type SocialPolicyBatchDecisionResponse, type SocialPolicyBatchDecisionTarget, type SocialPolicyBlockRequest, type SocialPolicyContactRequest, type SocialPolicyContactRequestListItem, type SocialPolicyContactRequestQuery, type SocialPolicyContactRequestRequest, type SocialPolicyContext, type SocialPolicyDecision, type SocialPolicyDecisionLimits, type SocialPolicyDecisionRequest, type SocialPolicyDecisionResponse, type SocialPolicyIdentity, type SocialPolicyIdentityType, type SocialPolicyMuteRequest, type SocialPolicyPolicyPack, type SocialPolicyRelationship, type SocialPolicyRelationshipQuery, type SocialPolicyRelationshipRequest, type SocialPolicyReportRequest, SocialPolicyService, type SocialPolicySettings, type SocialPolicyUnblockRequest, type SocialPolicyUpdateSettingsRequest, type SocialPost, SocialService, type SocialUser, type SsoConfig, type StatusCallback, type StorageAdapter, StorageService, type StorageSettings, type StrategyResult, type StylePreset, type SubmitResult, type Subscription, type TargetingRule, type Task, type TaskAttempt, type TaskTransition, type Team, type TeamInvitation, type TeamMember, TeamsService, type TelemetryPayload, type Tool, type ToolCapability, type ToolIntegration, type TopEvent, type TotpSetup, type Transaction, type TransactionListParams, type TransactionSummary, type TransactionSummaryParams, type Transfer, type TransformOptions, type TransformResult, type TraversalResult, type TtsAccessMode, type TtsAudioInfo, type TtsJobStatus, type TtsListVoicesParams, TtsService, type TtsSpeechMetadata, type TtsSpeechProfile, type TtsSynthesizeParams, type TtsSynthesizeQueuedResult, type TtsSynthesizeReadyResult, type TtsSynthesizeResult, type TtsVoice, type TtsVoicesResponse, type UnreadCountResponse, type UpdateFlagRequest, type UpdatePollInput, type UpdateRuleRequest, type UpdateSegmentRequest, type UpdateVariantRequest, type UploadCompleteResponse, type UploadEngineConfig, type UploadFailureReport, type UploadFailureReportResponse, type UploadOptions, type UploadPlan, UploadResumeStore, type UploadStrategy, UploadTelemetry, type UploadTelemetryConfig, type UploadTelemetryEvent, type UpsertEnvironmentRequest, type UsageRecord, type UsageSummary$1 as UsageSummary, type UserRank, type VideoInfo, VideoService, type VideoUploadOptions, type VoteState, WEB_PUSH_SERVICE_WORKER, WebPushManager, type WebPushManagerOptions, type WebPushSubscriptionData, type Webhook, WebhooksService, type WebrtcStats, type Workflow, type WorkflowExecution, type Workspace$1 as Workspace, type WorkspaceInvitation, type WorkspaceMember, WorkspacesService, buildClientContextHeaders, calculateTotalParts, canPerform, createUploadPlan, ScaleMule as default, detectNetworkClass, ensureAnonymousId, extractClientContext, generateAnonymousId, generateUploadSessionId, getMeasuredBandwidthMbps, getPartRange, hasMinRoleLevel, pollSharePercent, pollVoterKey, prepareCommunityMapAttachment, readAnonymousId, resolveStrategy, startMediaCapture, uploadMultipartToS3, uploadSingleToS3, validateIP };
+export { type AcceptQuoteInput, type AccountBalance, type AccountSwitcherPrivacy, AccountsService, type ActiveUsers, type ActivityItem, AgentAuthService, AgentModelsService, type AgentProfile, AgentProjectsService, type AgentResponse, type AgentSecurityPolicy, AgentSessionsService, type AgentSigningKey, type AgentToken, type AgentToolEntitlement, AgentToolsService, type Workspace as AgentWorkspace, AgentsService, type AggregateOptions, type AggregateResult, type AnalyticsEvent, AnalyticsService, type ApiError, type ApiKey, type ApiResponse, type Appeal, type Application, type AppointmentDepositValue, type Attachment, type Attendee, type AudioRegisterResult, AudioService, type AudioUploadViaStorageResult, type AuditLog, type AuthRegisterAgentRequest, type AuthRegisterAgentResponse, AuthService, type AuthSession, type AuthUser, type BackupCodes, BillingService, type BookingCompletionResult, BookingsService, type CacheEntry, CacheService, type CalendarEvent, type CallParticipant, type CallSession, type CatalogEntry, CatalogService, type ChatMessage, type ChatReaction, ChatService, type ClaimResult, type Client, type ClientContext, type Collection, type Comment, CommunicationService, type CommunityMapArea, type CommunityMapCanonicalArea, type CommunityMapCollection, type CommunityMapCollectionConfig, type CommunityMapComment, type CommunityMapCommentInput, type CommunityMapCommentPage, type CommunityMapConsent, type CommunityMapEditorialCollection, type CommunityMapEditorialComment, type CommunityMapEditorialFeature, type CommunityMapEditorialMedia, type CommunityMapFeature, type CommunityMapFeatureDraft, type CommunityMapFeatureQuery, type CommunityMapFeatureStatus, type CommunityMapGeometry, type CommunityMapMedia, type CommunityMapOwnSubmission, type CommunityMapOwnSubmissionPage, type CommunityMapPage, type CommunityMapPosition, type CommunityMapPrecision, type CommunityMapPrivateReport, type CommunityMapPrivateSubmission, type CommunityMapProposal, type CommunityMapPublicContent, type CommunityMapQueueQuery, type CommunityMapReactionDefinition, type CommunityMapReceipt, type CommunityMapReportInput, type CommunityMapReportReason, type CommunityMapRevision, type CommunityMapSource, type CommunityMapSubmissionInput, type CommunityMapSubmissionPolicy, type CommunityMapSubmissionStatus, type CommunityMapSubmissionUpdate, type CommunityMapView, type CommunityMapVote, CommunityMapsEditorialService, CommunityMapsGeographyService, CommunityMapsService, type CommunityValueOutcome, type CompletedPart, ComplianceService, type CompressionConfig, ConferenceService, type ConferenceSettings, type ConnectedAccount, type ConnectedAccountSubscription, type ConnectedSetupIntentResponse, type ConnectedSubscriptionListParams, type ConnectionStatus, type ContentFlag, type ContentPolicy, type Conversation, type CostReportDay, type CreateProjectInput as CreateCreatorProjectInput, type CreateFlagRequest, type CreateLeadInput, type CreatePollInput, type CreateQuoteInput, type CreateRuleRequest, type CreateSegmentRequest, type CreateSessionResponse, type CreateVariantRequest, type GenerationJob as CreatorJob, CreatorMakerService, type GenerationOutput as CreatorOutput, type CreatorProject, type CreatorUsage, type Credential, type CredentialScope, type Customer, type CustomerStats, type DataAccessPolicy, type DataExport, DataService, type DataSource, type DeadLetterJob, type DecisionBatchItem, type DecisionBatchResult, type DecisionEvaluateOptions, type DecisionOutcome, type DecisionProposedAction, type DecisionReceipt, type DecisionResult, type DecisionTraceLevel, type DecisionVersions, DecisionsService, type DeviceInfo, type DirectoryUser, type DirectoryUserDetail, type DirectoryUsersListResponse, type Document, type ErrorCode, ErrorCodes, type EventAggregation, EventsService, type FileInfo, type FileStatus, type FlagAuditEntry, type FlagCheck, type FlagCondition, FlagContentService, type FlagDefinition, type FlagDetail, type FlagEnvironment, type FlagEvaluation, type FlagSegment, type FlagVariant, FlagsService, type FollowStatus, type FunctionExecution, type FunctionMetrics, FunctionsService, type Funnel, type FunnelConversion, type GdprRequest, type GenerateInput, type GrantInfo, type GraphEdge, type GraphNode, GraphService, IdentityService, type IdentityType, type IncomingRequestLike, type IntelligenceAction, type IntelligenceCache, type IntelligenceChangePage, type IntelligenceClaim, type IntelligenceEvent, type IntelligenceKind, type IntelligenceRecordPage, type IntelligenceRelease, type IntelligenceReleaseReceipt, type IntelligenceSection, type IntelligenceSource, type IntelligenceStatus, type IntelligenceVerification, type Invoice, type JobExecution, type JobStats, type JoinCallResponse, type KnownAccount, type KnownAccountDisplay, LEGACY_ANONYMOUS_ID_KEYS, type Lead, type Leaderboard, type LeaderboardEntry, LeaderboardService, LeadsService, type Like, type ListNotificationsParams, type Listing, ListingsService, type LocalBriefing, type LocalIntelligencePreferences, type LocalIntelligenceRecord, LocalIntelligenceService, type LogEntry, type LogInput, type LogQueryParams, type LogQueryResponse, type LogRecord, LoggerService, type LoginActivitySummary, type LoginDeviceInfo, type LoginHistoryEntry, type LoginRiskInfo, MEDIA_PRESETS, type MediaAsset, type MediaCaptureSession, type MediaKind, type MediaManifest, type MediaManifestOptions, type MediaPolicy, type MediaPreset, type MediaPresetSpec, MediaService, type MediaUploadEvent, type MediaUploadOptions, type MediaUploadPhase, type MediaUploadResult, type MessageCallback, type MessagePin, type MessageStatus, type MetricDataPoint, type MfaStatus, type Model, type ModelEntitlement, type ModelPricing, type ModelProvider, type UsageSummary as ModelUsageSummary, type MultipartCompleteResponse, type MultipartConfig, type MultipartPartUrl, type MultipartPartUrlsResponse, type MultipartStartResponse, type NetworkClass, type Notification, type NotificationListResponse, NotificationsService, type OAuthProvider, type OAuthUrl, OrchestratorService, PHOTO_BREAKPOINTS, type PaginatedResponse, type PaginationMetadata, type PaginationParams, type PartResult, type PartUrl, type Participant, type Payment, type PaymentListParams, type PaymentMethod, type PaymentStatusResponse, type Payout, type PayoutSchedule, type PermissionCheck, type PermissionMatrix, PermissionsService, type PhotoInfo, PhotoService, type PinnedMessagesResponse, type Pipeline, type PipelineVersion, type Policy, type Poll, type PollBallot, type PollChoice, type PollChoiceInput, type PollListOptions, type PollMedia, type PollMediaKind, type PollStatus, PollsService, type PresenceCallback, type PresenceEvent, type PresignedUploadResponse, type Price, type Product, type Project, type ProjectDocument, type ProjectGrant, type ProjectMember, type PushApiFetcher, type PushPreferences, type PushSettings, type PushSubscriptionInfo, type PushToken, type PushTokenAssociationResult, type PushTopic, type QueryFilter, type QueryOptions, type QuerySort, type QueueJob, QueueService, type Quote, type QuoteDeposit, type QuoteState, type ReadStatus, RealtimeService, type ReceiptVerification, type RedeemResult, type ReferralAnalytics, type ReferralCampaign, type ReferralProfile, type ReferralStats, ReferralsService, type Refund, type RegisterAgentRequest, type RegisterAgentResponse, type RegisterPushTokenData, type RequestOptions, type ResolvedReferral, type ResumeSession, type Role, type RuntimeTemplate, type RuntimeTemplateVersion, type S3MultipartOptions, type S3MultipartResult, type S3SingleUploadOptions, type S3SingleUploadResult, type S3UploadProgress, STORAGE_KEYS, ScaleMule, ScaleMuleClient, type ScaleMuleConfig, type SchedulerJob, SchedulerService, type SearchResult, SearchService, type SearchUsersParams, type SecurityLayers, type ServerlessFunction, type ServiceHealth, ServiceModule, type Session, type SessionArtifact, type SessionInfo, type SessionLog, type SessionPoolEntry, type Severity, type ShareLink, type ShortestPathResult, type SignedUrlResponse, type SocialContentProjection, type SocialContentProjectionInput, type SocialDiscoveryCreatorInput, type SocialPolicyAction, type SocialPolicyBatchDecisionItem, type SocialPolicyBatchDecisionRequest, type SocialPolicyBatchDecisionResponse, type SocialPolicyBatchDecisionTarget, type SocialPolicyBlockRequest, type SocialPolicyContactRequest, type SocialPolicyContactRequestListItem, type SocialPolicyContactRequestQuery, type SocialPolicyContactRequestRequest, type SocialPolicyContext, type SocialPolicyDecision, type SocialPolicyDecisionLimits, type SocialPolicyDecisionRequest, type SocialPolicyDecisionResponse, type SocialPolicyIdentity, type SocialPolicyIdentityType, type SocialPolicyMuteRequest, type SocialPolicyPolicyPack, type SocialPolicyRelationship, type SocialPolicyRelationshipQuery, type SocialPolicyRelationshipRequest, type SocialPolicyReportRequest, SocialPolicyService, type SocialPolicySettings, type SocialPolicyUnblockRequest, type SocialPolicyUpdateSettingsRequest, type SocialPost, SocialService, type SocialUser, type SsoConfig, type StatusCallback, type StorageAdapter, StorageService, type StorageSettings, type StrategyResult, type StylePreset, type SubmitResult, type Subscription, type TargetingRule, type Task, type TaskAttempt, type TaskTransition, type Team, type TeamInvitation, type TeamMember, TeamsService, type TelemetryPayload, type Tool, type ToolCapability, type ToolIntegration, type TopEvent, type TotpSetup, type Transaction, type TransactionListParams, type TransactionSummary, type TransactionSummaryParams, type Transfer, type TransformOptions, type TransformResult, type TraversalResult, type TtsAccessMode, type TtsAudioInfo, type TtsJobStatus, type TtsListVoicesParams, TtsService, type TtsSpeechMetadata, type TtsSpeechProfile, type TtsSynthesizeParams, type TtsSynthesizeQueuedResult, type TtsSynthesizeReadyResult, type TtsSynthesizeResult, type TtsVoice, type TtsVoicesResponse, type UnreadCountResponse, type UpdateFlagRequest, type UpdatePollInput, type UpdateRuleRequest, type UpdateSegmentRequest, type UpdateVariantRequest, type UploadCompleteResponse, type UploadEngineConfig, type UploadFailureReport, type UploadFailureReportResponse, type UploadOptions, type UploadPlan, UploadResumeStore, type UploadStrategy, UploadTelemetry, type UploadTelemetryConfig, type UploadTelemetryEvent, type UpsertEnvironmentRequest, type UsageRecord, type UsageSummary$1 as UsageSummary, type UserRank, type VideoInfo, VideoService, type VideoUploadOptions, type VoteState, WEB_PUSH_SERVICE_WORKER, WebPushManager, type WebPushManagerOptions, type WebPushSubscriptionData, type Webhook, WebhooksService, type WebrtcStats, type Workflow, type WorkflowExecution, type Workspace$1 as Workspace, type WorkspaceInvitation, type WorkspaceMember, WorkspacesService, applyIntelligenceChanges, buildClientContextHeaders, calculateTotalParts, canPerform, createUploadPlan, ScaleMule as default, detectNetworkClass, ensureAnonymousId, extractClientContext, generateAnonymousId, generateUploadSessionId, getMeasuredBandwidthMbps, getPartRange, hasMinRoleLevel, pollSharePercent, pollVoterKey, prepareCommunityMapAttachment, readAnonymousId, resolveStrategy, startMediaCapture, uploadMultipartToS3, uploadSingleToS3, validateIP };
