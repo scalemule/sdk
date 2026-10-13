@@ -1,7 +1,9 @@
 "use strict";
+var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __esm = (fn, res) => function __init() {
   return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
@@ -18,6 +20,14 @@ var __copyProps = (to, from, except, desc) => {
   }
   return to;
 };
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // src/services/upload-resume.ts
@@ -258,7 +268,7 @@ async function loadImageCompression() {
   if (cachedImport === false) return null;
   if (cachedImport) return cachedImport;
   try {
-    const mod = await Function('return import("browser-image-compression")')();
+    const mod = await import("browser-image-compression");
     cachedImport = mod.default || mod;
     return cachedImport;
   } catch {
@@ -382,8 +392,10 @@ __export(index_exports, {
   normalizePhoneNumber: () => normalizePhoneNumber,
   pollSharePercent: () => pollSharePercent,
   pollVoterKey: () => pollVoterKey,
+  prepareCommunityMapAttachment: () => prepareCommunityMapAttachment,
   readAnonymousId: () => readAnonymousId,
   resolveStrategy: () => resolveStrategy,
+  startMediaCapture: () => startMediaCapture,
   uploadMultipartToS3: () => uploadMultipartToS3,
   uploadSingleToS3: () => uploadSingleToS3,
   validateIP: () => validateIP
@@ -1690,7 +1702,7 @@ function asString(parent, key) {
   return typeof value === "string" ? value : void 0;
 }
 
-// ../sdk/node_modules/@scalemule/ui/dist/phone/index.mjs
+// node_modules/@scalemule/ui/dist/phone/index.mjs
 var PHONE_COUNTRIES = [
   { code: "US", name: "United States", dialCode: "+1" },
   { code: "CA", name: "Canada", dialCode: "+1" },
@@ -6951,6 +6963,15 @@ var CommunityMapsService = class extends ServiceModule {
   createSubmission(slug, data, options) {
     return this.post("/collections/" + segment(slug) + "/submissions", data, options);
   }
+  listOwnSubmissions(slug, after, options) {
+    return this._get(
+      "/collections/" + segment(slug) + "/submissions" + (after ? "?after=" + segment(after) : ""),
+      options
+    );
+  }
+  updateOwnSubmission(slug, id, data, options) {
+    return this.post("/collections/" + segment(slug) + "/submissions/" + segment(id), data, options);
+  }
   uploadMedia(slug, submission, file, fields, options) {
     return this._upload(
       "/collections/" + segment(slug) + "/submissions/" + segment(submission) + "/media",
@@ -6959,7 +6980,8 @@ var CommunityMapsService = class extends ServiceModule {
         caption: fields.caption,
         attribution: fields.attribution,
         rights_confirmed: String(fields.rights_confirmed),
-        consent_version: fields.consent_version
+        consent_version: fields.consent_version,
+        ...fields.idempotency_key ? { idempotency_key: fields.idempotency_key } : {}
       },
       options
     );
@@ -9114,6 +9136,127 @@ var AgentSessionsService = class extends ServiceModule {
   }
 };
 
+// src/browser-capture.ts
+init_upload_compression();
+async function prepareCommunityMapAttachment(file) {
+  const types = [
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "video/mp4",
+    "video/quicktime",
+    "video/webm",
+    "audio/mpeg",
+    "audio/mp4",
+    "audio/wav",
+    "audio/x-wav",
+    "audio/ogg",
+    "audio/webm"
+  ];
+  if (!types.includes(file.type))
+    throw new Error(
+      "Choose JPEG, PNG or WebP photos, MP4/MOV/WebM video, or MP3/M4A/WAV/Ogg audio. For HEIC, export as JPEG first."
+    );
+  if (!file.size || file.size > 25 * 1024 * 1024)
+    throw new Error("Choose a file up to 25 MiB. Record a shorter clip if needed.");
+  if (!file.type.startsWith("image/")) return file;
+  const compressed = await maybeCompressImage(
+    file,
+    { maxWidth: 2400, maxHeight: 2400, maxSizeMB: 2, quality: 0.82 },
+    "community-capture",
+    null
+  );
+  const result = compressed ? new File(
+    [compressed],
+    file.name.replace(/\.[^.]+$/, "") + (compressed.type === "image/webp" ? ".webp" : ".jpg"),
+    { type: compressed.type, lastModified: file.lastModified }
+  ) : file;
+  if (result.size > 8 * 1024 * 1024)
+    throw new Error("This photo is too large. Choose a photo up to 8 MiB or use a smaller camera setting.");
+  return result;
+}
+async function startMediaCapture(kind, signal) {
+  const candidates = kind === "video" ? ["video/mp4;codecs=h264,aac", "video/mp4", "video/webm;codecs=vp8,opus", "video/webm"] : ["audio/mp4", "audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm"];
+  const mimeType = typeof MediaRecorder === "undefined" ? void 0 : candidates.find((t) => MediaRecorder.isTypeSupported(t));
+  if (!mimeType || !navigator.mediaDevices?.getUserMedia)
+    throw new Error("Recording is unavailable in this browser. Use the camera or choose a file instead.");
+  signal?.throwIfAborted();
+  const stream = await navigator.mediaDevices.getUserMedia(
+    kind === "video" ? {
+      audio: true,
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 1280, max: 1280 },
+        height: { ideal: 720, max: 720 },
+        frameRate: { ideal: 24, max: 30 }
+      }
+    } : { audio: { channelCount: { ideal: 1 }, echoCancellation: true, noiseSuppression: true }, video: false }
+  );
+  const release = () => stream.getTracks().forEach((t) => t.stop());
+  if (signal?.aborted) {
+    release();
+    signal.throwIfAborted();
+  }
+  let recorder;
+  try {
+    recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 2e6, audioBitsPerSecond: 96e3 });
+  } catch (e) {
+    release();
+    throw e;
+  }
+  let cancelled = false;
+  let failure;
+  let bytes = 0;
+  const chunks = [];
+  let timer;
+  const stop = () => {
+    if (recorder.state !== "inactive") recorder.stop();
+  };
+  const cancel = () => {
+    cancelled = true;
+    stop();
+    release();
+  };
+  const result = new Promise((resolve, reject) => {
+    const clean = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", cancel);
+      release();
+    };
+    recorder.ondataavailable = (event) => {
+      bytes += event.data.size;
+      if (bytes > 25 * 1024 * 1024) {
+        failure = new Error("The recording is too large. Try a shorter clip.");
+        stop();
+      } else if (event.data.size) chunks.push(event.data);
+    };
+    recorder.onerror = () => {
+      failure = new Error("Recording was interrupted. Try again or choose a file.");
+      stop();
+    };
+    recorder.onstop = () => {
+      clean();
+      if (failure) reject(failure);
+      else if (cancelled || !chunks.length) resolve(null);
+      else {
+        const type = recorder.mimeType.split(";")[0] || (kind === "audio" ? "audio/webm" : "video/webm");
+        const extension = type.includes("mp4") ? kind === "audio" ? "m4a" : "mp4" : type.includes("ogg") ? "ogg" : "webm";
+        resolve(new File(chunks, `community-${kind}-${Date.now()}.${extension}`, { type }));
+      }
+      chunks.length = 0;
+    };
+    signal?.addEventListener("abort", cancel, { once: true });
+    try {
+      recorder.start(250);
+      timer = setTimeout(stop, kind === "video" ? 15e3 : 6e4);
+    } catch (error) {
+      clean();
+      reject(error);
+    }
+  });
+  return { stream, result, stop, cancel };
+}
+
 // src/index.ts
 var ScaleMule = class {
   /** @deprecated Use `workspaces` instead */
@@ -9385,8 +9528,10 @@ var index_default = ScaleMule;
   normalizePhoneNumber,
   pollSharePercent,
   pollVoterKey,
+  prepareCommunityMapAttachment,
   readAnonymousId,
   resolveStrategy,
+  startMediaCapture,
   uploadMultipartToS3,
   uploadSingleToS3,
   validateIP
