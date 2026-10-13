@@ -567,3 +567,29 @@ Mutations require optimistic revisions. Collection/feature edits never auto-publ
 Submission/report retries reuse the same UUID `idempotency_key` for unchanged input.
 Residential `EXACT_PUBLIC` locations are rejected. Photo approval and publication
 are separate actions; `mediaPath()` returns a path to proxy, never a signed file URL.
+
+
+### Local intelligence (BaseNews foundation)
+
+`sdk.localIntelligence` provides typed access to the existing News service's opt-in
+`basenews/1` contract: approved record projections, supporting evidence, scoped
+changes, concise briefings, explicit preferences/follows, and voluntary utility
+feedback. Publication publish permission and a human review are required for
+`release`; being allowed to read intelligence never grants editorial authority.
+
+Use `briefing(publicationId, { geography, personalized: false })` for a useful
+nonpersonalized community view. `briefingForPreferences` accepts ephemeral
+explicit preferences for agents without reading another person's saved profile.
+Existing SDK authentication and request context apply; publication API keys remain
+server-side and no internal platform token belongs in an application.
+
+Cache records per application/publication, honor `refresh_after`, and remove
+tombstones. `applyIntelligenceChanges` preserves sequence precision, rejects gaps
+and cross-scope pages, and ignores replayed changes. When bootstrapping with
+`records`, retain the first page's `changes_cursor` and `changes_sequence`; use
+that sequence to initialize the cache, then consume changes serially. Leases must
+be refreshed even when the change feed is quiet. Responses represent current
+authorized state, not access to historical source documents.
+
+This feature requires the new News migration and explicit operator enablement.
+It does not change existing publishing, maps, jobs, classifieds or reader flows.

@@ -7026,6 +7026,97 @@ var CommunityMapsGeographyService = class extends ServiceModule {
   }
 };
 
+// src/services/local-intelligence.ts
+var LocalIntelligenceService = class extends ServiceModule {
+  constructor() {
+    super(...arguments);
+    this.basePath = "/v1/news";
+  }
+  scope(publication) {
+    return `/intelligence/publications/${encodeURIComponent(publication)}`;
+  }
+  records(publication, params = {}, options) {
+    return this._get(this.withQuery(`${this.scope(publication)}/records`, params), options);
+  }
+  get(publication, record, options) {
+    return this._get(`${this.scope(publication)}/records/${encodeURIComponent(record)}`, options);
+  }
+  changes(publication, params = {}, options) {
+    return this._get(this.withQuery(`${this.scope(publication)}/changes`, params), options);
+  }
+  briefing(publication, params, options) {
+    return this._get(this.withQuery(`${this.scope(publication)}/briefing`, params), options);
+  }
+  /** Agent-safe explicit preferences: evaluated for this request and never saved. */
+  briefingForPreferences(publication, input, options) {
+    return this.post(`${this.scope(publication)}/briefing`, input, options);
+  }
+  preferences(publication, options) {
+    return this._get(`${this.scope(publication)}/preferences`, options);
+  }
+  savePreferences(publication, expectedRevision, preferences, options) {
+    return this.put(
+      `${this.scope(publication)}/preferences`,
+      { expected_revision: expectedRevision, preferences },
+      options
+    );
+  }
+  deletePreferences(publication, options) {
+    return this.del(`${this.scope(publication)}/preferences`, options);
+  }
+  feedback(publication, record, recordRevision, outcome, options) {
+    return this.post(
+      `${this.scope(publication)}/records/${encodeURIComponent(record)}/feedback`,
+      { record_revision: recordRevision, outcome },
+      options
+    );
+  }
+  deleteFeedback(publication, record, options) {
+    return this.del(`${this.scope(publication)}/records/${encodeURIComponent(record)}/feedback`, options);
+  }
+  /** Requires a human editor with publication publish authority. */
+  release(publication, input, idempotencyKey, options) {
+    return this.post(`/publications/${encodeURIComponent(publication)}/intelligence`, input, {
+      ...options,
+      headers: { ...options?.headers, "idempotency-key": idempotencyKey }
+    });
+  }
+  withdraw(publication, record, expectedRevision, reason, options) {
+    return this.post(
+      `/publications/${encodeURIComponent(publication)}/intelligence/${encodeURIComponent(record)}/withdraw`,
+      { expected_revision: expectedRevision, reason },
+      options
+    );
+  }
+};
+function applyIntelligenceChanges(current, changes, now = Date.now()) {
+  if (changes.contract_version !== "basenews/1" || changes.scope.application_id !== current.scope.application_id || changes.scope.publication_id !== current.scope.publication_id)
+    throw new Error("Intelligence change scope mismatch");
+  const sequenceValue = (value) => {
+    if (!/^(0|[1-9][0-9]{0,19})$/.test(value)) throw new Error("Invalid intelligence sequence");
+    return BigInt(value);
+  };
+  let sequence = sequenceValue(current.sequence);
+  let previous = -1n;
+  const next = new Map(current.records);
+  for (const item of changes.items) {
+    const received = sequenceValue(item.sequence);
+    if (received <= previous) throw new Error("Unordered intelligence change batch");
+    previous = received;
+    if (received <= sequence) continue;
+    if (received !== sequence + 1n) throw new Error("Intelligence change gap; resume the previous cursor");
+    sequence = received;
+    if (item.removed || !item.record) next.delete(item.id);
+    else if (item.record.id !== item.id) throw new Error("Intelligence change identity mismatch");
+    else if (!next.has(item.id) || next.get(item.id).revision <= item.record.revision) next.set(item.id, item.record);
+  }
+  for (const [id, record] of next) {
+    const expiry = Date.parse(record.refresh_after);
+    if (record.contract_version !== "basenews/1" || !Number.isFinite(expiry) || expiry <= now) next.delete(id);
+  }
+  return { scope: current.scope, sequence: sequence.toString(), records: next };
+}
+
 // src/services/polls.ts
 var PollsService = class extends ServiceModule {
   constructor() {
@@ -9173,6 +9264,7 @@ var ScaleMule = class {
     this.leaderboard = new LeaderboardService(this._client);
     this.listings = new ListingsService(this._client);
     this.communityMaps = new CommunityMapsService(this._client);
+    this.localIntelligence = new LocalIntelligenceService(this._client);
     this.polls = new PollsService(this._client);
     this.events = new EventsService(this._client);
     this.graph = new GraphService(this._client);
@@ -9350,6 +9442,7 @@ export {
   LeaderboardService,
   LeadsService,
   ListingsService,
+  LocalIntelligenceService,
   LoggerService,
   MEDIA_PRESETS,
   MediaService,
@@ -9381,6 +9474,7 @@ export {
   WebPushManager,
   WebhooksService,
   WorkspacesService,
+  applyIntelligenceChanges,
   buildClientContextHeaders,
   calculateTotalParts,
   canPerform,
