@@ -155,11 +155,8 @@ async function loadImageCompression(): Promise<ImageCompressionFn | null> {
   if (cachedImport) return cachedImport;
 
   try {
-    // Dynamic import - external optional dependency
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const mod = await (Function('return import("browser-image-compression")')() as Promise<{
-      default?: ImageCompressionFn;
-    }>);
+    // Load browser compression only when an image needs it.
+    const mod = await import('browser-image-compression');
     cachedImport = mod.default || (mod as unknown as ImageCompressionFn);
     return cachedImport as ImageCompressionFn;
   } catch {

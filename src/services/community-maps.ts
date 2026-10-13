@@ -169,6 +169,25 @@ export interface CommunityMapSubmissionInput {
   idempotency_key: string;
   proposal: CommunityMapProposal;
 }
+export interface CommunityMapOwnSubmission {
+  id: string;
+  area_id: string;
+  status: CommunityMapSubmissionStatus;
+  revision: number;
+  editable: boolean;
+  proposal: CommunityMapProposal;
+  feature_id: string | null;
+  created_at: string;
+  media: { id: string; caption: string; attribution: string; content_type: string; status: string }[];
+}
+export interface CommunityMapOwnSubmissionPage extends CommunityMapPage<CommunityMapOwnSubmission> {
+  reader_key: string;
+}
+export interface CommunityMapSubmissionUpdate {
+  expected_revision: number;
+  proposal: CommunityMapProposal;
+  consent: { version: string; accepted: boolean };
+}
 export type CommunityMapReportReason =
   | 'no-longer-exists'
   | 'incorrect-location'
@@ -303,11 +322,35 @@ export class CommunityMapsService extends ServiceModule {
   ): Promise<ApiResponse<CommunityMapReceipt>> {
     return this.post('/collections/' + segment(slug) + '/submissions', data, options);
   }
+  listOwnSubmissions(
+    slug: string,
+    after?: string,
+    options?: RequestOptions
+  ): Promise<ApiResponse<CommunityMapOwnSubmissionPage>> {
+    return this._get(
+      '/collections/' + segment(slug) + '/submissions' + (after ? '?after=' + segment(after) : ''),
+      options
+    );
+  }
+  updateOwnSubmission(
+    slug: string,
+    id: string,
+    data: CommunityMapSubmissionUpdate,
+    options?: RequestOptions
+  ): Promise<ApiResponse<CommunityMapRevision>> {
+    return this.post('/collections/' + segment(slug) + '/submissions/' + segment(id), data, options);
+  }
   uploadMedia(
     slug: string,
     submission: string,
     file: File | Blob,
-    fields: { caption: string; attribution: string; rights_confirmed: boolean; consent_version: string },
+    fields: {
+      caption: string;
+      attribution: string;
+      rights_confirmed: boolean;
+      idempotency_key?: string;
+      consent_version: string;
+    },
     options?: RequestOptions
   ): Promise<ApiResponse<{ id: string; status: string }>> {
     return this._upload(
@@ -317,7 +360,8 @@ export class CommunityMapsService extends ServiceModule {
         caption: fields.caption,
         attribution: fields.attribution,
         rights_confirmed: String(fields.rights_confirmed),
-        consent_version: fields.consent_version
+        consent_version: fields.consent_version,
+        ...(fields.idempotency_key ? { idempotency_key: fields.idempotency_key } : {})
       },
       options
     );

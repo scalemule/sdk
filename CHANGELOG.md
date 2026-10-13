@@ -1,3 +1,9 @@
+## 0.0.75
+
+- Add bounded browser photo preparation and 15-second video / 60-second voice capture, following CoralMeet capture limits. Recording tracks are released on completion, cancellation, or permission races.
+- Add contributor-owned Community Maps history/updates and stable attachment retry keys. The publication backend still owns authorization and moderation.
+- Make browser image compression a normal, lazily loaded dependency so bundlers can resolve it without eval. HEIC conversion and uploads while the browser is closed remain unsupported.
+
 # Changelog
 
 ## 0.0.70

@@ -862,3 +862,6 @@ export class ScaleMule {
 }
 
 export default ScaleMule;
+
+export { prepareCommunityMapAttachment, startMediaCapture } from './browser-capture';
+export type { MediaCaptureSession } from './browser-capture';

@@ -1,6 +1,6 @@
 {
   "name": "@scalemule/sdk",
-  "version": "0.0.74",
+  "version": "0.0.75",
   "description": "Official TypeScript/JavaScript SDK for ScaleMule Backend-as-a-Service",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -63,15 +63,8 @@
   },
   "dependencies": {
     "@scalemule/ui": ">=0.0.1",
-    "semver": "^7.7.4"
-  },
-  "peerDependencies": {
-    "browser-image-compression": ">=2.0.0"
-  },
-  "peerDependenciesMeta": {
-    "browser-image-compression": {
-      "optional": true
-    }
+    "semver": "^7.7.4",
+    "browser-image-compression": "^2.0.2"
   },
   "devDependencies": {
     "@scalemule/ui": ">=0.0.1",
