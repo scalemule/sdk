@@ -247,6 +247,20 @@ export type {
   TopEvent,
   MetricDataPoint
 } from './services/analytics';
+// Experiments (A/B tests on flag variants): the convention shared with analytics
+export {
+  EXPERIMENTS_PROPERTY,
+  EXPERIMENT_EXPOSED_EVENT,
+  MAX_EXPERIMENTS_PER_EVENT,
+  experimentVariant,
+  exposureEvent,
+  exposureStorageKey,
+  isExperimentKey,
+  isVariantKey,
+  normalizeExperiments,
+  withExperiments
+} from './experiments';
+export type { ExperimentAssignment, ExperimentAssignments, ExperimentEvaluationLike } from './experiments';
 export { FlagsService } from './services/flags';
 export type {
   CreateFlagRequest,

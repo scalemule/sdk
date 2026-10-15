@@ -4,6 +4,7 @@
  */
 
 import { evaluateFlag } from './evaluator';
+import { experimentVariant, type ExperimentAssignment } from '../experiments';
 import type { FlagConfigWire, FlagWire, SegmentWire, EvaluationContext, FlagEvaluation } from './types';
 
 export interface FlagClientOptions {
@@ -105,6 +106,12 @@ export class FlagClient {
     const result = evaluateFlag(flagConfig, this.config, context, this.segmentIndex);
     this.recordTelemetry(result);
     return result;
+  }
+
+  /** Local-evaluation counterpart of `FlagsService.experiment`: the visitor's variant for a flag with weighted variants. */
+  experiment(flagKey: string, context: EvaluationContext): ExperimentAssignment {
+    const evaluation = this.evaluate(flagKey, context);
+    return { flag_key: flagKey, variant: experimentVariant(evaluation), evaluation };
   }
 
   evaluateBatch(flagKeys: string[], context: EvaluationContext): Record<string, FlagEvaluation> {

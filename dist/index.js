@@ -327,6 +327,8 @@ __export(index_exports, {
   CreatorMakerService: () => CreatorMakerService,
   DataService: () => DataService,
   DecisionsService: () => DecisionsService,
+  EXPERIMENTS_PROPERTY: () => EXPERIMENTS_PROPERTY,
+  EXPERIMENT_EXPOSED_EVENT: () => EXPERIMENT_EXPOSED_EVENT,
   ErrorCodes: () => ErrorCodes,
   EventsService: () => EventsService,
   FlagContentService: () => FlagContentService,
@@ -340,6 +342,7 @@ __export(index_exports, {
   ListingsService: () => ListingsService,
   LocalIntelligenceService: () => LocalIntelligenceService,
   LoggerService: () => LoggerService,
+  MAX_EXPERIMENTS_PER_EVENT: () => MAX_EXPERIMENTS_PER_EVENT,
   MEDIA_PRESETS: () => MEDIA_PRESETS,
   MediaService: () => MediaService,
   NotificationsService: () => NotificationsService,
@@ -381,6 +384,9 @@ __export(index_exports, {
   detectCountryFromE164: () => detectCountryFromE164,
   detectNetworkClass: () => detectNetworkClass,
   ensureAnonymousId: () => ensureAnonymousId,
+  experimentVariant: () => experimentVariant,
+  exposureEvent: () => exposureEvent,
+  exposureStorageKey: () => exposureStorageKey,
   extractClientContext: () => extractClientContext,
   findPhoneCountryByCode: () => findPhoneCountryByCode,
   findPhoneCountryByDialCode: () => findPhoneCountryByDialCode,
@@ -389,8 +395,11 @@ __export(index_exports, {
   getMeasuredBandwidthMbps: () => getMeasuredBandwidthMbps,
   getPartRange: () => getPartRange,
   hasMinRoleLevel: () => hasMinRoleLevel,
+  isExperimentKey: () => isExperimentKey,
   isValidE164Phone: () => isValidE164Phone,
+  isVariantKey: () => isVariantKey,
   normalizeAndValidatePhone: () => normalizeAndValidatePhone,
+  normalizeExperiments: () => normalizeExperiments,
   normalizePhoneNumber: () => normalizePhoneNumber,
   pollSharePercent: () => pollSharePercent,
   pollVoterKey: () => pollVoterKey,
@@ -400,7 +409,8 @@ __export(index_exports, {
   startMediaCapture: () => startMediaCapture,
   uploadMultipartToS3: () => uploadMultipartToS3,
   uploadSingleToS3: () => uploadSingleToS3,
-  validateIP: () => validateIP
+  validateIP: () => validateIP,
+  withExperiments: () => withExperiments
 });
 module.exports = __toCommonJS(index_exports);
 
@@ -5810,6 +5820,58 @@ var BillingService = class extends ServiceModule {
   }
 };
 
+// src/experiments.ts
+var EXPERIMENTS_PROPERTY = "experiments";
+var EXPERIMENT_EXPOSED_EVENT = "experiment_exposed";
+var MAX_EXPERIMENTS_PER_EVENT = 10;
+var KEY_PATTERN = /^[a-z0-9][a-z0-9_.-]{0,63}$/;
+var VARIANT_PATTERN = /^[a-z0-9][a-z0-9_.:-]{0,63}$/;
+function isExperimentKey(value) {
+  return typeof value === "string" && KEY_PATTERN.test(value);
+}
+function isVariantKey(value) {
+  return typeof value === "string" && VARIANT_PATTERN.test(value);
+}
+function experimentVariant(evaluation) {
+  if (!evaluation) return null;
+  if (isVariantKey(evaluation.variant_key)) return evaluation.variant_key;
+  if (isVariantKey(evaluation.value)) return evaluation.value;
+  return null;
+}
+function normalizeExperiments(input) {
+  const result = {};
+  if (!input || typeof input !== "object" || Array.isArray(input)) return result;
+  let count = 0;
+  for (const [key, value] of Object.entries(input)) {
+    if (count >= MAX_EXPERIMENTS_PER_EVENT) break;
+    if (isExperimentKey(key) && isVariantKey(value)) {
+      result[key] = value;
+      count++;
+    }
+  }
+  return result;
+}
+function withExperiments(properties, experiments) {
+  const normalized = normalizeExperiments({
+    ...normalizeExperiments(properties?.[EXPERIMENTS_PROPERTY]),
+    ...experiments ?? {}
+  });
+  if (Object.keys(normalized).length === 0) return properties;
+  return { ...properties ?? {}, [EXPERIMENTS_PROPERTY]: normalized };
+}
+function exposureEvent(flagKey, variant) {
+  if (!isExperimentKey(flagKey)) throw new Error(`Invalid experiment flag key: ${flagKey}`);
+  if (!isVariantKey(variant)) throw new Error(`Invalid experiment variant: ${variant}`);
+  return {
+    event_name: EXPERIMENT_EXPOSED_EVENT,
+    event_category: "system",
+    properties: { flag_key: flagKey, variant, [EXPERIMENTS_PROPERTY]: { [flagKey]: variant } }
+  };
+}
+function exposureStorageKey(flagKey) {
+  return `sm_experiment_exposed:${flagKey}`;
+}
+
 // src/services/analytics.ts
 var AnalyticsService = class extends ServiceModule {
   constructor() {
@@ -5825,6 +5887,14 @@ var AnalyticsService = class extends ServiceModule {
       payload.anonymous_id = this.client.getAnonymousId();
     }
     return this.post("/v2/events", payload, options);
+  }
+  /**
+   * Track that a visitor saw an experiment variant. Send it once per visitor and flag; the event
+   * carries `properties.experiments` so the experiment report attributes it.
+   */
+  async trackExposure(flagKey, variant, userId, options) {
+    const event = exposureEvent(flagKey, variant);
+    return this.track(event.event_name, event.properties, userId, options);
   }
   async trackBatch(events, options) {
     const mapped = events.map(({ event, ...rest }) => ({ event_name: event, ...rest }));
@@ -5899,6 +5969,19 @@ var FlagsService = class extends ServiceModule {
   }
   async evaluate(flagKey, context = {}, environment = "prod", options) {
     return this.post("/evaluate", { flag_key: flagKey, environment, context }, options);
+  }
+  /**
+   * Assign a visitor to an experiment: a flag with weighted variants, evaluated with a stable
+   * identifier (`session_id` or `user_id`) so the assignment is sticky. Attach the result to
+   * analytics events with `withExperiments` and track one exposure with `analytics.trackExposure`.
+   */
+  async experiment(flagKey, context = {}, environment = "prod", options) {
+    const response = await this.evaluate(flagKey, context, environment, options);
+    if (response.error || !response.data) return { data: null, error: response.error };
+    return {
+      data: { flag_key: flagKey, variant: experimentVariant(response.data), evaluation: response.data },
+      error: null
+    };
   }
   async evaluateBatch(flagKeys, context = {}, environment = "prod", options) {
     return this.post(
@@ -9558,6 +9641,8 @@ var index_default = ScaleMule;
   CreatorMakerService,
   DataService,
   DecisionsService,
+  EXPERIMENTS_PROPERTY,
+  EXPERIMENT_EXPOSED_EVENT,
   ErrorCodes,
   EventsService,
   FlagContentService,
@@ -9571,6 +9656,7 @@ var index_default = ScaleMule;
   ListingsService,
   LocalIntelligenceService,
   LoggerService,
+  MAX_EXPERIMENTS_PER_EVENT,
   MEDIA_PRESETS,
   MediaService,
   NotificationsService,
@@ -9611,6 +9697,9 @@ var index_default = ScaleMule;
   detectCountryFromE164,
   detectNetworkClass,
   ensureAnonymousId,
+  experimentVariant,
+  exposureEvent,
+  exposureStorageKey,
   extractClientContext,
   findPhoneCountryByCode,
   findPhoneCountryByDialCode,
@@ -9619,8 +9708,11 @@ var index_default = ScaleMule;
   getMeasuredBandwidthMbps,
   getPartRange,
   hasMinRoleLevel,
+  isExperimentKey,
   isValidE164Phone,
+  isVariantKey,
   normalizeAndValidatePhone,
+  normalizeExperiments,
   normalizePhoneNumber,
   pollSharePercent,
   pollVoterKey,
@@ -9630,5 +9722,6 @@ var index_default = ScaleMule;
   startMediaCapture,
   uploadMultipartToS3,
   uploadSingleToS3,
-  validateIP
+  validateIP,
+  withExperiments
 });

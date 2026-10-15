@@ -1,4 +1,5 @@
 import { ServiceModule } from '../service';
+import { experimentVariant, type ExperimentAssignment } from '../experiments';
 import type { ApiResponse, RequestOptions } from '../types';
 
 export interface FlagDefinition {
@@ -189,6 +190,25 @@ export class FlagsService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<FlagEvaluation<T>>> {
     return this.post<FlagEvaluation<T>>('/evaluate', { flag_key: flagKey, environment, context }, options);
+  }
+
+  /**
+   * Assign a visitor to an experiment: a flag with weighted variants, evaluated with a stable
+   * identifier (`session_id` or `user_id`) so the assignment is sticky. Attach the result to
+   * analytics events with `withExperiments` and track one exposure with `analytics.trackExposure`.
+   */
+  async experiment<T = unknown>(
+    flagKey: string,
+    context: Record<string, unknown> = {},
+    environment: string = 'prod',
+    options?: RequestOptions
+  ): Promise<ApiResponse<ExperimentAssignment<T>>> {
+    const response = await this.evaluate<T>(flagKey, context, environment, options);
+    if (response.error || !response.data) return { data: null, error: response.error };
+    return {
+      data: { flag_key: flagKey, variant: experimentVariant(response.data), evaluation: response.data },
+      error: null
+    };
   }
 
   async evaluateBatch(

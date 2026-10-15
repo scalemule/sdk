@@ -1,3 +1,5 @@
+import { E as ExperimentAssignment } from '../experiments-RH_CTd1R.js';
+
 /** Wire format types matching the Rust FlagConfigWire from /v1/flags/config */
 interface FlagConfigWire {
     version: number;
@@ -96,6 +98,8 @@ declare class FlagClient {
     private doInit;
     private buildIndexes;
     evaluate(flagKey: string, context: EvaluationContext): FlagEvaluation;
+    /** Local-evaluation counterpart of `FlagsService.experiment`: the visitor's variant for a flag with weighted variants. */
+    experiment(flagKey: string, context: EvaluationContext): ExperimentAssignment;
     evaluateBatch(flagKeys: string[], context: EvaluationContext): Record<string, FlagEvaluation>;
     shutdown(): Promise<void>;
     private connectStream;

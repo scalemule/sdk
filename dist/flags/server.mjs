@@ -250,6 +250,18 @@ function result(flag, environment, value, reason) {
   };
 }
 
+// src/experiments.ts
+var VARIANT_PATTERN = /^[a-z0-9][a-z0-9_.:-]{0,63}$/;
+function isVariantKey(value) {
+  return typeof value === "string" && VARIANT_PATTERN.test(value);
+}
+function experimentVariant(evaluation) {
+  if (!evaluation) return null;
+  if (isVariantKey(evaluation.variant_key)) return evaluation.variant_key;
+  if (isVariantKey(evaluation.value)) return evaluation.value;
+  return null;
+}
+
 // src/flags/client.ts
 var FlagClient = class {
   constructor(options) {
@@ -323,6 +335,11 @@ var FlagClient = class {
     const result2 = evaluateFlag(flagConfig, this.config, context, this.segmentIndex);
     this.recordTelemetry(result2);
     return result2;
+  }
+  /** Local-evaluation counterpart of `FlagsService.experiment`: the visitor's variant for a flag with weighted variants. */
+  experiment(flagKey, context) {
+    const evaluation = this.evaluate(flagKey, context);
+    return { flag_key: flagKey, variant: experimentVariant(evaluation), evaluation };
   }
   evaluateBatch(flagKeys, context) {
     if (!this.config) throw new Error("FlagClient not initialized \u2014 call init() first");

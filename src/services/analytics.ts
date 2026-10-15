@@ -21,6 +21,7 @@
  */
 
 import { ServiceModule } from '../service';
+import { exposureEvent } from '../experiments';
 import type { ApiResponse, PaginatedResponse, PaginationParams, RequestOptions } from '../types';
 
 // ============================================================================
@@ -97,6 +98,20 @@ export class AnalyticsService extends ServiceModule {
       payload.anonymous_id = this.client.getAnonymousId();
     }
     return this.post<{ tracked: boolean }>('/v2/events', payload, options);
+  }
+
+  /**
+   * Track that a visitor saw an experiment variant. Send it once per visitor and flag; the event
+   * carries `properties.experiments` so the experiment report attributes it.
+   */
+  async trackExposure(
+    flagKey: string,
+    variant: string,
+    userId?: string,
+    options?: RequestOptions
+  ): Promise<ApiResponse<{ tracked: boolean }>> {
+    const event = exposureEvent(flagKey, variant);
+    return this.track(event.event_name, event.properties, userId, options);
   }
 
   async trackBatch(
