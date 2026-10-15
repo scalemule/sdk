@@ -7,9 +7,21 @@ import type { ApiResponse, RequestOptions } from '../types';
 
 export type IntelligenceKind = 'event' | 'development' | 'community_story' | 'opportunity' | 'public_notice';
 export type IntelligenceStatus =
-  'proposed' | 'approved' | 'scheduled' | 'ongoing' | 'completed' | 'canceled' | 'postponed' | 'disputed';
+  | 'proposed'
+  | 'approved'
+  | 'scheduled'
+  | 'ongoing'
+  | 'completed'
+  | 'canceled'
+  | 'postponed'
+  | 'disputed';
 export type IntelligenceVerification =
-  'unverified' | 'community_submitted' | 'supported' | 'officially_confirmed' | 'independently_verified' | 'disputed';
+  | 'unverified'
+  | 'community_submitted'
+  | 'supported'
+  | 'officially_confirmed'
+  | 'independently_verified'
+  | 'disputed';
 export type IntelligenceSection = 'important' | 'around_you' | 'people' | 'discover' | 'participate';
 export type CommunityValueOutcome = 'understand' | 'discover' | 'decide' | 'participate' | 'not_relevant';
 export interface IntelligenceEvent {

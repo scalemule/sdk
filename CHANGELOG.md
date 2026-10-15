@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.77 - 2026-10-14
+
+- **Experiments (A/B tests) on flag variants.** `sm.flags.experiment(flagKey, { session_id })` returns the visitor's sticky `variant`; `sm.analytics.trackExposure(flagKey, variant)` records the exposure; `withExperiments(properties, assignments)` attaches `properties.experiments = { flag_key: variant }` to any event so the analytics experiment report (`/v1/analytics/admin/experiments/{flag_key}`, shown on the admin Flags page) attributes every tracked event to its variant. `FlagClient.experiment` is the local-evaluation counterpart. Helpers: `experimentVariant`, `normalizeExperiments`, `exposureEvent`, `isExperimentKey`, `isVariantKey`.
+
 ## 0.0.76 - 2026-10-13
 
 - Add the opt-in `localIntelligence` News/BaseNews client and scoped, expiring agent-cache helper. Existing authentication and publication workflows are unchanged.
