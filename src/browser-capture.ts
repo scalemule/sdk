@@ -1,5 +1,4 @@
 /** Browser capture shared by applications. Capture starts only on a user gesture. */
-import { maybeCompressImage } from './services/upload-compression';
 
 export async function prepareCommunityMapAttachment(file: File): Promise<File> {
   const types = [
@@ -22,24 +21,11 @@ export async function prepareCommunityMapAttachment(file: File): Promise<File> {
     );
   if (!file.size || file.size > 25 * 1024 * 1024)
     throw new Error('Choose a file up to 25 MiB. Record a shorter clip if needed.');
-  if (!file.type.startsWith('image/')) return file;
-  // Use the same adaptive compression primitive as Storage uploads, one image at a time.
-  const compressed = await maybeCompressImage(
-    file,
-    { maxWidth: 2400, maxHeight: 2400, maxSizeMB: 2, quality: 0.82 },
-    'community-capture',
-    null
-  );
-  const result = compressed
-    ? new File(
-        [compressed],
-        file.name.replace(/\.[^.]+$/, '') + (compressed.type === 'image/webp' ? '.webp' : '.jpg'),
-        { type: compressed.type, lastModified: file.lastModified }
-      )
-    : file;
-  if (result.size > 8 * 1024 * 1024)
-    throw new Error('This photo is too large. Choose a photo up to 8 MiB or use a smaller camera setting.');
-  return result;
+  // Never re-encode a photograph in the browser. Its capture metadata (GPS,
+  // time) must reach scalemule-photo intact; the platform door keeps the
+  // original privately, strips the published copy and caps its size. A canvas
+  // re-encode here discarded that data before anyone read it (2026-10-18).
+  return file;
 }
 
 export interface MediaCaptureSession {
