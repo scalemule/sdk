@@ -5,6 +5,15 @@ afterEach(() => {
   vi.useRealTimers();
 });
 describe('bounded browser capture', () => {
+  it('never re-encodes a photograph: the chosen bytes are what gets uploaded', async () => {
+    // A phone photo well above any client-side compression threshold.
+    const bytes = new Uint8Array(3 * 1024 * 1024);
+    bytes.set([0xff, 0xd8, 0xff, 0xe1, 0x00, 0x10, 0x45, 0x78, 0x69, 0x66], 0);
+    const file = new File([bytes], 'IMG_0001.jpg', { type: 'image/jpeg', lastModified: 1 });
+    const prepared = await prepareCommunityMapAttachment(file);
+    expect(prepared).toBe(file);
+    expect(new Uint8Array(await prepared.arrayBuffer())).toEqual(bytes);
+  });
   it('rejects unsupported/oversize media before image decoding', async () => {
     await expect(
       prepareCommunityMapAttachment(new File(['x'], 'image.svg', { type: 'image/svg+xml' }))

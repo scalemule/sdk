@@ -98,11 +98,16 @@ export async function maybeCompressImage(
       return null;
     }
 
+    // Capture metadata (GPS, time) must survive the trip to the platform's
+    // ingestion door, which keeps the original privately and strips the
+    // published copy. JPEG therefore stays JPEG with its EXIF carried over;
+    // only PNG (which carries no EXIF in practice) may become WebP.
     const compressed = await imageCompression(file as File, {
       maxSizeMB: config.maxSizeMB,
       maxWidthOrHeight: Math.max(config.maxWidth, config.maxHeight),
       initialQuality: config.quality,
       useWebWorker: true,
+      preserveExif: true,
       fileType: type === 'image/png' ? 'image/webp' : undefined
     });
 
@@ -144,6 +149,7 @@ type ImageCompressionFn = (
     maxWidthOrHeight?: number;
     initialQuality?: number;
     useWebWorker?: boolean;
+    preserveExif?: boolean;
     fileType?: string;
   }
 ) => Promise<Blob>;
