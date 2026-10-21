@@ -676,7 +676,13 @@ export class AuthService extends ServiceModule {
   // Email & Phone Management
   // --------------------------------------------------------------------------
 
-  async verifyEmail(data: { token: string }, options?: RequestOptions): Promise<ApiResponse<{ verified: boolean }>> {
+  /**
+   * Verify an email with a link token or a 6-digit code. Pass `email` (the
+   * address the code was sent to) with codes: ScaleMule then matches the code
+   * only against that account; code-only verification has a tight per-app
+   * attempt budget.
+   */
+  async verifyEmail(data: { token: string; email?: string }, options?: RequestOptions): Promise<ApiResponse<{ verified: boolean }>> {
     return this.post<{ verified: boolean }>('/verify-email', data, options);
   }
 
