@@ -86,6 +86,37 @@ export interface CommunityMapMedia {
   caption: string;
   attribution: string;
 }
+/**
+ * Where the contributor's device was when a photo was taken (`camera`, read as the
+ * reader form took it) or when they confirmed they were standing at the display
+ * (`at-display`). Sent privately with each attachment; editors see it beside the
+ * photo's own metadata capture and the public guide never shows it.
+ */
+export type CommunityMapDevicePositionMethod = 'camera' | 'at-display';
+export interface CommunityMapDevicePosition {
+  latitude: number;
+  longitude: number;
+  /** Radius the device reported, in metres. */
+  accuracy_m: number;
+  /** When the device read the position (RFC 3339). */
+  read_at: string;
+  method: CommunityMapDevicePositionMethod;
+}
+/** Where/when a photo was taken according to its own metadata; coordinates are null when the file had no usable GPS. Editorial-only. */
+export interface CommunityMapPhotoCapture {
+  source: string;
+  latitude: number | null;
+  longitude: number | null;
+  taken_at?: string | null;
+  camera?: string | null;
+}
+export interface CommunityMapMediaReceipt {
+  id: string;
+  status: string;
+  /** Whether the uploaded file itself carried a position (never the coordinates). Absent on replayed receipts. */
+  position_captured?: boolean;
+  device_position_recorded?: boolean;
+}
 export interface CommunityMapFeature {
   id: string;
   slug: string;
@@ -289,6 +320,10 @@ export interface CommunityMapEditorialMedia extends CommunityMapMedia {
   feature_id: string | null;
   status: string;
   revision: number;
+  /** From the photo's own metadata. Editorial-only. */
+  capture?: CommunityMapPhotoCapture | null;
+  /** From the contributor's device. Editorial-only. */
+  device_position?: (CommunityMapDevicePosition & { source: string }) | null;
 }
 export interface CommunityMapQueueQuery {
   after?: string;
@@ -297,6 +332,16 @@ export interface CommunityMapQueueQuery {
 }
 
 const segment = (value: string) => encodeURIComponent(value);
+/** Only the documented fields travel; the service rejects unknown keys. */
+export function devicePositionPayload(p: CommunityMapDevicePosition): CommunityMapDevicePosition {
+  return {
+    latitude: p.latitude,
+    longitude: p.longitude,
+    accuracy_m: p.accuracy_m,
+    read_at: p.read_at,
+    method: p.method
+  };
+}
 
 /** Reusable collection APIs; use your application's normal SDK credential/context. */
 export class CommunityMapsService extends ServiceModule {
@@ -362,9 +407,10 @@ export class CommunityMapsService extends ServiceModule {
       rights_confirmed: boolean;
       idempotency_key?: string;
       consent_version: string;
+      device_position?: CommunityMapDevicePosition | null;
     },
     options?: RequestOptions
-  ): Promise<ApiResponse<{ id: string; status: string }>> {
+  ): Promise<ApiResponse<CommunityMapMediaReceipt>> {
     return this._upload(
       '/collections/' + segment(slug) + '/submissions/' + segment(submission) + '/media',
       file,
@@ -373,7 +419,10 @@ export class CommunityMapsService extends ServiceModule {
         attribution: fields.attribution,
         rights_confirmed: String(fields.rights_confirmed),
         consent_version: fields.consent_version,
-        ...(fields.idempotency_key ? { idempotency_key: fields.idempotency_key } : {})
+        ...(fields.idempotency_key ? { idempotency_key: fields.idempotency_key } : {}),
+        ...(fields.device_position
+          ? { device_position: JSON.stringify(devicePositionPayload(fields.device_position)) }
+          : {})
       },
       options
     );
