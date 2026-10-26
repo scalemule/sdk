@@ -366,6 +366,16 @@ export { LeaderboardService } from './services/leaderboard';
 export type { Leaderboard, LeaderboardEntry, UserRank } from './services/leaderboard';
 export { WebhooksService } from './services/webhooks';
 export type { Webhook } from './services/webhooks';
+export { NewslettersService } from './services/newsletters';
+export type {
+  NewsletterCadence,
+  NewsletterList,
+  NewsletterSubscribeInput,
+  NewsletterSubscribeResult,
+  NewsletterConfirmResult,
+  NewsletterSubscription,
+  NewsletterPreferenceChange
+} from './services/newsletters';
 export { SearchService } from './services/search';
 export type { SearchResult } from './services/search';
 export { PhotoService, PHOTO_BREAKPOINTS } from './services/photo';
@@ -528,6 +538,7 @@ import { PollsService } from './services/polls';
 import { EventsService } from './services/events';
 import { LeaderboardService } from './services/leaderboard';
 import { WebhooksService } from './services/webhooks';
+import { NewslettersService } from './services/newsletters';
 import { SearchService } from './services/search';
 import { PhotoService } from './services/photo';
 import { MediaService } from './services/media';
@@ -629,6 +640,7 @@ export class ScaleMule {
   public readonly search: SearchService;
   public readonly logger: LoggerService;
   public readonly webhooks: WebhooksService;
+  public readonly newsletters: NewslettersService;
 
   // Feature services
   public readonly leaderboard: LeaderboardService;
@@ -701,6 +713,7 @@ export class ScaleMule {
     this.search = new SearchService(this._client);
     this.logger = new LoggerService(this._client);
     this.webhooks = new WebhooksService(this._client);
+    this.newsletters = new NewslettersService(this._client);
     this.leaderboard = new LeaderboardService(this._client);
     this.listings = new ListingsService(this._client);
     this.communityMaps = new CommunityMapsService(this._client);

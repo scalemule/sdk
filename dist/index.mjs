@@ -218,6 +218,7 @@ async function maybeCompressImage(file, userConfig, sessionId, telemetry) {
       maxWidthOrHeight: Math.max(config.maxWidth, config.maxHeight),
       initialQuality: config.quality,
       useWebWorker: true,
+      preserveExif: true,
       fileType: type === "image/png" ? "image/webp" : void 0
     });
     if (compressed.size >= file.size * 0.95) {
@@ -2029,6 +2030,12 @@ var AuthService = class extends ServiceModule {
   // --------------------------------------------------------------------------
   // Email & Phone Management
   // --------------------------------------------------------------------------
+  /**
+   * Verify an email with a link token or a 6-digit code. Pass `email` (the
+   * address the code was sent to) with codes: ScaleMule then matches the code
+   * only against that account; code-only verification has a tight per-app
+   * attempt budget.
+   */
   async verifyEmail(data, options) {
     return this.post("/verify-email", data, options);
   }
@@ -6890,6 +6897,15 @@ var ListingsService = class extends ServiceModule {
 
 // src/services/community-maps.ts
 var segment = (value) => encodeURIComponent(value);
+function devicePositionPayload(p) {
+  return {
+    latitude: p.latitude,
+    longitude: p.longitude,
+    accuracy_m: p.accuracy_m,
+    read_at: p.read_at,
+    method: p.method
+  };
+}
 var CommunityMapsService = class extends ServiceModule {
   constructor(client) {
     super(client);
@@ -6930,7 +6946,8 @@ var CommunityMapsService = class extends ServiceModule {
         attribution: fields.attribution,
         rights_confirmed: String(fields.rights_confirmed),
         consent_version: fields.consent_version,
-        ...fields.idempotency_key ? { idempotency_key: fields.idempotency_key } : {}
+        ...fields.idempotency_key ? { idempotency_key: fields.idempotency_key } : {},
+        ...fields.device_position ? { device_position: JSON.stringify(devicePositionPayload(fields.device_position)) } : {}
       },
       options
     );
@@ -7363,6 +7380,52 @@ var WebhooksService = class extends ServiceModule {
   /** @deprecated Use delete() instead */
   async deleteWebhook(id) {
     return this.delete(id);
+  }
+};
+
+// src/services/newsletters.ts
+var NewslettersService = class extends ServiceModule {
+  constructor() {
+    super(...arguments);
+    this.basePath = "/v1/newsletters";
+  }
+  /** Active lists of this application, with the consent text each form must show. */
+  async lists(options) {
+    return this._get("/lists", options);
+  }
+  /** Signs a reader up. Call from the reader's browser so their own evidence is recorded. */
+  async subscribe(slug, input, options) {
+    return this.post(
+      `/lists/${encodeURIComponent(slug)}/subscriptions`,
+      { channel: "email", ...input },
+      { skipRetry: true, ...options }
+    );
+  }
+  /** Confirms a sign-up with the token from the confirmation email link. */
+  async confirm(token, options) {
+    return this.post("/subscriptions/confirm", { token }, options);
+  }
+  /** Opts out with the token from an unsubscribe link. Always succeeds for a well-formed token. */
+  async unsubscribe(token, reason, options) {
+    return this.post("/unsubscribe", reason ? { token, reason } : { token }, options);
+  }
+  /** Preference centre for readers without an account (token from the manage link). */
+  async preferences(token, options) {
+    return this._get(this.withQuery("/preferences", { token }), options);
+  }
+  async updatePreferences(token, changes, options) {
+    return this.put(
+      this.withQuery("/preferences", { token }),
+      { changes },
+      options
+    );
+  }
+  /** The signed-in reader's subscriptions (verified account email only). */
+  async mySubscriptions(options) {
+    return this._get("/me/subscriptions", options);
+  }
+  async updateMySubscriptions(changes, options) {
+    return this.put("/me/subscriptions", { changes }, options);
   }
 };
 
@@ -9177,7 +9240,6 @@ var AgentSessionsService = class extends ServiceModule {
 };
 
 // src/browser-capture.ts
-init_upload_compression();
 async function prepareCommunityMapAttachment(file) {
   const types = [
     "image/jpeg",
@@ -9199,21 +9261,7 @@ async function prepareCommunityMapAttachment(file) {
     );
   if (!file.size || file.size > 25 * 1024 * 1024)
     throw new Error("Choose a file up to 25 MiB. Record a shorter clip if needed.");
-  if (!file.type.startsWith("image/")) return file;
-  const compressed = await maybeCompressImage(
-    file,
-    { maxWidth: 2400, maxHeight: 2400, maxSizeMB: 2, quality: 0.82 },
-    "community-capture",
-    null
-  );
-  const result = compressed ? new File(
-    [compressed],
-    file.name.replace(/\.[^.]+$/, "") + (compressed.type === "image/webp" ? ".webp" : ".jpg"),
-    { type: compressed.type, lastModified: file.lastModified }
-  ) : file;
-  if (result.size > 8 * 1024 * 1024)
-    throw new Error("This photo is too large. Choose a photo up to 8 MiB or use a smaller camera setting.");
-  return result;
+  return file;
 }
 async function startMediaCapture(kind, signal) {
   const candidates = kind === "video" ? ["video/mp4;codecs=h264,aac", "video/mp4", "video/webm;codecs=vp8,opus", "video/webm"] : ["audio/mp4", "audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm"];
@@ -9334,6 +9382,7 @@ var ScaleMule = class {
     this.search = new SearchService(this._client);
     this.logger = new LoggerService(this._client);
     this.webhooks = new WebhooksService(this._client);
+    this.newsletters = new NewslettersService(this._client);
     this.leaderboard = new LeaderboardService(this._client);
     this.listings = new ListingsService(this._client);
     this.communityMaps = new CommunityMapsService(this._client);
@@ -9522,6 +9571,7 @@ export {
   MAX_EXPERIMENTS_PER_EVENT,
   MEDIA_PRESETS,
   MediaService,
+  NewslettersService,
   NotificationsService,
   OrchestratorService,
   PHONE_COUNTRIES,
@@ -9560,6 +9610,7 @@ export {
   index_default as default,
   detectCountryFromE164,
   detectNetworkClass,
+  devicePositionPayload,
   ensureAnonymousId,
   experimentVariant,
   exposureEvent,

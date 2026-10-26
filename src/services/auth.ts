@@ -682,7 +682,10 @@ export class AuthService extends ServiceModule {
    * only against that account; code-only verification has a tight per-app
    * attempt budget.
    */
-  async verifyEmail(data: { token: string; email?: string }, options?: RequestOptions): Promise<ApiResponse<{ verified: boolean }>> {
+  async verifyEmail(
+    data: { token: string; email?: string },
+    options?: RequestOptions
+  ): Promise<ApiResponse<{ verified: boolean }>> {
     return this.post<{ verified: boolean }>('/verify-email', data, options);
   }
 
