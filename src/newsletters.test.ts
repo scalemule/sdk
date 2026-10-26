@@ -20,13 +20,20 @@ describe('NewslettersService', () => {
       email: 'иван@пример.рф',
       consent: true,
       cadence: 'weekly',
-      origin_ref: '/news/Новини-📰',
+      origin_ref: '/news/Новини-📰'
     });
     expect(calls[0]).toEqual({
       method: 'POST',
       path: '/v1/newsletters/lists/%D0%BD%D0%BE%D0%B2%D0%B8%D0%BD%D0%B8%20%26%20news/subscriptions',
-      body: { channel: 'email', email: 'иван@пример.рф', consent: true, cadence: 'weekly', origin_ref: '/news/Новини-📰' },
+      body: {
+        channel: 'email',
+        email: 'иван@пример.рф',
+        consent: true,
+        cadence: 'weekly',
+        origin_ref: '/news/Новини-📰'
+      }
     });
+    expect((client.post as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][2]).toEqual({ skipRetry: true });
   });
 
   it('sends tokens in the body for confirm/unsubscribe and in the query for preferences', async () => {
@@ -37,14 +44,18 @@ describe('NewslettersService', () => {
     await nl.unsubscribe('c'.repeat(64), 'too many emails');
     await nl.preferences('d'.repeat(64));
     await nl.updatePreferences('e'.repeat(64), [{ subscription_id: 's1', expected_revision: 3, active: false }]);
-    expect(calls[0]).toMatchObject({ method: 'POST', path: '/v1/newsletters/subscriptions/confirm', body: { token: 'a'.repeat(64) } });
+    expect(calls[0]).toMatchObject({
+      method: 'POST',
+      path: '/v1/newsletters/subscriptions/confirm',
+      body: { token: 'a'.repeat(64) }
+    });
     expect(calls[1].body).toEqual({ token: 'b'.repeat(64) });
     expect(calls[2].body).toEqual({ token: 'c'.repeat(64), reason: 'too many emails' });
     expect(calls[3]).toMatchObject({ method: 'GET', path: `/v1/newsletters/preferences?token=${'d'.repeat(64)}` });
     expect(calls[4]).toMatchObject({
       method: 'PUT',
       path: `/v1/newsletters/preferences?token=${'e'.repeat(64)}`,
-      body: { changes: [{ subscription_id: 's1', expected_revision: 3, active: false }] },
+      body: { changes: [{ subscription_id: 's1', expected_revision: 3, active: false }] }
     });
   });
 
@@ -57,7 +68,7 @@ describe('NewslettersService', () => {
     expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
       'GET /v1/newsletters/lists',
       'GET /v1/newsletters/me/subscriptions',
-      'PUT /v1/newsletters/me/subscriptions',
+      'PUT /v1/newsletters/me/subscriptions'
     ]);
   });
 });

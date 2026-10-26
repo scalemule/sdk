@@ -6229,7 +6229,8 @@ declare class WebhooksService extends ServiceModule {
  *   PUT  /me/subscriptions           → signed-in reader changes
  */
 
-type NewsletterCadence = 'immediate' | 'daily' | 'weekly' | 'monthly' | string;
+/** `edition` = one email per published edition. Lists choose which they offer. */
+type NewsletterCadence = 'daily' | 'weekly' | 'edition' | (string & {});
 /** A list a form can offer, with the consent text the form must display. */
 interface NewsletterList {
     id: string;
@@ -6274,12 +6275,14 @@ type NewsletterSubscribeResult = {
     status: 'check_email';
 } | {
     status: 'active';
-    list: {
+    /** The signed-in reader's verified address was already subscribed. */
+    already_subscribed?: boolean;
+    list?: {
         slug: string;
         name: string;
     };
     cadence: NewsletterCadence;
-    next_delivery_at: string | null;
+    next_delivery_at?: string | null;
 };
 interface NewsletterConfirmResult {
     status: 'active';

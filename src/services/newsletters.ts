@@ -26,7 +26,8 @@ import type { ApiResponse, RequestOptions } from '../types';
 // Types
 // ============================================================================
 
-export type NewsletterCadence = 'immediate' | 'daily' | 'weekly' | 'monthly' | string;
+/** `edition` = one email per published edition. Lists choose which they offer. */
+export type NewsletterCadence = 'daily' | 'weekly' | 'edition' | (string & {});
 
 /** A list a form can offer, with the consent text the form must display. */
 export interface NewsletterList {
@@ -70,9 +71,11 @@ export type NewsletterSubscribeResult =
   | { status: 'check_email' }
   | {
       status: 'active';
-      list: { slug: string; name: string };
+      /** The signed-in reader's verified address was already subscribed. */
+      already_subscribed?: boolean;
+      list?: { slug: string; name: string };
       cadence: NewsletterCadence;
-      next_delivery_at: string | null;
+      next_delivery_at?: string | null;
     };
 
 export interface NewsletterConfirmResult {
@@ -130,10 +133,12 @@ export class NewslettersService extends ServiceModule {
     input: NewsletterSubscribeInput,
     options?: RequestOptions
   ): Promise<ApiResponse<NewsletterSubscribeResult>> {
+    // No automatic retry: a 500 can follow a stored request whose
+    // confirmation email failed, and a retry would send another one.
     return this.post<NewsletterSubscribeResult>(
       `/lists/${encodeURIComponent(slug)}/subscriptions`,
       { channel: 'email', ...input },
-      options
+      { skipRetry: true, ...options }
     );
   }
 

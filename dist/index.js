@@ -7536,7 +7536,7 @@ var NewslettersService = class extends ServiceModule {
     return this.post(
       `/lists/${encodeURIComponent(slug)}/subscriptions`,
       { channel: "email", ...input },
-      options
+      { skipRetry: true, ...options }
     );
   }
   /** Confirms a sign-up with the token from the confirmation email link. */
