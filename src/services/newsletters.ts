@@ -27,7 +27,7 @@ import type { ApiResponse, RequestOptions } from '../types';
 // ============================================================================
 
 /** `edition` = one email per published edition. Lists choose which they offer. */
-export type NewsletterCadence = 'daily' | 'weekly' | 'edition' | (string & {});
+export type NewsletterCadence = 'daily' | 'weekly' | 'edition' | (string & NonNullable<unknown>);
 
 /** A list a form can offer, with the consent text the form must display. */
 export interface NewsletterList {

@@ -6230,7 +6230,7 @@ declare class WebhooksService extends ServiceModule {
  */
 
 /** `edition` = one email per published edition. Lists choose which they offer. */
-type NewsletterCadence = 'daily' | 'weekly' | 'edition' | (string & {});
+type NewsletterCadence = 'daily' | 'weekly' | 'edition' | (string & NonNullable<unknown>);
 /** A list a form can offer, with the consent text the form must display. */
 interface NewsletterList {
     id: string;
