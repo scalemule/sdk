@@ -8,12 +8,7 @@ export type CommunityMapGeometry =
   | { type: 'LineString'; coordinates: CommunityMapPosition[] }
   | { type: 'Polygon'; coordinates: CommunityMapPosition[][] };
 export type CommunityMapPrecision =
-  | 'CITY'
-  | 'NEIGHBORHOOD'
-  | 'STREET'
-  | 'INTERSECTION'
-  | 'GENERALIZED'
-  | 'EXACT_PUBLIC';
+  'CITY' | 'NEIGHBORHOOD' | 'STREET' | 'INTERSECTION' | 'GENERALIZED' | 'EXACT_PUBLIC';
 export interface CommunityMapSource {
   title: string;
   url: string | null;
@@ -245,14 +240,7 @@ export interface CommunityMapReceipt {
 }
 export type CommunityMapFeatureStatus = 'DRAFT' | 'APPROVED' | 'PUBLISHED' | 'ARCHIVED' | 'REMOVED';
 export type CommunityMapSubmissionStatus =
-  | 'SUBMITTED'
-  | 'REVIEWING'
-  | 'NEEDS_INFO'
-  | 'APPROVED'
-  | 'PUBLISHED'
-  | 'REJECTED'
-  | 'ARCHIVED'
-  | 'REMOVED';
+  'SUBMITTED' | 'REVIEWING' | 'NEEDS_INFO' | 'APPROVED' | 'PUBLISHED' | 'REJECTED' | 'ARCHIVED' | 'REMOVED';
 export interface CommunityMapRevision {
   id: string;
   revision: number;
