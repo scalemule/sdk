@@ -6515,6 +6515,13 @@ var AiService = class {
   get runs() {
     return this.ai.runs;
   }
+  /**
+   * Operation selection: `list`, `setPreference`, `clearPreference`,
+   * `getSettings`, `updateSettings`. Option keys only; never agent or model ids.
+   */
+  get operations() {
+    return this.ai.operations;
+  }
   /** Summarize text and wait for the typed result. */
   summarize(input, options) {
     return this.ai.summarize(input, options);

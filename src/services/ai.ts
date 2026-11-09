@@ -9,6 +9,11 @@
  *   GET    /runs/{id}           → read a run
  *   GET    /runs/{id}/events    → lifecycle events (SSE)
  *   POST   /runs/{id}/cancel    → cancel
+ *   GET    /operations                          → catalog with options
+ *   PUT    /operations/{op}/preference          → own preference
+ *   DELETE /operations/{op}/preference          → clear own preference
+ *   GET    /operations/{op}/settings            → account settings (admins)
+ *   PUT    /operations/{op}/settings            → change account settings (admins)
  *
  * Account scope: the active workspace (`sm.setWorkspaceContext`) is sent as
  * `x-requested-account-id`; the gateway verifies membership. A publishable
@@ -54,6 +59,14 @@ export class AiService {
   /** Low-level run API: `create`, `get`, `wait`, `cancel`, `events`. */
   get runs(): ScaleMuleAi['runs'] {
     return this.ai.runs;
+  }
+
+  /**
+   * Operation selection: `list`, `setPreference`, `clearPreference`,
+   * `getSettings`, `updateSettings`. Option keys only; never agent or model ids.
+   */
+  get operations(): ScaleMuleAi['operations'] {
+    return this.ai.operations;
   }
 
   /** Summarize text and wait for the typed result. */
