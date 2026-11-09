@@ -306,6 +306,24 @@ export type { PushApiFetcher, WebPushManagerOptions } from './web-push';
 export { WEB_PUSH_SERVICE_WORKER } from './web-push-sw';
 export { SchedulerService } from './services/scheduler';
 export { DecisionsService } from './services/decisions';
+export { AiService } from './services/ai';
+export type { AiServiceOptions } from './services/ai';
+export type {
+  AiRun,
+  AiRunStatus,
+  AiRunError,
+  AiRunEvent,
+  AiError as AiFacadeErrorShape,
+  AiResult,
+  CreateRunInput as AiCreateRunInput,
+  AiRequestOptions,
+  WaitOptions as AiWaitOptions,
+  EventsOptions as AiEventsOptions,
+  SummarizeInput,
+  SummarizeOutput,
+  SummarizeResult,
+  SummarizeOptions
+} from '@scalemule/ai';
 export type {
   DecisionOutcome,
   DecisionTraceLevel,
@@ -523,6 +541,7 @@ import { CommunicationService } from './services/communication';
 import { NotificationsService } from './services/notifications';
 import { SchedulerService } from './services/scheduler';
 import { DecisionsService } from './services/decisions';
+import { AiService } from './services/ai';
 import { BookingsService } from './services/bookings';
 import { PermissionsService } from './services/permissions';
 import { WorkspacesService } from './services/workspaces';
@@ -676,6 +695,9 @@ export class ScaleMule {
   public readonly agentModels: AgentModelsService;
   public readonly agentSessions: AgentSessionsService;
 
+  // AI facade (ADR-2026-11-08): typed operations, never raw model access
+  public readonly ai: AiService;
+
   constructor(config: ScaleMuleConfig) {
     this._client = new ScaleMuleClient(config);
 
@@ -738,6 +760,8 @@ export class ScaleMule {
     this.agentTools = new AgentToolsService(this._client);
     this.agentModels = new AgentModelsService(this._client);
     this.agentSessions = new AgentSessionsService(this._client);
+
+    this.ai = new AiService(this._client);
   }
 
   /**

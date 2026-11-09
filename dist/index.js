@@ -311,6 +311,7 @@ __export(index_exports, {
   AgentSessionsService: () => AgentSessionsService,
   AgentToolsService: () => AgentToolsService,
   AgentsService: () => AgentsService,
+  AiService: () => AiService,
   AnalyticsService: () => AnalyticsService,
   AudioService: () => AudioService,
   AuthService: () => AuthService,
@@ -6631,6 +6632,38 @@ var DecisionsService = class extends ServiceModule {
   }
 };
 
+// src/services/ai.ts
+var import_ai = require("@scalemule/ai");
+var AiService = class {
+  constructor(client, options = {}) {
+    const transport = (0, import_ai.createFetchTransport)({
+      baseUrl: client.getBaseUrl(),
+      fetch: options.fetch,
+      headers: () => {
+        const headers = { "x-api-key": client.getApiKey() };
+        const token = client.getSessionToken();
+        if (token) headers["authorization"] = `Bearer ${token}`;
+        const workspaceId = client.getWorkspaceId();
+        if (workspaceId) headers["x-requested-account-id"] = workspaceId;
+        return headers;
+      }
+    });
+    this.ai = new import_ai.ScaleMuleAi({ transport });
+  }
+  /** Low-level run API: `create`, `get`, `wait`, `cancel`, `events`. */
+  get runs() {
+    return this.ai.runs;
+  }
+  /** Summarize text and wait for the typed result. */
+  summarize(input, options) {
+    return this.ai.summarize(input, options);
+  }
+  /** Read one run (alias of `runs.get`). */
+  getRun(runId, options) {
+    return this.ai.runs.get(runId, options);
+  }
+};
+
 // src/services/bookings.ts
 var BookingsService = class extends ServiceModule {
   constructor() {
@@ -9543,6 +9576,7 @@ var ScaleMule = class {
     this.agentTools = new AgentToolsService(this._client);
     this.agentModels = new AgentModelsService(this._client);
     this.agentSessions = new AgentSessionsService(this._client);
+    this.ai = new AiService(this._client);
   }
   /**
    * Initialize the client — loads persisted session from storage.
@@ -9675,6 +9709,7 @@ var index_default = ScaleMule;
   AgentSessionsService,
   AgentToolsService,
   AgentsService,
+  AiService,
   AnalyticsService,
   AudioService,
   AuthService,
