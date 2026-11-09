@@ -50,4 +50,17 @@ describe('AiService', () => {
     expect(result.data).toBeNull();
     expect(result.error).toMatchObject({ code: 'ACTIVATION_UNAVAILABLE', status: 404 });
   });
+
+  it('exposes operation selection with SDK credentials', async () => {
+    const fetcher = okFetch([{ operation: 'summarize', version: 1, kind: 'typed', description: '', available: true, selected: 'coral', user_choice_allowed: true, options: [] }], 200);
+    const ai = new AiService(fakeClient('sess-token', 'acct-1'), { fetch: fetcher as unknown as typeof fetch });
+    const result = await ai.operations.list();
+    expect(result.error).toBeNull();
+    expect(result.data?.[0]?.selected).toBe('coral');
+    const [url, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.example.com/v1/ai/operations');
+    expect(init.method).toBe('GET');
+    expect((init.headers as Headers).get('authorization')).toBe('Bearer sess-token');
+    expect((init.headers as Headers).get('x-requested-account-id')).toBe('acct-1');
+  });
 });
