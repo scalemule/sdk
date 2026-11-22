@@ -23,6 +23,7 @@
 import { ServiceModule } from '../service';
 import { exposureEvent } from '../experiments';
 import type { ApiResponse, PaginatedResponse, PaginationParams, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -187,7 +188,7 @@ export class AnalyticsService extends ServiceModule {
   }
 
   async getFunnelConversions(id: string): Promise<ApiResponse<FunnelConversion[]>> {
-    return this._get<FunnelConversion[]>(`/funnels/${id}/conversions`);
+    return this._get<FunnelConversion[]>(`/funnels/${pathSegment(id, 'id')}/conversions`);
   }
 
   // --------------------------------------------------------------------------

@@ -4,6 +4,7 @@
  */
 import { ServiceModule } from '../service';
 import type { ApiResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 export type IntelligenceKind = 'event' | 'development' | 'community_story' | 'opportunity' | 'public_notice';
 export type IntelligenceStatus =
@@ -171,7 +172,7 @@ export interface IntelligenceReleaseReceipt {
 export class LocalIntelligenceService extends ServiceModule {
   protected basePath = '/v1/news';
   private scope(publication: string) {
-    return `/intelligence/publications/${encodeURIComponent(publication)}`;
+    return `/intelligence/publications/${pathSegment(publication, 'publication')}`;
   }
 
   records(
@@ -182,7 +183,7 @@ export class LocalIntelligenceService extends ServiceModule {
     return this._get(this.withQuery(`${this.scope(publication)}/records`, params), options);
   }
   get(publication: string, record: string, options?: RequestOptions): Promise<ApiResponse<LocalIntelligenceRecord>> {
-    return this._get(`${this.scope(publication)}/records/${encodeURIComponent(record)}`, options);
+    return this._get(`${this.scope(publication)}/records/${pathSegment(record, 'record')}`, options);
   }
   changes(
     publication: string,
@@ -235,13 +236,13 @@ export class LocalIntelligenceService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<{ recorded: boolean }>> {
     return this.post(
-      `${this.scope(publication)}/records/${encodeURIComponent(record)}/feedback`,
+      `${this.scope(publication)}/records/${pathSegment(record, 'record')}/feedback`,
       { record_revision: recordRevision, outcome },
       options
     );
   }
   deleteFeedback(publication: string, record: string, options?: RequestOptions): Promise<ApiResponse<void>> {
-    return this.del(`${this.scope(publication)}/records/${encodeURIComponent(record)}/feedback`, options);
+    return this.del(`${this.scope(publication)}/records/${pathSegment(record, 'record')}/feedback`, options);
   }
   /** Requires a human editor with publication publish authority. */
   release(
@@ -250,7 +251,7 @@ export class LocalIntelligenceService extends ServiceModule {
     idempotencyKey: string,
     options?: RequestOptions
   ): Promise<ApiResponse<IntelligenceReleaseReceipt>> {
-    return this.post(`/publications/${encodeURIComponent(publication)}/intelligence`, input, {
+    return this.post(`/publications/${pathSegment(publication, 'publication')}/intelligence`, input, {
       ...options,
       headers: { ...options?.headers, 'idempotency-key': idempotencyKey }
     });
@@ -263,7 +264,7 @@ export class LocalIntelligenceService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<{ id: string; revision: number; removed: true }>> {
     return this.post(
-      `/publications/${encodeURIComponent(publication)}/intelligence/${encodeURIComponent(record)}/withdraw`,
+      `/publications/${pathSegment(publication, 'publication')}/intelligence/${pathSegment(record, 'record')}/withdraw`,
       { expected_revision: expectedRevision, reason },
       options
     );

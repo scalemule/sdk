@@ -18,6 +18,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -141,7 +142,7 @@ export class DecisionsService extends ServiceModule {
     requestOptions?: RequestOptions
   ): Promise<ApiResponse<DecisionResult<TValue>>> {
     return this.post<DecisionResult<TValue>>(
-      `/evaluate/${encodeURIComponent(decisionKey)}`,
+      `/evaluate/${pathSegment(decisionKey, 'decisionKey')}`,
       { inputs, options: options ?? {} },
       requestOptions
     );
@@ -157,13 +158,13 @@ export class DecisionsService extends ServiceModule {
 
   /** Fetch a stored receipt (end users only see their own). */
   async getReceipt(receiptId: string, requestOptions?: RequestOptions): Promise<ApiResponse<Record<string, unknown>>> {
-    return this._get<Record<string, unknown>>(`/receipts/${encodeURIComponent(receiptId)}`, requestOptions);
+    return this._get<Record<string, unknown>>(`/receipts/${pathSegment(receiptId, 'receiptId')}`, requestOptions);
   }
 
   /** Server-side verification of a stored receipt against the receipt ring. */
   async verifyReceipt(receiptId: string, requestOptions?: RequestOptions): Promise<ApiResponse<ReceiptVerification>> {
     return this.post<ReceiptVerification>(
-      `/receipts/${encodeURIComponent(receiptId)}/verify`,
+      `/receipts/${pathSegment(receiptId, 'receiptId')}/verify`,
       undefined,
       requestOptions
     );

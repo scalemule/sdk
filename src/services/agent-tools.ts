@@ -1,5 +1,6 @@
 import { ServiceModule } from '../service';
 import type { ApiResponse, PaginatedResponse, PaginationParams, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 export interface Tool {
   id: string;
@@ -90,7 +91,7 @@ export class AgentToolsService extends ServiceModule {
   }
 
   async getTool(id: string, options?: RequestOptions): Promise<ApiResponse<Tool>> {
-    return this._get<Tool>(`/tools/${id}`, options);
+    return this._get<Tool>(`/tools/${pathSegment(id, 'id')}`, options);
   }
 
   async createCapability(
@@ -98,11 +99,11 @@ export class AgentToolsService extends ServiceModule {
     data: { name: string; description?: string },
     options?: RequestOptions
   ): Promise<ApiResponse<ToolCapability>> {
-    return this.post<ToolCapability>(`/tools/${toolId}/capabilities`, data, options);
+    return this.post<ToolCapability>(`/tools/${pathSegment(toolId, 'toolId')}/capabilities`, data, options);
   }
 
   async listCapabilities(toolId: string, options?: RequestOptions): Promise<ApiResponse<ToolCapability[]>> {
-    return this._get<ToolCapability[]>(`/tools/${toolId}/capabilities`, options);
+    return this._get<ToolCapability[]>(`/tools/${pathSegment(toolId, 'toolId')}/capabilities`, options);
   }
 
   // Tool Integrations
@@ -125,7 +126,7 @@ export class AgentToolsService extends ServiceModule {
     data: Partial<{ name: string; status: string; config: Record<string, unknown> }>,
     options?: RequestOptions
   ): Promise<ApiResponse<ToolIntegration>> {
-    return this.patch<ToolIntegration>(`/tool-integrations/${id}`, data, options);
+    return this.patch<ToolIntegration>(`/tool-integrations/${pathSegment(id, 'id')}`, data, options);
   }
 
   // Credentials
@@ -148,7 +149,7 @@ export class AgentToolsService extends ServiceModule {
     data: Partial<{ name: string; status: string }>,
     options?: RequestOptions
   ): Promise<ApiResponse<Credential>> {
-    return this.patch<Credential>(`/credentials/${id}`, data, options);
+    return this.patch<Credential>(`/credentials/${pathSegment(id, 'id')}`, data, options);
   }
 
   async createScope(
@@ -156,11 +157,15 @@ export class AgentToolsService extends ServiceModule {
     data: { scope: string },
     options?: RequestOptions
   ): Promise<ApiResponse<CredentialScope>> {
-    return this.post<CredentialScope>(`/credentials/${credentialId}/scopes`, data, options);
+    return this.post<CredentialScope>(
+      `/credentials/${pathSegment(credentialId, 'credentialId')}/scopes`,
+      data,
+      options
+    );
   }
 
   async listScopes(credentialId: string, options?: RequestOptions): Promise<ApiResponse<CredentialScope[]>> {
-    return this._get<CredentialScope[]>(`/credentials/${credentialId}/scopes`, options);
+    return this._get<CredentialScope[]>(`/credentials/${pathSegment(credentialId, 'credentialId')}/scopes`, options);
   }
 
   // Entitlements
@@ -179,7 +184,7 @@ export class AgentToolsService extends ServiceModule {
   }
 
   async revokeEntitlement(id: string, options?: RequestOptions): Promise<ApiResponse<void>> {
-    return this.del<void>(`/agent-tool-entitlements/${id}`, options);
+    return this.del<void>(`/agent-tool-entitlements/${pathSegment(id, 'id')}`, options);
   }
 
   async authorizeAction(

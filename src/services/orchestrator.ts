@@ -11,6 +11,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -54,11 +55,11 @@ export class OrchestratorService extends ServiceModule {
     input?: unknown,
     options?: RequestOptions
   ): Promise<ApiResponse<WorkflowExecution>> {
-    return this.post<WorkflowExecution>(`/workflows/${workflowId}/execute`, input, options);
+    return this.post<WorkflowExecution>(`/workflows/${pathSegment(workflowId, 'workflowId')}/execute`, input, options);
   }
 
   async getExecution(executionId: string, options?: RequestOptions): Promise<ApiResponse<WorkflowExecution>> {
-    return this._get<WorkflowExecution>(`/executions/${executionId}`, options);
+    return this._get<WorkflowExecution>(`/executions/${pathSegment(executionId, 'executionId')}`, options);
   }
 
   /** @deprecated Use execute() instead */

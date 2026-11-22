@@ -11,6 +11,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -52,7 +53,10 @@ export class SearchService extends ServiceModule {
     docId: string,
     options?: RequestOptions
   ): Promise<ApiResponse<{ deleted: boolean }>> {
-    return this.del<{ deleted: boolean }>(`/documents/${indexName}/${docId}`, options);
+    return this.del<{ deleted: boolean }>(
+      `/documents/${pathSegment(indexName, 'indexName')}/${pathSegment(docId, 'docId')}`,
+      options
+    );
   }
 
   /** @deprecated Use query() instead */

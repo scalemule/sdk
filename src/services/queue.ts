@@ -15,6 +15,7 @@
 import type { ScaleMuleClient } from '../client';
 import { ServiceModule } from '../service';
 import type { ApiResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -55,15 +56,15 @@ class DeadLetterApi extends ServiceModule {
   }
 
   async get(id: string, options?: RequestOptions): Promise<ApiResponse<DeadLetterJob>> {
-    return this._get<DeadLetterJob>(`/${id}`, options);
+    return this._get<DeadLetterJob>(`/${pathSegment(id, 'id')}`, options);
   }
 
   async retry(id: string, options?: RequestOptions): Promise<ApiResponse<QueueJob>> {
-    return this.post<QueueJob>(`/${id}/retry`, undefined, options);
+    return this.post<QueueJob>(`/${pathSegment(id, 'id')}/retry`, undefined, options);
   }
 
   async delete(id: string, options?: RequestOptions): Promise<ApiResponse<{ deleted: boolean }>> {
-    return this.del<{ deleted: boolean }>(`/${id}`, options);
+    return this.del<{ deleted: boolean }>(`/${pathSegment(id, 'id')}`, options);
   }
 }
 
@@ -96,6 +97,6 @@ export class QueueService extends ServiceModule {
   }
 
   async getJob(id: string, options?: RequestOptions): Promise<ApiResponse<QueueJob>> {
-    return this._get<QueueJob>(`/jobs/${id}`, options);
+    return this._get<QueueJob>(`/jobs/${pathSegment(id, 'id')}`, options);
   }
 }

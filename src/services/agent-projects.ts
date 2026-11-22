@@ -1,5 +1,6 @@
 import { ServiceModule } from '../service';
 import type { ApiResponse, PaginatedResponse, PaginationParams, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 export interface Project {
   id: string;
@@ -168,7 +169,7 @@ export class AgentProjectsService extends ServiceModule {
   }
 
   async getProject(id: string, applicationId?: string, options?: RequestOptions): Promise<ApiResponse<Project>> {
-    return this._get<Project>(this.withAppId(`/projects/${id}`, applicationId), options);
+    return this._get<Project>(this.withAppId(`/projects/${pathSegment(id, 'id')}`, applicationId), options);
   }
 
   async updateProject(
@@ -177,7 +178,7 @@ export class AgentProjectsService extends ServiceModule {
     applicationId?: string,
     options?: RequestOptions
   ): Promise<ApiResponse<Project>> {
-    return this.patch<Project>(this.withAppId(`/projects/${id}`, applicationId), data, options);
+    return this.patch<Project>(this.withAppId(`/projects/${pathSegment(id, 'id')}`, applicationId), data, options);
   }
 
   // Members (use auth user_id)
@@ -187,7 +188,11 @@ export class AgentProjectsService extends ServiceModule {
     applicationId?: string,
     options?: RequestOptions
   ): Promise<ApiResponse<ProjectMember>> {
-    return this.post<ProjectMember>(this.withAppId(`/projects/${projectId}/members`, applicationId), data, options);
+    return this.post<ProjectMember>(
+      this.withAppId(`/projects/${pathSegment(projectId, 'projectId')}/members`, applicationId),
+      data,
+      options
+    );
   }
 
   async listMembers(
@@ -199,8 +204,8 @@ export class AgentProjectsService extends ServiceModule {
     if (params?.application_id) qs.application_id = params.application_id;
     if (params?.hydrate) qs.hydrate = 'true';
     const path = Object.keys(qs).length
-      ? this.withQuery(`/projects/${projectId}/members`, qs)
-      : `/projects/${projectId}/members`;
+      ? this.withQuery(`/projects/${pathSegment(projectId, 'projectId')}/members`, qs)
+      : `/projects/${pathSegment(projectId, 'projectId')}/members`;
     const result = await this._get<{ members: ProjectMember[] }>(path, options);
     return { data: result.data?.members ?? [], error: result.error };
   }
@@ -213,7 +218,10 @@ export class AgentProjectsService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<ProjectMember>> {
     return this.patch<ProjectMember>(
-      this.withAppId(`/projects/${projectId}/members/${userId}`, applicationId),
+      this.withAppId(
+        `/projects/${pathSegment(projectId, 'projectId')}/members/${pathSegment(userId, 'userId')}`,
+        applicationId
+      ),
       data,
       options
     );
@@ -225,7 +233,13 @@ export class AgentProjectsService extends ServiceModule {
     applicationId?: string,
     options?: RequestOptions
   ): Promise<ApiResponse<void>> {
-    return this.del<void>(this.withAppId(`/projects/${projectId}/members/${userId}`, applicationId), options);
+    return this.del<void>(
+      this.withAppId(
+        `/projects/${pathSegment(projectId, 'projectId')}/members/${pathSegment(userId, 'userId')}`,
+        applicationId
+      ),
+      options
+    );
   }
 
   // Tasks
@@ -242,7 +256,11 @@ export class AgentProjectsService extends ServiceModule {
     applicationId?: string,
     options?: RequestOptions
   ): Promise<ApiResponse<Task>> {
-    return this.post<Task>(this.withAppId(`/projects/${projectId}/tasks`, applicationId), data, options);
+    return this.post<Task>(
+      this.withAppId(`/projects/${pathSegment(projectId, 'projectId')}/tasks`, applicationId),
+      data,
+      options
+    );
   }
 
   async listTasks(
@@ -250,11 +268,11 @@ export class AgentProjectsService extends ServiceModule {
     params?: PaginationParams & { application_id?: string; status?: string; priority?: string; agent_id?: string },
     options?: RequestOptions
   ): Promise<PaginatedResponse<Task>> {
-    return this._list<Task>(`/projects/${projectId}/tasks`, params, options);
+    return this._list<Task>(`/projects/${pathSegment(projectId, 'projectId')}/tasks`, params, options);
   }
 
   async getTask(id: string, applicationId?: string, options?: RequestOptions): Promise<ApiResponse<Task>> {
-    return this._get<Task>(this.withAppId(`/tasks/${id}`, applicationId), options);
+    return this._get<Task>(this.withAppId(`/tasks/${pathSegment(id, 'id')}`, applicationId), options);
   }
 
   async updateTask(
@@ -271,7 +289,7 @@ export class AgentProjectsService extends ServiceModule {
     applicationId?: string,
     options?: RequestOptions
   ): Promise<ApiResponse<Task>> {
-    return this.patch<Task>(this.withAppId(`/tasks/${id}`, applicationId), data, options);
+    return this.patch<Task>(this.withAppId(`/tasks/${pathSegment(id, 'id')}`, applicationId), data, options);
   }
 
   async reorderTasks(
@@ -281,7 +299,7 @@ export class AgentProjectsService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<void>> {
     return this.post<void>(
-      this.withAppId(`/projects/${projectId}/tasks/reorder`, applicationId),
+      this.withAppId(`/projects/${pathSegment(projectId, 'projectId')}/tasks/reorder`, applicationId),
       { task_ids: taskIds },
       options
     );
@@ -312,7 +330,7 @@ export class AgentProjectsService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<ClaimResult>> {
     return this.post<ClaimResult>(
-      this.withAppId(`/tasks/${taskId}/claim`, applicationId),
+      this.withAppId(`/tasks/${pathSegment(taskId, 'taskId')}/claim`, applicationId),
       { agent_id: agentId },
       options
     );
@@ -325,7 +343,7 @@ export class AgentProjectsService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<{ lease_expires_at: string }>> {
     return this.post<{ lease_expires_at: string }>(
-      this.withAppId(`/tasks/${taskId}/heartbeat`, applicationId),
+      this.withAppId(`/tasks/${pathSegment(taskId, 'taskId')}/heartbeat`, applicationId),
       { agent_id: agentId },
       options
     );
@@ -338,7 +356,7 @@ export class AgentProjectsService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<{ task_id: string; status: string }>> {
     return this.post<{ task_id: string; status: string }>(
-      this.withAppId(`/tasks/${taskId}/start`, applicationId),
+      this.withAppId(`/tasks/${pathSegment(taskId, 'taskId')}/start`, applicationId),
       { agent_id: agentId },
       options
     );
@@ -358,7 +376,11 @@ export class AgentProjectsService extends ServiceModule {
     applicationId?: string,
     options?: RequestOptions
   ): Promise<ApiResponse<SubmitResult>> {
-    return this.post<SubmitResult>(this.withAppId(`/tasks/${taskId}/submit`, applicationId), data, options);
+    return this.post<SubmitResult>(
+      this.withAppId(`/tasks/${pathSegment(taskId, 'taskId')}/submit`, applicationId),
+      data,
+      options
+    );
   }
 
   async block(
@@ -367,7 +389,11 @@ export class AgentProjectsService extends ServiceModule {
     applicationId?: string,
     options?: RequestOptions
   ): Promise<ApiResponse<Task>> {
-    return this.post<Task>(this.withAppId(`/tasks/${taskId}/block`, applicationId), data, options);
+    return this.post<Task>(
+      this.withAppId(`/tasks/${pathSegment(taskId, 'taskId')}/block`, applicationId),
+      data,
+      options
+    );
   }
 
   // Assignment
@@ -377,7 +403,7 @@ export class AgentProjectsService extends ServiceModule {
     applicationId?: string,
     options?: RequestOptions
   ): Promise<ApiResponse<{ task_id: string; agent_id: string }>> {
-    return this.post(this.withAppId(`/tasks/${taskId}/assign`, applicationId), data, options);
+    return this.post(this.withAppId(`/tasks/${pathSegment(taskId, 'taskId')}/assign`, applicationId), data, options);
   }
 
   async unassignAgent(
@@ -386,7 +412,13 @@ export class AgentProjectsService extends ServiceModule {
     applicationId?: string,
     options?: RequestOptions
   ): Promise<ApiResponse<void>> {
-    return this.del<void>(this.withAppId(`/tasks/${taskId}/assign/${agentId}`, applicationId), options);
+    return this.del<void>(
+      this.withAppId(
+        `/tasks/${pathSegment(taskId, 'taskId')}/assign/${pathSegment(agentId, 'agentId')}`,
+        applicationId
+      ),
+      options
+    );
   }
 
   // History
@@ -396,7 +428,7 @@ export class AgentProjectsService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<TaskAttempt[]>> {
     const result = await this._get<{ attempts: TaskAttempt[] }>(
-      this.withAppId(`/tasks/${taskId}/attempts`, applicationId),
+      this.withAppId(`/tasks/${pathSegment(taskId, 'taskId')}/attempts`, applicationId),
       options
     );
     return { data: result.data?.attempts ?? [], error: result.error };
@@ -408,7 +440,7 @@ export class AgentProjectsService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<TaskTransition[]>> {
     const result = await this._get<{ transitions: TaskTransition[] }>(
-      this.withAppId(`/tasks/${taskId}/transitions`, applicationId),
+      this.withAppId(`/tasks/${pathSegment(taskId, 'taskId')}/transitions`, applicationId),
       options
     );
     return { data: result.data?.transitions ?? [], error: result.error };
@@ -421,7 +453,11 @@ export class AgentProjectsService extends ServiceModule {
     applicationId?: string,
     options?: RequestOptions
   ): Promise<ApiResponse<ProjectDocument>> {
-    return this.post<ProjectDocument>(this.withAppId(`/projects/${projectId}/documents`, applicationId), data, options);
+    return this.post<ProjectDocument>(
+      this.withAppId(`/projects/${pathSegment(projectId, 'projectId')}/documents`, applicationId),
+      data,
+      options
+    );
   }
 
   async listDocuments(
@@ -430,7 +466,7 @@ export class AgentProjectsService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<ProjectDocument[]>> {
     const result = await this._get<{ documents: ProjectDocument[] }>(
-      this.withAppId(`/projects/${projectId}/documents`, applicationId),
+      this.withAppId(`/projects/${pathSegment(projectId, 'projectId')}/documents`, applicationId),
       options
     );
     return { data: result.data?.documents ?? [], error: result.error };
@@ -441,7 +477,10 @@ export class AgentProjectsService extends ServiceModule {
     applicationId?: string,
     options?: RequestOptions
   ): Promise<ApiResponse<void>> {
-    return this.del<void>(this.withAppId(`/documents/${documentId}`, applicationId), options);
+    return this.del<void>(
+      this.withAppId(`/documents/${pathSegment(documentId, 'documentId')}`, applicationId),
+      options
+    );
   }
 
   // Pipelines
@@ -451,7 +490,11 @@ export class AgentProjectsService extends ServiceModule {
     applicationId?: string,
     options?: RequestOptions
   ): Promise<ApiResponse<Pipeline>> {
-    return this.post<Pipeline>(this.withAppId(`/projects/${projectId}/pipelines`, applicationId), data, options);
+    return this.post<Pipeline>(
+      this.withAppId(`/projects/${pathSegment(projectId, 'projectId')}/pipelines`, applicationId),
+      data,
+      options
+    );
   }
 
   async listPipelines(
@@ -460,7 +503,7 @@ export class AgentProjectsService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<Pipeline[]>> {
     const result = await this._get<{ pipelines: Pipeline[] }>(
-      this.withAppId(`/projects/${projectId}/pipelines`, applicationId),
+      this.withAppId(`/projects/${pathSegment(projectId, 'projectId')}/pipelines`, applicationId),
       options
     );
     return { data: result.data?.pipelines ?? [], error: result.error };
@@ -473,7 +516,7 @@ export class AgentProjectsService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<PipelineVersion>> {
     return this.post<PipelineVersion>(
-      this.withAppId(`/pipelines/${pipelineId}/versions`, applicationId),
+      this.withAppId(`/pipelines/${pathSegment(pipelineId, 'pipelineId')}/versions`, applicationId),
       data,
       options
     );
@@ -485,7 +528,7 @@ export class AgentProjectsService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<PipelineVersion[]>> {
     const result = await this._get<{ versions: PipelineVersion[] }>(
-      this.withAppId(`/pipelines/${pipelineId}/versions`, applicationId),
+      this.withAppId(`/pipelines/${pathSegment(pipelineId, 'pipelineId')}/versions`, applicationId),
       options
     );
     return { data: result.data?.versions ?? [], error: result.error };
@@ -523,16 +566,16 @@ export class AgentProjectsService extends ServiceModule {
   }
 
   async getGrant(id: string, options?: RequestOptions): Promise<ApiResponse<ProjectGrant>> {
-    return this._get<ProjectGrant>(`/project-grants/${id}`, options);
+    return this._get<ProjectGrant>(`/project-grants/${pathSegment(id, 'id')}`, options);
   }
 
   /** Public endpoint — no auth required. Returns masked email + project name. */
   async getGrantInfo(id: string, options?: RequestOptions): Promise<ApiResponse<GrantInfo>> {
-    return this._get<GrantInfo>(`/project-grants/${id}/info`, { skipAuth: true, ...options });
+    return this._get<GrantInfo>(`/project-grants/${pathSegment(id, 'id')}/info`, { skipAuth: true, ...options });
   }
 
   async revokeGrant(id: string, options?: RequestOptions): Promise<ApiResponse<void>> {
-    return this.del<void>(`/project-grants/${id}`, options);
+    return this.del<void>(`/project-grants/${pathSegment(id, 'id')}`, options);
   }
 
   async resendGrantInvitation(
@@ -540,10 +583,10 @@ export class AgentProjectsService extends ServiceModule {
     data: { invite_url: string },
     options?: RequestOptions
   ): Promise<ApiResponse<{ email_sent: boolean }>> {
-    return this.post<{ email_sent: boolean }>(`/project-grants/${id}/resend`, data, options);
+    return this.post<{ email_sent: boolean }>(`/project-grants/${pathSegment(id, 'id')}/resend`, data, options);
   }
 
   async redeemGrant(id: string, options?: RequestOptions): Promise<ApiResponse<RedeemResult>> {
-    return this.post<RedeemResult>(`/project-grants/${id}/redeem`, undefined, options);
+    return this.post<RedeemResult>(`/project-grants/${pathSegment(id, 'id')}/redeem`, undefined, options);
   }
 }

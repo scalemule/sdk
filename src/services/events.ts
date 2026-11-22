@@ -17,6 +17,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, PaginatedResponse, PaginationParams, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -59,7 +60,7 @@ export class EventsService extends ServiceModule {
   }
 
   async get(eventId: string, options?: RequestOptions): Promise<ApiResponse<CalendarEvent>> {
-    return this._get<CalendarEvent>(`/${eventId}`, options);
+    return this._get<CalendarEvent>(`/${pathSegment(eventId, 'eventId')}`, options);
   }
 
   async update(
@@ -67,11 +68,11 @@ export class EventsService extends ServiceModule {
     data: Record<string, unknown>,
     options?: RequestOptions
   ): Promise<ApiResponse<CalendarEvent>> {
-    return this.patch<CalendarEvent>(`/${eventId}`, data, options);
+    return this.patch<CalendarEvent>(`/${pathSegment(eventId, 'eventId')}`, data, options);
   }
 
   async delete(eventId: string, options?: RequestOptions): Promise<ApiResponse<{ deleted: boolean }>> {
-    return this.del<{ deleted: boolean }>(`/${eventId}`, options);
+    return this.del<{ deleted: boolean }>(`/${pathSegment(eventId, 'eventId')}`, options);
   }
 
   async list(
@@ -82,11 +83,11 @@ export class EventsService extends ServiceModule {
   }
 
   async register(eventId: string, options?: RequestOptions): Promise<ApiResponse<Attendee>> {
-    return this.post<Attendee>(`/${eventId}/register`, undefined, options);
+    return this.post<Attendee>(`/${pathSegment(eventId, 'eventId')}/register`, undefined, options);
   }
 
   async unregister(eventId: string, options?: RequestOptions): Promise<ApiResponse<{ unregistered: boolean }>> {
-    return this.del<{ unregistered: boolean }>(`/${eventId}/register`, options);
+    return this.del<{ unregistered: boolean }>(`/${pathSegment(eventId, 'eventId')}/register`, options);
   }
 
   async getAttendees(
@@ -94,11 +95,11 @@ export class EventsService extends ServiceModule {
     params?: PaginationParams,
     requestOptions?: RequestOptions
   ): Promise<PaginatedResponse<Attendee>> {
-    return this._list<Attendee>(`/${eventId}/attendees`, params, requestOptions);
+    return this._list<Attendee>(`/${pathSegment(eventId, 'eventId')}/attendees`, params, requestOptions);
   }
 
   async checkIn(eventId: string, options?: RequestOptions): Promise<ApiResponse<Attendee>> {
-    return this.post<Attendee>(`/${eventId}/check-in`, undefined, options);
+    return this.post<Attendee>(`/${pathSegment(eventId, 'eventId')}/check-in`, undefined, options);
   }
 
   /** @deprecated Use create() instead */

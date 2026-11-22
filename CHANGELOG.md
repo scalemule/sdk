@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.0.84 - 2026-11-22
+
+- **Security: every ID argument is now one encoded path segment.** All service methods pass IDs, names, keys and slugs through `pathSegment()`, which percent-encodes the value and refuses (before any network call) empty values, `.`, `..`, and values containing `/`, `\`, `%` (so `%2F`, `%2E`, `%5C` and double-encoding cannot be smuggled in), `?`, `#` or control characters. Previously most services interpolated IDs raw, so an ID such as `..%2F..%2Fauth%2Fme` (which Next.js route params arrive decoded as) let a server route that forwards a route param with the app's secret key reach any gateway path.
+- An invalid ID throws `ScaleMulePathError` (`code: 'invalid_path_segment'`, `status: 400`); `async` methods reject with it. Validate route params (UUID / slug shape) before calling the SDK and map this error to a 400/404.
+- Methods that already encoded IDs (billing accounts, bookings, decisions, polls, newsletters, auth users, local intelligence, community maps) now also refuse `/` and traversal instead of encoding a slash as `%2F`. No ScaleMule route takes a slash inside one of those IDs.
+- `ScaleMuleClient.request()` and `upload()` refuse any path whose path part has a `.`/`..` segment, a backslash, a control character or an encoded dot, slash or backslash (`%2e`, `%2f`, `%5c`, also `%252e`...), returning `{ error: { code: 'invalid_path', status: 400 } }` without sending it. Query strings are not affected.
+- New exports: `pathSegment`, `findUnsafePathReason`, `ScaleMulePathError`.
+
 ## 0.0.79
 
 - `auth.verifyEmail({ token, email })`: send the address a 6-digit code was sent to, so ScaleMule matches the code only against that account (scalemule-auth#188). Code-only verification keeps working under a per-app attempt budget.

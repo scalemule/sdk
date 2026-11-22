@@ -13,6 +13,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -75,7 +76,7 @@ export class FlagContentService extends ServiceModule {
   }
 
   async getFlag(id: string, options?: RequestOptions): Promise<ApiResponse<ContentFlag>> {
-    return this._get<ContentFlag>(`/flags/${id}`, options);
+    return this._get<ContentFlag>(`/flags/${pathSegment(id, 'id')}`, options);
   }
 
   async submitAppeal(
@@ -86,6 +87,6 @@ export class FlagContentService extends ServiceModule {
   }
 
   async getAppeal(id: string, options?: RequestOptions): Promise<ApiResponse<Appeal>> {
-    return this._get<Appeal>(`/appeals/${id}`, options);
+    return this._get<Appeal>(`/appeals/${pathSegment(id, 'id')}`, options);
   }
 }

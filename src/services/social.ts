@@ -26,6 +26,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, PaginatedResponse, PaginationParams, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -162,11 +163,11 @@ export class SocialService extends ServiceModule {
   // --------------------------------------------------------------------------
 
   async follow(userId: string, options?: RequestOptions): Promise<ApiResponse<{ followed: boolean }>> {
-    return this.post<{ followed: boolean }>(`/users/${userId}/follow`, undefined, options);
+    return this.post<{ followed: boolean }>(`/users/${pathSegment(userId, 'userId')}/follow`, undefined, options);
   }
 
   async unfollow(userId: string, options?: RequestOptions): Promise<ApiResponse<{ unfollowed: boolean }>> {
-    return this.del<{ unfollowed: boolean }>(`/users/${userId}/follow`, options);
+    return this.del<{ unfollowed: boolean }>(`/users/${pathSegment(userId, 'userId')}/follow`, options);
   }
 
   async getFollowers(
@@ -174,7 +175,7 @@ export class SocialService extends ServiceModule {
     params?: PaginationParams,
     requestOptions?: RequestOptions
   ): Promise<PaginatedResponse<SocialUser>> {
-    return this._list<SocialUser>(`/users/${userId}/followers`, params, requestOptions);
+    return this._list<SocialUser>(`/users/${pathSegment(userId, 'userId')}/followers`, params, requestOptions);
   }
 
   async getFollowing(
@@ -182,11 +183,11 @@ export class SocialService extends ServiceModule {
     params?: PaginationParams,
     requestOptions?: RequestOptions
   ): Promise<PaginatedResponse<SocialUser>> {
-    return this._list<SocialUser>(`/users/${userId}/following`, params, requestOptions);
+    return this._list<SocialUser>(`/users/${pathSegment(userId, 'userId')}/following`, params, requestOptions);
   }
 
   async getFollowStatus(userId: string, options?: RequestOptions): Promise<ApiResponse<FollowStatus>> {
-    return this._get<FollowStatus>(`/users/${userId}/follow-status`, options);
+    return this._get<FollowStatus>(`/users/${pathSegment(userId, 'userId')}/follow-status`, options);
   }
 
   // --------------------------------------------------------------------------
@@ -201,11 +202,11 @@ export class SocialService extends ServiceModule {
   }
 
   async getPost(postId: string, options?: RequestOptions): Promise<ApiResponse<SocialPost>> {
-    return this._get<SocialPost>(`/posts/${postId}`, options);
+    return this._get<SocialPost>(`/posts/${pathSegment(postId, 'postId')}`, options);
   }
 
   async deletePost(postId: string, options?: RequestOptions): Promise<ApiResponse<{ deleted: boolean }>> {
-    return this.del<{ deleted: boolean }>(`/posts/${postId}`, options);
+    return this.del<{ deleted: boolean }>(`/posts/${pathSegment(postId, 'postId')}`, options);
   }
 
   async getUserPosts(
@@ -213,7 +214,7 @@ export class SocialService extends ServiceModule {
     params?: PaginationParams,
     requestOptions?: RequestOptions
   ): Promise<PaginatedResponse<SocialPost>> {
-    return this._list<SocialPost>(`/users/${userId}/posts`, params, requestOptions);
+    return this._list<SocialPost>(`/users/${pathSegment(userId, 'userId')}/posts`, params, requestOptions);
   }
 
   async getFeed(options?: PaginationParams, requestOptions?: RequestOptions): Promise<PaginatedResponse<SocialPost>> {
@@ -225,7 +226,11 @@ export class SocialService extends ServiceModule {
   // --------------------------------------------------------------------------
 
   async like(targetType: string, targetId: string, options?: RequestOptions): Promise<ApiResponse<{ liked: boolean }>> {
-    return this.post<{ liked: boolean }>(`/${targetType}/${targetId}/like`, undefined, options);
+    return this.post<{ liked: boolean }>(
+      `/${pathSegment(targetType, 'targetType')}/${pathSegment(targetId, 'targetId')}/like`,
+      undefined,
+      options
+    );
   }
 
   async unlike(
@@ -233,7 +238,10 @@ export class SocialService extends ServiceModule {
     targetId: string,
     options?: RequestOptions
   ): Promise<ApiResponse<{ unliked: boolean }>> {
-    return this.del<{ unliked: boolean }>(`/${targetType}/${targetId}/like`, options);
+    return this.del<{ unliked: boolean }>(
+      `/${pathSegment(targetType, 'targetType')}/${pathSegment(targetId, 'targetId')}/like`,
+      options
+    );
   }
 
   async getLikes(
@@ -242,7 +250,11 @@ export class SocialService extends ServiceModule {
     params?: PaginationParams,
     requestOptions?: RequestOptions
   ): Promise<PaginatedResponse<Like>> {
-    return this._list<Like>(`/${targetType}/${targetId}/likes`, params, requestOptions);
+    return this._list<Like>(
+      `/${pathSegment(targetType, 'targetType')}/${pathSegment(targetId, 'targetId')}/likes`,
+      params,
+      requestOptions
+    );
   }
 
   // --------------------------------------------------------------------------
@@ -267,7 +279,11 @@ export class SocialService extends ServiceModule {
     value: 1 | -1 | 0,
     options?: RequestOptions
   ): Promise<ApiResponse<VoteState>> {
-    return this.put<VoteState>(`/${targetType}/${targetId}/vote`, { value }, options);
+    return this.put<VoteState>(
+      `/${pathSegment(targetType, 'targetType')}/${pathSegment(targetId, 'targetId')}/vote`,
+      { value },
+      options
+    );
   }
 
   /**
@@ -277,7 +293,10 @@ export class SocialService extends ServiceModule {
    * Requires an authenticated session.
    */
   async getVote(targetType: string, targetId: string, options?: RequestOptions): Promise<ApiResponse<VoteState>> {
-    return this._get<VoteState>(`/${targetType}/${targetId}/vote`, options);
+    return this._get<VoteState>(
+      `/${pathSegment(targetType, 'targetType')}/${pathSegment(targetId, 'targetId')}/vote`,
+      options
+    );
   }
 
   // --------------------------------------------------------------------------
@@ -301,14 +320,21 @@ export class SocialService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<ViewState>> {
     const body = viewerFingerprint ? { viewer_fingerprint: viewerFingerprint } : {};
-    return this.post<ViewState>(`/${targetType}/${targetId}/views`, body, options);
+    return this.post<ViewState>(
+      `/${pathSegment(targetType, 'targetType')}/${pathSegment(targetId, 'targetId')}/views`,
+      body,
+      options
+    );
   }
 
   /**
    * Read view counters for a target.
    */
   async getViews(targetType: string, targetId: string, options?: RequestOptions): Promise<ApiResponse<ViewState>> {
-    return this._get<ViewState>(`/${targetType}/${targetId}/views`, options);
+    return this._get<ViewState>(
+      `/${pathSegment(targetType, 'targetType')}/${pathSegment(targetId, 'targetId')}/views`,
+      options
+    );
   }
 
   // --------------------------------------------------------------------------
@@ -316,7 +342,7 @@ export class SocialService extends ServiceModule {
   // --------------------------------------------------------------------------
 
   async comment(postId: string, data: { content: string }, options?: RequestOptions): Promise<ApiResponse<Comment>> {
-    return this.post<Comment>(`/posts/${postId}/comments`, data, options);
+    return this.post<Comment>(`/posts/${pathSegment(postId, 'postId')}/comments`, data, options);
   }
 
   async getComments(
@@ -324,7 +350,7 @@ export class SocialService extends ServiceModule {
     params?: PaginationParams,
     requestOptions?: RequestOptions
   ): Promise<PaginatedResponse<Comment>> {
-    return this._list<Comment>(`/posts/${postId}/comments`, params, requestOptions);
+    return this._list<Comment>(`/posts/${pathSegment(postId, 'postId')}/comments`, params, requestOptions);
   }
 
   // --------------------------------------------------------------------------
@@ -339,7 +365,7 @@ export class SocialService extends ServiceModule {
   }
 
   async markActivityRead(activityId: string, options?: RequestOptions): Promise<ApiResponse<ActivityItem>> {
-    return this.patch<ActivityItem>(`/activity/${activityId}/read`, {}, options);
+    return this.patch<ActivityItem>(`/activity/${pathSegment(activityId, 'activityId')}/read`, {}, options);
   }
 
   async markAllRead(options?: RequestOptions): Promise<ApiResponse<{ marked_count: number }>> {

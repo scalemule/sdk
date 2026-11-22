@@ -42,12 +42,16 @@ describe('DecisionsService', () => {
   it('url-encodes decision keys and receipt ids', async () => {
     const { client, calls } = fakeClient();
     const decisions = new DecisionsService(client);
-    await decisions.evaluate('a/b c', {});
+    await decisions.evaluate('a:b c', {});
     await decisions.verifyReceipt('r 1');
-    await decisions.getReceipt('r/2');
-    expect(calls[0].path).toBe('/v1/decisions/evaluate/a%2Fb%20c');
+    await decisions.getReceipt('r@2');
+    expect(calls[0].path).toBe('/v1/decisions/evaluate/a%3Ab%20c');
     expect(calls[1].path).toBe('/v1/decisions/receipts/r%201/verify');
-    expect(calls[2].path).toBe('/v1/decisions/receipts/r%2F2');
+    expect(calls[2].path).toBe('/v1/decisions/receipts/r%402');
+    // A slash would be a second path segment: refused before any request.
+    await expect(Promise.resolve().then(() => decisions.evaluate('a/b', {}))).rejects.toThrow(/decisionKey/);
+    await expect(Promise.resolve().then(() => decisions.getReceipt('..'))).rejects.toThrow();
+    expect(calls).toHaveLength(3);
   });
 
   it('batches items', async () => {

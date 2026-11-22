@@ -19,6 +19,7 @@ import { ServiceModule } from '../service';
 import type { ScaleMuleClient } from '../client';
 import type { ApiResponse, RequestOptions } from '../types';
 import type { StorageService, FileInfo } from './storage';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -197,7 +198,7 @@ export class VideoService extends ServiceModule {
 
     // Step 3: Complete upload
     const completeResult = await this.post<VideoInfo>(
-      `/${video_id}/upload-complete`,
+      `/${pathSegment(video_id, 'video_id')}/upload-complete`,
       {
         upload_id,
         parts
@@ -214,7 +215,7 @@ export class VideoService extends ServiceModule {
 
   /** Get video metadata and status. */
   async get(videoId: string, options?: RequestOptions): Promise<ApiResponse<VideoInfo>> {
-    return super._get<VideoInfo>(`/${videoId}`, options);
+    return super._get<VideoInfo>(`/${pathSegment(videoId, 'videoId')}`, options);
   }
 
   /**
@@ -349,7 +350,7 @@ export class VideoService extends ServiceModule {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const result = await this.get(videoId, requestOptions);
       if (result.data?.status === 'ready') {
-        return `${this.client.getBaseUrl()}${this.basePath}/${videoId}/playlist.m3u8`;
+        return `${this.client.getBaseUrl()}${this.basePath}/${pathSegment(videoId, 'videoId')}/playlist.m3u8`;
       }
       await new Promise((r) => setTimeout(r, intervalMs));
     }
@@ -364,7 +365,7 @@ export class VideoService extends ServiceModule {
     // The master playlist is served directly at this path
     const baseUrl = this.client.getBaseUrl();
     return {
-      data: { url: `${baseUrl}${this.basePath}/${videoId}/playlist.m3u8` },
+      data: { url: `${baseUrl}${this.basePath}/${pathSegment(videoId, 'videoId')}/playlist.m3u8` },
       error: null
     };
   }
@@ -382,7 +383,7 @@ export class VideoService extends ServiceModule {
     },
     options?: RequestOptions
   ) {
-    return this.post<{ tracked: boolean }>(`/${videoId}/track`, event, options);
+    return this.post<{ tracked: boolean }>(`/${pathSegment(videoId, 'videoId')}/track`, event, options);
   }
 
   /** Get video analytics (views, watch time, etc.). */
@@ -391,7 +392,7 @@ export class VideoService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<{ views: number; watch_time_seconds: number; completions?: number }>> {
     return super._get<{ views: number; watch_time_seconds: number; completions?: number }>(
-      `/${videoId}/analytics`,
+      `/${pathSegment(videoId, 'videoId')}/analytics`,
       options
     );
   }
@@ -405,7 +406,11 @@ export class VideoService extends ServiceModule {
     accessMode: 'public' | 'private',
     options?: RequestOptions
   ): Promise<ApiResponse<{ video_id: string; access_mode: string }>> {
-    return this.patch<{ video_id: string; access_mode: string }>(`/${videoId}`, { access_mode: accessMode }, options);
+    return this.patch<{ video_id: string; access_mode: string }>(
+      `/${pathSegment(videoId, 'videoId')}`,
+      { access_mode: accessMode },
+      options
+    );
   }
 
   // --------------------------------------------------------------------------
@@ -448,7 +453,7 @@ export class VideoService extends ServiceModule {
     const formData = new FormData();
     formData.append('file', chunk);
 
-    const path = `${this.basePath}/${videoId}/upload-part?upload_id=${encodeURIComponent(uploadId)}&part_number=${partNumber}`;
+    const path = `${this.basePath}/${pathSegment(videoId, 'videoId')}/upload-part?upload_id=${encodeURIComponent(uploadId)}&part_number=${partNumber}`;
 
     // Use raw client request since we need multipart
     const headers: Record<string, string> = {

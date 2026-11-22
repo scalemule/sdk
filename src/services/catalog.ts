@@ -10,6 +10,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -41,6 +42,6 @@ export class CatalogService extends ServiceModule {
   }
 
   async getServiceHealth(name: string, options?: RequestOptions): Promise<ApiResponse<ServiceHealth>> {
-    return this._get<ServiceHealth>(`/services/${name}/health`, options);
+    return this._get<ServiceHealth>(`/services/${pathSegment(name, 'name')}/health`, options);
   }
 }

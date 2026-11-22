@@ -18,6 +18,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -100,7 +101,7 @@ export class PermissionsService extends ServiceModule {
   }
 
   async assignPermissions(roleId: string, permissions: string[], options?: RequestOptions): Promise<ApiResponse<Role>> {
-    return this.post<Role>(`/roles/${roleId}/permissions`, { permissions }, options);
+    return this.post<Role>(`/roles/${pathSegment(roleId, 'roleId')}/permissions`, { permissions }, options);
   }
 
   async assignRole(
@@ -108,7 +109,11 @@ export class PermissionsService extends ServiceModule {
     roleId: string,
     options?: RequestOptions
   ): Promise<ApiResponse<{ assigned: boolean }>> {
-    return this.post<{ assigned: boolean }>(`/users/${userId}/roles`, { role_id: roleId }, options);
+    return this.post<{ assigned: boolean }>(
+      `/users/${pathSegment(userId, 'userId')}/roles`,
+      { role_id: roleId },
+      options
+    );
   }
 
   // --------------------------------------------------------------------------
@@ -164,7 +169,7 @@ export class PermissionsService extends ServiceModule {
   }
 
   async getUserPermissions(userId: string, options?: RequestOptions): Promise<ApiResponse<string[]>> {
-    return this._get<string[]>(`/users/${userId}/permissions`, options);
+    return this._get<string[]>(`/users/${pathSegment(userId, 'userId')}/permissions`, options);
   }
 
   // --------------------------------------------------------------------------

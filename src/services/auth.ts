@@ -12,6 +12,7 @@ import type { ScaleMuleClient } from '../client';
 import { ServiceModule } from '../service';
 import type { ApiResponse, PaginationParams, RequestOptions } from '../types';
 import { normalizePhoneNumber } from '../utils/phone';
+import { pathSegment } from '../utils/path';
 
 /** Auto-collect device fingerprint components in browser environments */
 function collectDeviceFingerprint(): Record<string, unknown> | undefined {
@@ -320,7 +321,7 @@ class AuthSessionsApi extends ServiceModule {
   }
 
   async revoke(sessionId: string): Promise<ApiResponse<{ revoked: boolean }>> {
-    return this.del<{ revoked: boolean }>(`/${sessionId}`);
+    return this.del<{ revoked: boolean }>(`/${pathSegment(sessionId, 'sessionId')}`);
   }
 
   async revokeAll(): Promise<ApiResponse<{ revoked_count: number }>> {
@@ -336,15 +337,15 @@ class AuthDevicesApi extends ServiceModule {
   }
 
   async trust(deviceId: string): Promise<ApiResponse<DeviceInfo>> {
-    return this.post<DeviceInfo>(`/${deviceId}/trust`);
+    return this.post<DeviceInfo>(`/${pathSegment(deviceId, 'deviceId')}/trust`);
   }
 
   async block(deviceId: string): Promise<ApiResponse<DeviceInfo>> {
-    return this.post<DeviceInfo>(`/${deviceId}/block`);
+    return this.post<DeviceInfo>(`/${pathSegment(deviceId, 'deviceId')}/block`);
   }
 
   async delete(deviceId: string): Promise<ApiResponse<{ deleted: boolean }>> {
-    return this.del<{ deleted: boolean }>(`/${deviceId}`);
+    return this.del<{ deleted: boolean }>(`/${pathSegment(deviceId, 'deviceId')}`);
   }
 }
 
@@ -534,7 +535,7 @@ export class AuthService extends ServiceModule {
    * reads are blocked at the gateway via the x-app-id header scope.
    */
   async getUser(userId: string, options?: RequestOptions): Promise<ApiResponse<DirectoryUserDetail>> {
-    return this._get<DirectoryUserDetail>(`/users/${encodeURIComponent(userId)}`, options);
+    return this._get<DirectoryUserDetail>(`/users/${pathSegment(userId, 'userId')}`, options);
   }
 
   /** Refresh the session. Alias: refreshToken() */
@@ -734,7 +735,10 @@ export class AuthService extends ServiceModule {
   // --------------------------------------------------------------------------
 
   async getOAuthUrl(provider: string, redirectUri: string, options?: RequestOptions): Promise<ApiResponse<OAuthUrl>> {
-    return this._get<OAuthUrl>(this.withQuery(`/oauth/${provider}/authorize`, { redirect_uri: redirectUri }), options);
+    return this._get<OAuthUrl>(
+      this.withQuery(`/oauth/${pathSegment(provider, 'provider')}/authorize`, { redirect_uri: redirectUri }),
+      options
+    );
   }
 
   async handleOAuthCallback(
@@ -742,7 +746,10 @@ export class AuthService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<AuthSession>> {
     const { provider, ...rest } = data;
-    const result = await this._get<AuthSession>(this.withQuery(`/oauth/${provider}/callback`, rest), options);
+    const result = await this._get<AuthSession>(
+      this.withQuery(`/oauth/${pathSegment(provider, 'provider')}/callback`, rest),
+      options
+    );
     if (result.data && this.client.isAccountSwitcherEnabled()) {
       await this.client.addKnownAccount({
         userId: result.data.user.id,
@@ -761,7 +768,7 @@ export class AuthService extends ServiceModule {
   }
 
   async unlinkOAuthProvider(provider: string, options?: RequestOptions): Promise<ApiResponse<{ unlinked: boolean }>> {
-    return this.del<{ unlinked: boolean }>(`/oauth/providers/${provider}`, options);
+    return this.del<{ unlinked: boolean }>(`/oauth/providers/${pathSegment(provider, 'provider')}`, options);
   }
 
   // --------------------------------------------------------------------------

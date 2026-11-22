@@ -18,6 +18,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -71,7 +72,7 @@ export class GraphService extends ServiceModule {
     data: { properties: Record<string, unknown> },
     requestOptions?: RequestOptions
   ): Promise<ApiResponse<GraphNode>> {
-    return this.patch<GraphNode>(`/nodes/${nodeId}`, data, requestOptions);
+    return this.patch<GraphNode>(`/nodes/${pathSegment(nodeId, 'nodeId')}`, data, requestOptions);
   }
 
   async createEdge(
@@ -86,7 +87,10 @@ export class GraphService extends ServiceModule {
     options?: { type?: string; direction?: 'in' | 'out' | 'both' },
     requestOptions?: RequestOptions
   ): Promise<ApiResponse<GraphEdge[]>> {
-    return this._get<GraphEdge[]>(this.withQuery(`/nodes/${nodeId}/edges`, options), requestOptions);
+    return this._get<GraphEdge[]>(
+      this.withQuery(`/nodes/${pathSegment(nodeId, 'nodeId')}/edges`, options),
+      requestOptions
+    );
   }
 
   async traverse(
@@ -94,7 +98,10 @@ export class GraphService extends ServiceModule {
     options?: { depth?: number; direction?: string },
     requestOptions?: RequestOptions
   ): Promise<ApiResponse<TraversalResult>> {
-    return this._get<TraversalResult>(this.withQuery(`/nodes/${nodeId}/traverse`, options), requestOptions);
+    return this._get<TraversalResult>(
+      this.withQuery(`/nodes/${pathSegment(nodeId, 'nodeId')}/traverse`, options),
+      requestOptions
+    );
   }
 
   async shortestPath(
@@ -109,7 +116,10 @@ export class GraphService extends ServiceModule {
     options?: { depth?: number; type?: string },
     requestOptions?: RequestOptions
   ): Promise<ApiResponse<GraphNode[]>> {
-    return this._get<GraphNode[]>(this.withQuery(`/nodes/${nodeId}/neighbors`, options), requestOptions);
+    return this._get<GraphNode[]>(
+      this.withQuery(`/nodes/${pathSegment(nodeId, 'nodeId')}/neighbors`, options),
+      requestOptions
+    );
   }
 
   async pageRank(

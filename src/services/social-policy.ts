@@ -8,6 +8,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 export type SocialPolicyIdentityType = 'person' | 'business' | 'workspace' | 'customer' | string;
 
@@ -310,7 +311,7 @@ export class SocialPolicyService extends ServiceModule {
   }
 
   getSettings(identityId: string, options?: RequestOptions): Promise<ApiResponse<SocialPolicySettings>> {
-    return this._get<SocialPolicySettings>(`/settings/${identityId}`, options);
+    return this._get<SocialPolicySettings>(`/settings/${pathSegment(identityId, 'identityId')}`, options);
   }
 
   updateSettings(
@@ -318,7 +319,7 @@ export class SocialPolicyService extends ServiceModule {
     request: SocialPolicyUpdateSettingsRequest,
     options?: RequestOptions
   ): Promise<ApiResponse<SocialPolicySettings>> {
-    return this.patch<SocialPolicySettings>(`/settings/${identityId}`, request, options);
+    return this.patch<SocialPolicySettings>(`/settings/${pathSegment(identityId, 'identityId')}`, request, options);
   }
 
   createRelationship(
@@ -336,7 +337,7 @@ export class SocialPolicyService extends ServiceModule {
   }
 
   deleteRelationship(relationshipId: string, options?: RequestOptions): Promise<ApiResponse<{ deleted: boolean }>> {
-    return this.del<{ deleted: boolean }>(`/relationships/${relationshipId}`, options);
+    return this.del<{ deleted: boolean }>(`/relationships/${pathSegment(relationshipId, 'relationshipId')}`, options);
   }
 
   createContactRequest(
@@ -367,19 +368,35 @@ export class SocialPolicyService extends ServiceModule {
   }
 
   acceptContactRequest(requestId: string, options?: RequestOptions): Promise<ApiResponse<SocialPolicyContactRequest>> {
-    return this.post<SocialPolicyContactRequest>(`/contact-requests/${requestId}/accept`, undefined, options);
+    return this.post<SocialPolicyContactRequest>(
+      `/contact-requests/${pathSegment(requestId, 'requestId')}/accept`,
+      undefined,
+      options
+    );
   }
 
   ignoreContactRequest(requestId: string, options?: RequestOptions): Promise<ApiResponse<SocialPolicyContactRequest>> {
-    return this.post<SocialPolicyContactRequest>(`/contact-requests/${requestId}/ignore`, undefined, options);
+    return this.post<SocialPolicyContactRequest>(
+      `/contact-requests/${pathSegment(requestId, 'requestId')}/ignore`,
+      undefined,
+      options
+    );
   }
 
   declineContactRequest(requestId: string, options?: RequestOptions): Promise<ApiResponse<SocialPolicyContactRequest>> {
-    return this.post<SocialPolicyContactRequest>(`/contact-requests/${requestId}/decline`, undefined, options);
+    return this.post<SocialPolicyContactRequest>(
+      `/contact-requests/${pathSegment(requestId, 'requestId')}/decline`,
+      undefined,
+      options
+    );
   }
 
   reportContactRequest(requestId: string, options?: RequestOptions): Promise<ApiResponse<SocialPolicyContactRequest>> {
-    return this.post<SocialPolicyContactRequest>(`/contact-requests/${requestId}/report`, undefined, options);
+    return this.post<SocialPolicyContactRequest>(
+      `/contact-requests/${pathSegment(requestId, 'requestId')}/report`,
+      undefined,
+      options
+    );
   }
 
   block(request: SocialPolicyBlockRequest, options?: RequestOptions): Promise<ApiResponse<{ blocked: boolean }>> {

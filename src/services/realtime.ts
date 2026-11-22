@@ -21,6 +21,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -184,7 +185,11 @@ export class RealtimeService extends ServiceModule {
     data: unknown,
     options?: RequestOptions
   ): Promise<ApiResponse<{ sent: boolean }>> {
-    return this.post<{ sent: boolean }>(`/broadcast/channel/${channel}`, { event, data }, options);
+    return this.post<{ sent: boolean }>(
+      `/broadcast/channel/${pathSegment(channel, 'channel')}`,
+      { event, data },
+      options
+    );
   }
 
   /** Send to a specific user's connections. */
@@ -194,7 +199,7 @@ export class RealtimeService extends ServiceModule {
     data: unknown,
     options?: RequestOptions
   ): Promise<ApiResponse<{ sent: boolean }>> {
-    return this.post<{ sent: boolean }>(`/broadcast/user/${userId}`, { event, data }, options);
+    return this.post<{ sent: boolean }>(`/broadcast/user/${pathSegment(userId, 'userId')}`, { event, data }, options);
   }
 
   // --------------------------------------------------------------------------

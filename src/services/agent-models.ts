@@ -1,5 +1,6 @@
 import { ServiceModule } from '../service';
 import type { ApiResponse, PaginatedResponse, PaginationParams, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 export interface ModelProvider {
   id: string;
@@ -105,7 +106,7 @@ export class AgentModelsService extends ServiceModule {
   }
 
   async getModel(id: string, options?: RequestOptions): Promise<ApiResponse<Model>> {
-    return this._get<Model>(`/models/${id}`, options);
+    return this._get<Model>(`/models/${pathSegment(id, 'id')}`, options);
   }
 
   async createPricing(
@@ -113,11 +114,11 @@ export class AgentModelsService extends ServiceModule {
     data: { pricing_type: string; input_cost_per_token?: number; output_cost_per_token?: number },
     options?: RequestOptions
   ): Promise<ApiResponse<ModelPricing>> {
-    return this.post<ModelPricing>(`/models/${modelId}/pricing`, data, options);
+    return this.post<ModelPricing>(`/models/${pathSegment(modelId, 'modelId')}/pricing`, data, options);
   }
 
   async listPricing(modelId: string, options?: RequestOptions): Promise<ApiResponse<ModelPricing[]>> {
-    return this._get<ModelPricing[]>(`/models/${modelId}/pricing`, options);
+    return this._get<ModelPricing[]>(`/models/${pathSegment(modelId, 'modelId')}/pricing`, options);
   }
 
   // Entitlements
@@ -136,7 +137,7 @@ export class AgentModelsService extends ServiceModule {
   }
 
   async deleteEntitlement(id: string, options?: RequestOptions): Promise<ApiResponse<void>> {
-    return this.del<void>(`/model-entitlements/${id}`, options);
+    return this.del<void>(`/model-entitlements/${pathSegment(id, 'id')}`, options);
   }
 
   // Usage & Reporting

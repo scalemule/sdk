@@ -26,6 +26,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, PaginatedResponse, PaginationParams, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Core Billing Types
@@ -347,7 +348,7 @@ export class BillingService extends ServiceModule {
   // --------------------------------------------------------------------------
 
   private accountBase(accountId: string): string {
-    return `/v1/billing/accounts/${encodeURIComponent(accountId)}`;
+    return `/v1/billing/accounts/${pathSegment(accountId, 'accountId')}`;
   }
 
   async getAccountCustomer(req: AccountScopedBillingRequest, options?: RequestOptions): Promise<ApiResponse<Customer>> {
@@ -384,7 +385,7 @@ export class BillingService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<void>> {
     const path = this.withQuery(
-      `${this.accountBase(req.account_id)}/payment-methods/${encodeURIComponent(paymentMethodId)}`,
+      `${this.accountBase(req.account_id)}/payment-methods/${pathSegment(paymentMethodId, 'paymentMethodId')}`,
       { billing_mode: req.billing_mode }
     );
     return this.client.del<void>(path, options);
@@ -396,7 +397,7 @@ export class BillingService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<PaymentMethod>> {
     const path = this.withQuery(
-      `${this.accountBase(req.account_id)}/payment-methods/${encodeURIComponent(paymentMethodId)}/default`,
+      `${this.accountBase(req.account_id)}/payment-methods/${pathSegment(paymentMethodId, 'paymentMethodId')}/default`,
       { billing_mode: req.billing_mode }
     );
     return this.client.put<PaymentMethod>(path, undefined, options);
@@ -420,7 +421,7 @@ export class BillingService extends ServiceModule {
     invoiceId: string,
     options?: RequestOptions
   ): Promise<ApiResponse<Invoice>> {
-    const path = this.withQuery(`${this.accountBase(req.account_id)}/invoices/${encodeURIComponent(invoiceId)}`, {
+    const path = this.withQuery(`${this.accountBase(req.account_id)}/invoices/${pathSegment(invoiceId, 'invoiceId')}`, {
       billing_mode: req.billing_mode
     });
     return this.client.get<Invoice>(path, options);
@@ -506,15 +507,15 @@ export class BillingService extends ServiceModule {
   }
 
   async getInvoice(id: string, options?: RequestOptions): Promise<ApiResponse<Invoice>> {
-    return this._get<Invoice>(`/invoices/${id}`, options);
+    return this._get<Invoice>(`/invoices/${pathSegment(id, 'id')}`, options);
   }
 
   async payInvoice(id: string, options?: RequestOptions): Promise<ApiResponse<Invoice>> {
-    return this.post<Invoice>(`/invoices/${id}/pay`, undefined, options);
+    return this.post<Invoice>(`/invoices/${pathSegment(id, 'id')}/pay`, undefined, options);
   }
 
   async getInvoicePdf(id: string, options?: RequestOptions): Promise<ApiResponse<{ url: string }>> {
-    return this._get<{ url: string }>(`/invoices/${id}/pdf`, options);
+    return this._get<{ url: string }>(`/invoices/${pathSegment(id, 'id')}/pdf`, options);
   }
 
   // --------------------------------------------------------------------------
@@ -532,7 +533,7 @@ export class BillingService extends ServiceModule {
   }
 
   async getConnectedAccount(id: string, options?: RequestOptions): Promise<ApiResponse<ConnectedAccount>> {
-    return this._get<ConnectedAccount>(`/connected-accounts/${id}`, options);
+    return this._get<ConnectedAccount>(`/connected-accounts/${pathSegment(id, 'id')}`, options);
   }
 
   async getMyConnectedAccount(options?: RequestOptions): Promise<ApiResponse<ConnectedAccount>> {
@@ -544,7 +545,7 @@ export class BillingService extends ServiceModule {
     data: { return_url: string; refresh_url: string },
     options?: RequestOptions
   ): Promise<ApiResponse<{ url: string }>> {
-    return this.post<{ url: string }>(`/connected-accounts/${id}/onboarding-link`, data, options);
+    return this.post<{ url: string }>(`/connected-accounts/${pathSegment(id, 'id')}/onboarding-link`, data, options);
   }
 
   async getAccountBalance(id: string, options?: RequestOptions): Promise<ApiResponse<AccountBalance>> {
@@ -553,7 +554,11 @@ export class BillingService extends ServiceModule {
   }
 
   async createAccountSession(id: string, options?: RequestOptions): Promise<ApiResponse<{ client_secret: string }>> {
-    return this.post<{ client_secret: string }>(`/connected-accounts/${id}/account-session`, undefined, options);
+    return this.post<{ client_secret: string }>(
+      `/connected-accounts/${pathSegment(id, 'id')}/account-session`,
+      undefined,
+      options
+    );
   }
 
   // --------------------------------------------------------------------------
@@ -625,7 +630,10 @@ export class BillingService extends ServiceModule {
   }
 
   async getPayoutSchedule(accountId: string, options?: RequestOptions): Promise<ApiResponse<PayoutSchedule>> {
-    return this._get<PayoutSchedule>(`/connected-accounts/${accountId}/payout-schedule`, options);
+    return this._get<PayoutSchedule>(
+      `/connected-accounts/${pathSegment(accountId, 'accountId')}/payout-schedule`,
+      options
+    );
   }
 
   async setPayoutSchedule(
@@ -638,7 +646,11 @@ export class BillingService extends ServiceModule {
     },
     options?: RequestOptions
   ): Promise<ApiResponse<PayoutSchedule>> {
-    return this.put<PayoutSchedule>(`/connected-accounts/${accountId}/payout-schedule`, data, options);
+    return this.put<PayoutSchedule>(
+      `/connected-accounts/${pathSegment(accountId, 'accountId')}/payout-schedule`,
+      data,
+      options
+    );
   }
 
   // --------------------------------------------------------------------------

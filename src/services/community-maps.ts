@@ -1,6 +1,7 @@
 import { ServiceModule } from '../service';
 import type { ScaleMuleClient } from '../client';
 import type { ApiResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 export type CommunityMapPosition = [longitude: number, latitude: number];
 export type CommunityMapGeometry =
@@ -319,7 +320,7 @@ export interface CommunityMapQueueQuery {
   status?: string;
 }
 
-const segment = (value: string) => encodeURIComponent(value);
+const segment = (value: string) => pathSegment(value);
 /** Only the documented fields travel; the service rejects unknown keys. */
 export function devicePositionPayload(p: CommunityMapDevicePosition): CommunityMapDevicePosition {
   return {
@@ -373,7 +374,7 @@ export class CommunityMapsService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<CommunityMapOwnSubmissionPage>> {
     return this._get(
-      '/collections/' + segment(slug) + '/submissions' + (after ? '?after=' + segment(after) : ''),
+      '/collections/' + segment(slug) + '/submissions' + (after ? '?after=' + encodeURIComponent(after) : ''),
       options
     );
   }

@@ -18,6 +18,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, PaginatedResponse, PaginationParams, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -71,7 +72,7 @@ export class FunctionsService extends ServiceModule {
   }
 
   async get(name: string, options?: RequestOptions): Promise<ApiResponse<ServerlessFunction>> {
-    return this._get<ServerlessFunction>(`/${name}`, options);
+    return this._get<ServerlessFunction>(`/${pathSegment(name, 'name')}`, options);
   }
 
   async update(
@@ -79,15 +80,15 @@ export class FunctionsService extends ServiceModule {
     data: { code?: string; config?: Record<string, unknown> },
     options?: RequestOptions
   ): Promise<ApiResponse<ServerlessFunction>> {
-    return this.patch<ServerlessFunction>(`/${name}`, data, options);
+    return this.patch<ServerlessFunction>(`/${pathSegment(name, 'name')}`, data, options);
   }
 
   async delete(name: string, options?: RequestOptions): Promise<ApiResponse<{ deleted: boolean }>> {
-    return this.del<{ deleted: boolean }>(`/${name}`, options);
+    return this.del<{ deleted: boolean }>(`/${pathSegment(name, 'name')}`, options);
   }
 
   async invoke(name: string, payload?: unknown, options?: RequestOptions): Promise<ApiResponse<unknown>> {
-    return this.post<unknown>(`/${name}/invoke`, payload, options);
+    return this.post<unknown>(`/${pathSegment(name, 'name')}/invoke`, payload, options);
   }
 
   async invokeAsync(
@@ -95,11 +96,11 @@ export class FunctionsService extends ServiceModule {
     payload?: unknown,
     options?: RequestOptions
   ): Promise<ApiResponse<{ execution_id: string }>> {
-    return this.post<{ execution_id: string }>(`/${name}/invoke-async`, payload, options);
+    return this.post<{ execution_id: string }>(`/${pathSegment(name, 'name')}/invoke-async`, payload, options);
   }
 
   async getLogs(name: string, options?: RequestOptions): Promise<ApiResponse<unknown[]>> {
-    return this._get<unknown[]>(`/${name}/logs`, options);
+    return this._get<unknown[]>(`/${pathSegment(name, 'name')}/logs`, options);
   }
 
   async getExecutions(
@@ -107,11 +108,11 @@ export class FunctionsService extends ServiceModule {
     params?: PaginationParams,
     requestOptions?: RequestOptions
   ): Promise<PaginatedResponse<FunctionExecution>> {
-    return this._list<FunctionExecution>(`/${name}/executions`, params, requestOptions);
+    return this._list<FunctionExecution>(`/${pathSegment(name, 'name')}/executions`, params, requestOptions);
   }
 
   async getMetrics(name: string, options?: RequestOptions): Promise<ApiResponse<FunctionMetrics>> {
-    return this._get<FunctionMetrics>(`/${name}/metrics`, options);
+    return this._get<FunctionMetrics>(`/${pathSegment(name, 'name')}/metrics`, options);
   }
 
   /** @deprecated Use deploy() instead */

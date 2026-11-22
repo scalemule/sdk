@@ -14,6 +14,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -48,7 +49,7 @@ export class WebhooksService extends ServiceModule {
   }
 
   async get(id: string, options?: RequestOptions): Promise<ApiResponse<Webhook>> {
-    return this._get<Webhook>(`/${id}`, options);
+    return this._get<Webhook>(`/${pathSegment(id, 'id')}`, options);
   }
 
   async update(
@@ -56,11 +57,11 @@ export class WebhooksService extends ServiceModule {
     data: { url?: string; events?: string[]; is_active?: boolean },
     options?: RequestOptions
   ): Promise<ApiResponse<Webhook>> {
-    return this.patch<Webhook>(`/${id}`, data, options);
+    return this.patch<Webhook>(`/${pathSegment(id, 'id')}`, data, options);
   }
 
   async delete(id: string, options?: RequestOptions): Promise<ApiResponse<{ deleted: boolean }>> {
-    return this.del<{ deleted: boolean }>(`/${id}`, options);
+    return this.del<{ deleted: boolean }>(`/${pathSegment(id, 'id')}`, options);
   }
 
   async listEvents(options?: RequestOptions): Promise<ApiResponse<string[]>> {
