@@ -5,6 +5,7 @@ import { StorageService, type FileInfo, type MediaPolicy, type UploadOptions, ty
 import { PhotoService } from './photo';
 import { VideoService } from './video';
 import { AudioService } from './audio';
+import { pathSegment } from '../utils/path';
 
 export type MediaKind = 'image' | 'video' | 'audio' | 'document' | 'other';
 export type MediaPreset = 'hero' | 'inline' | 'thumbnail' | 'avatar' | 'logo' | 'custom';
@@ -317,7 +318,7 @@ export class MediaService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<MediaAsset>> {
     const response = await this.client.post<{ file_id: string }>(
-      `/v1/storage/admin/files/${fileId}/scan-override`,
+      `/v1/storage/admin/files/${pathSegment(fileId, 'fileId')}/scan-override`,
       { scan_status: 'clean', reason },
       options
     );

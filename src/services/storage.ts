@@ -26,6 +26,7 @@
 import { ServiceModule } from '../service';
 import type { ApiResponse, PaginatedResponse, PaginationParams, RequestOptions } from '../types';
 import { UploadTelemetry, generateUploadSessionId } from './upload-telemetry';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Constants
@@ -1298,7 +1299,7 @@ export class StorageService extends ServiceModule {
 
   /** Get file metadata (no signed URL). */
   async getInfo(fileId: string, options?: RequestOptions): Promise<ApiResponse<FileInfo>> {
-    return this._get<FileInfo>(`/files/${fileId}/info`, options);
+    return this._get<FileInfo>(`/files/${pathSegment(fileId, 'fileId')}/info`, options);
   }
 
   /**
@@ -1345,7 +1346,7 @@ export class StorageService extends ServiceModule {
    * ```
    */
   async getFileStatus(fileId: string, options?: RequestOptions): Promise<ApiResponse<FileStatus>> {
-    return this._get<FileStatus>(`/files/${fileId}/status`, options);
+    return this._get<FileStatus>(`/files/${pathSegment(fileId, 'fileId')}/status`, options);
   }
 
   /**
@@ -1368,7 +1369,7 @@ export class StorageService extends ServiceModule {
    * Returns CloudFront signed URL (fast, ~1us) or S3 presigned fallback.
    */
   async getViewUrl(fileId: string, options?: RequestOptions): Promise<ApiResponse<SignedUrlResponse>> {
-    return this.post<SignedUrlResponse>(`/signed-url/view/${fileId}`, {}, options);
+    return this.post<SignedUrlResponse>(`/signed-url/view/${pathSegment(fileId, 'fileId')}`, {}, options);
   }
 
   /**
@@ -1388,12 +1389,12 @@ export class StorageService extends ServiceModule {
    * Get a signed download URL (Content-Disposition: attachment).
    */
   async getDownloadUrl(fileId: string, options?: RequestOptions): Promise<ApiResponse<SignedUrlResponse>> {
-    return this.post<SignedUrlResponse>(`/signed-url/download/${fileId}`, undefined, options);
+    return this.post<SignedUrlResponse>(`/signed-url/download/${pathSegment(fileId, 'fileId')}`, undefined, options);
   }
 
   /** Delete a file (soft delete). */
   async delete(fileId: string, options?: RequestOptions): Promise<ApiResponse<{ deleted: boolean }>> {
-    return this.del<{ deleted: boolean }>(`/files/${fileId}`, options);
+    return this.del<{ deleted: boolean }>(`/files/${pathSegment(fileId, 'fileId')}`, options);
   }
 
   /** List the current user's files (paginated). */
@@ -1406,7 +1407,7 @@ export class StorageService extends ServiceModule {
     fileId: string,
     options?: RequestOptions
   ): Promise<ApiResponse<{ status: string; url?: string }>> {
-    return this._get<{ status: string; url?: string }>(`/files/${fileId}/view-status`, options);
+    return this._get<{ status: string; url?: string }>(`/files/${pathSegment(fileId, 'fileId')}/view-status`, options);
   }
 
   /**
@@ -1432,7 +1433,7 @@ export class StorageService extends ServiceModule {
   ): Promise<ApiResponse<{ file_id: string; visibility: Visibility; is_public: boolean }>> {
     const body = typeof visibility === 'boolean' ? { is_public: visibility } : { visibility };
     return this.patch<{ file_id: string; visibility: Visibility; is_public: boolean }>(
-      `/files/${fileId}/visibility`,
+      `/files/${pathSegment(fileId, 'fileId')}/visibility`,
       body,
       options
     );

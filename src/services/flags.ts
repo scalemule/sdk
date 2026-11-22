@@ -1,6 +1,7 @@
 import { ServiceModule } from '../service';
 import { experimentVariant, type ExperimentAssignment } from '../experiments';
 import type { ApiResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 export interface FlagDefinition {
   id: string;
@@ -247,7 +248,7 @@ export class FlagsService extends ServiceModule {
   }
 
   async get(id: string, options?: RequestOptions): Promise<ApiResponse<FlagDetail>> {
-    return this._get<FlagDetail>(`/${id}`, options);
+    return this._get<FlagDetail>(`/${pathSegment(id, 'id')}`, options);
   }
 
   async create(
@@ -260,39 +261,39 @@ export class FlagsService extends ServiceModule {
   }
 
   async update(id: string, data: UpdateFlagRequest, options?: RequestOptions): Promise<ApiResponse<FlagDetail>> {
-    return this.patch<FlagDetail>(`/${id}`, data, options);
+    return this.patch<FlagDetail>(`/${pathSegment(id, 'id')}`, data, options);
   }
 
   async archive(id: string, options?: RequestOptions): Promise<ApiResponse<FlagDetail>> {
-    return this.del<FlagDetail>(`/${id}`, options);
+    return this.del<FlagDetail>(`/${pathSegment(id, 'id')}`, options);
   }
 
   async activate(id: string, options?: RequestOptions): Promise<ApiResponse<FlagDetail>> {
-    return this.post<FlagDetail>(`/${id}/activate`, undefined, options);
+    return this.post<FlagDetail>(`/${pathSegment(id, 'id')}/activate`, undefined, options);
   }
 
   async deactivate(id: string, options?: RequestOptions): Promise<ApiResponse<FlagDetail>> {
-    return this.post<FlagDetail>(`/${id}/deactivate`, undefined, options);
+    return this.post<FlagDetail>(`/${pathSegment(id, 'id')}/deactivate`, undefined, options);
   }
 
   async listRules(id: string, options?: RequestOptions): Promise<ApiResponse<TargetingRule[]>> {
-    return this._get<TargetingRule[]>(`/${id}/rules`, options);
+    return this._get<TargetingRule[]>(`/${pathSegment(id, 'id')}/rules`, options);
   }
 
   async createRule(id: string, data: CreateRuleRequest, options?: RequestOptions): Promise<ApiResponse<TargetingRule>> {
-    return this.post<TargetingRule>(`/${id}/rules`, data, options);
+    return this.post<TargetingRule>(`/${pathSegment(id, 'id')}/rules`, data, options);
   }
 
   async updateRule(id: string, data: UpdateRuleRequest, options?: RequestOptions): Promise<ApiResponse<TargetingRule>> {
-    return this.patch<TargetingRule>(`/rules/${id}`, data, options);
+    return this.patch<TargetingRule>(`/rules/${pathSegment(id, 'id')}`, data, options);
   }
 
   async deleteRule(id: string, options?: RequestOptions): Promise<ApiResponse<{ deleted: boolean }>> {
-    return this.del<{ deleted: boolean }>(`/rules/${id}`, options);
+    return this.del<{ deleted: boolean }>(`/rules/${pathSegment(id, 'id')}`, options);
   }
 
   async listVariants(id: string, options?: RequestOptions): Promise<ApiResponse<FlagVariant[]>> {
-    return this._get<FlagVariant[]>(`/${id}/variants`, options);
+    return this._get<FlagVariant[]>(`/${pathSegment(id, 'id')}/variants`, options);
   }
 
   async createVariant(
@@ -300,7 +301,7 @@ export class FlagsService extends ServiceModule {
     data: CreateVariantRequest,
     options?: RequestOptions
   ): Promise<ApiResponse<FlagVariant>> {
-    return this.post<FlagVariant>(`/${id}/variants`, data, options);
+    return this.post<FlagVariant>(`/${pathSegment(id, 'id')}/variants`, data, options);
   }
 
   async updateVariant(
@@ -308,11 +309,11 @@ export class FlagsService extends ServiceModule {
     data: UpdateVariantRequest,
     options?: RequestOptions
   ): Promise<ApiResponse<FlagVariant>> {
-    return this.patch<FlagVariant>(`/variants/${id}`, data, options);
+    return this.patch<FlagVariant>(`/variants/${pathSegment(id, 'id')}`, data, options);
   }
 
   async deleteVariant(id: string, options?: RequestOptions): Promise<ApiResponse<{ deleted: boolean }>> {
-    return this.del<{ deleted: boolean }>(`/variants/${id}`, options);
+    return this.del<{ deleted: boolean }>(`/variants/${pathSegment(id, 'id')}`, options);
   }
 
   async listSegments(
@@ -339,15 +340,15 @@ export class FlagsService extends ServiceModule {
     data: UpdateSegmentRequest,
     options?: RequestOptions
   ): Promise<ApiResponse<FlagSegment>> {
-    return this.patch<FlagSegment>(`/segments/${id}`, data, options);
+    return this.patch<FlagSegment>(`/segments/${pathSegment(id, 'id')}`, data, options);
   }
 
   async deleteSegment(id: string, options?: RequestOptions): Promise<ApiResponse<{ deleted: boolean }>> {
-    return this.del<{ deleted: boolean }>(`/segments/${id}`, options);
+    return this.del<{ deleted: boolean }>(`/segments/${pathSegment(id, 'id')}`, options);
   }
 
   async listEnvironments(id: string, options?: RequestOptions): Promise<ApiResponse<FlagEnvironment[]>> {
-    return this._get<FlagEnvironment[]>(`/${id}/environments`, options);
+    return this._get<FlagEnvironment[]>(`/${pathSegment(id, 'id')}/environments`, options);
   }
 
   async upsertEnvironment(
@@ -356,10 +357,14 @@ export class FlagsService extends ServiceModule {
     data: UpsertEnvironmentRequest,
     options?: RequestOptions
   ): Promise<ApiResponse<FlagEnvironment>> {
-    return this.put<FlagEnvironment>(`/${id}/environments/${encodeURIComponent(environment)}`, data, options);
+    return this.put<FlagEnvironment>(
+      `/${pathSegment(id, 'id')}/environments/${pathSegment(environment, 'environment')}`,
+      data,
+      options
+    );
   }
 
   async listAudit(id: string, limit?: number, options?: RequestOptions): Promise<ApiResponse<FlagAuditEntry[]>> {
-    return this._get<FlagAuditEntry[]>(this.withQuery(`/${id}/audit`, { limit }), options);
+    return this._get<FlagAuditEntry[]>(this.withQuery(`/${pathSegment(id, 'id')}/audit`, { limit }), options);
   }
 }

@@ -19,6 +19,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, PaginatedResponse, PaginationParams, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -54,15 +55,15 @@ export class ListingsService extends ServiceModule {
   }
 
   async get(id: string, options?: RequestOptions): Promise<ApiResponse<Listing>> {
-    return this._get<Listing>(`/${id}`, options);
+    return this._get<Listing>(`/${pathSegment(id, 'id')}`, options);
   }
 
   async update(id: string, data: Record<string, unknown>, options?: RequestOptions): Promise<ApiResponse<Listing>> {
-    return this.patch<Listing>(`/${id}`, data, options);
+    return this.patch<Listing>(`/${pathSegment(id, 'id')}`, data, options);
   }
 
   async delete(id: string, options?: RequestOptions): Promise<ApiResponse<{ deleted: boolean }>> {
-    return this.del<{ deleted: boolean }>(`/${id}`, options);
+    return this.del<{ deleted: boolean }>(`/${pathSegment(id, 'id')}`, options);
   }
 
   async search(
@@ -85,15 +86,15 @@ export class ListingsService extends ServiceModule {
     params?: PaginationParams,
     requestOptions?: RequestOptions
   ): Promise<PaginatedResponse<Listing>> {
-    return this._list<Listing>(`/categories/${category}`, params, requestOptions);
+    return this._list<Listing>(`/categories/${pathSegment(category, 'category')}`, params, requestOptions);
   }
 
   async favorite(listingId: string, options?: RequestOptions): Promise<ApiResponse<{ favorited: boolean }>> {
-    return this.post<{ favorited: boolean }>(`/${listingId}/favorite`, undefined, options);
+    return this.post<{ favorited: boolean }>(`/${pathSegment(listingId, 'listingId')}/favorite`, undefined, options);
   }
 
   async unfavorite(listingId: string, options?: RequestOptions): Promise<ApiResponse<{ unfavorited: boolean }>> {
-    return this.del<{ unfavorited: boolean }>(`/${listingId}/favorite`, options);
+    return this.del<{ unfavorited: boolean }>(`/${pathSegment(listingId, 'listingId')}/favorite`, options);
   }
 
   async getFavorites(params?: PaginationParams, requestOptions?: RequestOptions): Promise<PaginatedResponse<Listing>> {
@@ -101,7 +102,7 @@ export class ListingsService extends ServiceModule {
   }
 
   async trackView(listingId: string, options?: RequestOptions): Promise<ApiResponse<{ tracked: boolean }>> {
-    return this.post<{ tracked: boolean }>(`/${listingId}/view`, undefined, options);
+    return this.post<{ tracked: boolean }>(`/${pathSegment(listingId, 'listingId')}/view`, undefined, options);
   }
 
   /** @deprecated Use create() instead */

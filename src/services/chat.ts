@@ -24,6 +24,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, PaginatedResponse, PaginationParams, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -123,7 +124,7 @@ export class ChatService extends ServiceModule {
   }
 
   async getConversation(id: string, options?: RequestOptions): Promise<ApiResponse<Conversation>> {
-    return this._get<Conversation>(`/conversations/${id}`, options);
+    return this._get<Conversation>(`/conversations/${pathSegment(id, 'id')}`, options);
   }
 
   async addParticipant(
@@ -131,7 +132,11 @@ export class ChatService extends ServiceModule {
     userId: string,
     options?: RequestOptions
   ): Promise<ApiResponse<{ added: boolean }>> {
-    return this.post<{ added: boolean }>(`/conversations/${conversationId}/participants`, { user_id: userId }, options);
+    return this.post<{ added: boolean }>(
+      `/conversations/${pathSegment(conversationId, 'conversationId')}/participants`,
+      { user_id: userId },
+      options
+    );
   }
 
   async removeParticipant(
@@ -139,7 +144,10 @@ export class ChatService extends ServiceModule {
     userId: string,
     options?: RequestOptions
   ): Promise<ApiResponse<{ removed: boolean }>> {
-    return this.del<{ removed: boolean }>(`/conversations/${conversationId}/participants/${userId}`, options);
+    return this.del<{ removed: boolean }>(
+      `/conversations/${pathSegment(conversationId, 'conversationId')}/participants/${pathSegment(userId, 'userId')}`,
+      options
+    );
   }
 
   // --------------------------------------------------------------------------
@@ -151,7 +159,11 @@ export class ChatService extends ServiceModule {
     data: { content: string; type?: string; thread_id?: string; is_thread_broadcast?: boolean },
     options?: RequestOptions
   ): Promise<ApiResponse<ChatMessage>> {
-    return this.post<ChatMessage>(`/conversations/${conversationId}/messages`, data, options);
+    return this.post<ChatMessage>(
+      `/conversations/${pathSegment(conversationId, 'conversationId')}/messages`,
+      data,
+      options
+    );
   }
 
   async getThreadReplies(
@@ -159,7 +171,10 @@ export class ChatService extends ServiceModule {
     params?: { limit?: number; before?: string; after?: string },
     requestOptions?: RequestOptions
   ): Promise<ApiResponse<ChatMessage[]>> {
-    return this._get<ChatMessage[]>(this.withQuery(`/messages/${messageId}/replies`, params), requestOptions);
+    return this._get<ChatMessage[]>(
+      this.withQuery(`/messages/${pathSegment(messageId, 'messageId')}/replies`, params),
+      requestOptions
+    );
   }
 
   async getMessages(
@@ -168,7 +183,7 @@ export class ChatService extends ServiceModule {
     requestOptions?: RequestOptions
   ): Promise<ApiResponse<ChatMessage[]>> {
     return this._get<ChatMessage[]>(
-      this.withQuery(`/conversations/${conversationId}/messages`, options),
+      this.withQuery(`/conversations/${pathSegment(conversationId, 'conversationId')}/messages`, options),
       requestOptions
     );
   }
@@ -178,11 +193,11 @@ export class ChatService extends ServiceModule {
     data: { content: string },
     options?: RequestOptions
   ): Promise<ApiResponse<ChatMessage>> {
-    return this.patch<ChatMessage>(`/messages/${messageId}`, data, options);
+    return this.patch<ChatMessage>(`/messages/${pathSegment(messageId, 'messageId')}`, data, options);
   }
 
   async deleteMessage(messageId: string, options?: RequestOptions): Promise<ApiResponse<{ deleted: boolean }>> {
-    return this.del<{ deleted: boolean }>(`/messages/${messageId}`, options);
+    return this.del<{ deleted: boolean }>(`/messages/${pathSegment(messageId, 'messageId')}`, options);
   }
 
   async addReaction(
@@ -190,7 +205,7 @@ export class ChatService extends ServiceModule {
     data: { emoji: string },
     options?: RequestOptions
   ): Promise<ApiResponse<ChatReaction>> {
-    return this.post<ChatReaction>(`/messages/${messageId}/reactions`, data, options);
+    return this.post<ChatReaction>(`/messages/${pathSegment(messageId, 'messageId')}/reactions`, data, options);
   }
 
   // --------------------------------------------------------------------------
@@ -198,18 +213,21 @@ export class ChatService extends ServiceModule {
   // --------------------------------------------------------------------------
 
   async pinMessage(messageId: string, options?: RequestOptions): Promise<ApiResponse<MessagePin>> {
-    return this.post<MessagePin>(`/messages/${messageId}/pin`, undefined, options);
+    return this.post<MessagePin>(`/messages/${pathSegment(messageId, 'messageId')}/pin`, undefined, options);
   }
 
   async unpinMessage(messageId: string, options?: RequestOptions): Promise<ApiResponse<{ unpinned: boolean }>> {
-    return this.del<{ unpinned: boolean }>(`/messages/${messageId}/pin`, options);
+    return this.del<{ unpinned: boolean }>(`/messages/${pathSegment(messageId, 'messageId')}/pin`, options);
   }
 
   async getPinnedMessages(
     conversationId: string,
     options?: RequestOptions
   ): Promise<ApiResponse<PinnedMessagesResponse>> {
-    return this._get<PinnedMessagesResponse>(`/conversations/${conversationId}/pins`, options);
+    return this._get<PinnedMessagesResponse>(
+      `/conversations/${pathSegment(conversationId, 'conversationId')}/pins`,
+      options
+    );
   }
 
   // --------------------------------------------------------------------------
@@ -217,15 +235,26 @@ export class ChatService extends ServiceModule {
   // --------------------------------------------------------------------------
 
   async sendTyping(conversationId: string, options?: RequestOptions): Promise<ApiResponse<{ sent: boolean }>> {
-    return this.post<{ sent: boolean }>(`/conversations/${conversationId}/typing`, undefined, options);
+    return this.post<{ sent: boolean }>(
+      `/conversations/${pathSegment(conversationId, 'conversationId')}/typing`,
+      undefined,
+      options
+    );
   }
 
   async markRead(conversationId: string, options?: RequestOptions): Promise<ApiResponse<{ marked: boolean }>> {
-    return this.post<{ marked: boolean }>(`/conversations/${conversationId}/read`, undefined, options);
+    return this.post<{ marked: boolean }>(
+      `/conversations/${pathSegment(conversationId, 'conversationId')}/read`,
+      undefined,
+      options
+    );
   }
 
   async getReadStatus(conversationId: string, options?: RequestOptions): Promise<ApiResponse<ReadStatus[]>> {
-    return this._get<ReadStatus[]>(`/conversations/${conversationId}/read-status`, options);
+    return this._get<ReadStatus[]>(
+      `/conversations/${pathSegment(conversationId, 'conversationId')}/read-status`,
+      options
+    );
   }
 
   // --------------------------------------------------------------------------

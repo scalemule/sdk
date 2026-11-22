@@ -14,6 +14,7 @@ import { ServiceModule } from '../service';
 import type { ScaleMuleClient } from '../client';
 import type { ApiResponse, RequestOptions } from '../types';
 import type { StorageService, FileInfo } from './storage';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -138,15 +139,15 @@ export class PhotoService extends ServiceModule {
     transformations: Record<string, unknown>,
     options?: RequestOptions
   ): Promise<ApiResponse<TransformResult>> {
-    return this.post<TransformResult>(`/${photoId}/transform`, transformations, options);
+    return this.post<TransformResult>(`/${pathSegment(photoId, 'photoId')}/transform`, transformations, options);
   }
 
   async get(id: string, options?: RequestOptions): Promise<ApiResponse<PhotoInfo>> {
-    return this._get<PhotoInfo>(`/${id}`, options);
+    return this._get<PhotoInfo>(`/${pathSegment(id, 'id')}`, options);
   }
 
   async delete(id: string, options?: RequestOptions): Promise<ApiResponse<{ deleted: boolean }>> {
-    return this.del<{ deleted: boolean }>(`/${id}`, options);
+    return this.del<{ deleted: boolean }>(`/${pathSegment(id, 'id')}`, options);
   }
 
   async getPresets(options?: RequestOptions): Promise<ApiResponse<Record<PhotoPreset, { widths: number[] }>>> {
@@ -158,7 +159,7 @@ export class PhotoService extends ServiceModule {
     params?: { preset?: PhotoPreset },
     options?: RequestOptions
   ): Promise<ApiResponse<PhotoManifest>> {
-    return this._get<PhotoManifest>(this.withQuery(`/${id}/manifest`, params), options);
+    return this._get<PhotoManifest>(this.withQuery(`/${pathSegment(id, 'id')}/manifest`, params), options);
   }
 
   async getPublicManifest(
@@ -166,7 +167,7 @@ export class PhotoService extends ServiceModule {
     params?: { preset?: PhotoPreset },
     options?: RequestOptions
   ): Promise<ApiResponse<PhotoManifest>> {
-    return this._get<PhotoManifest>(this.withQuery(`/public/${id}/manifest`, params), options);
+    return this._get<PhotoManifest>(this.withQuery(`/public/${pathSegment(id, 'id')}/manifest`, params), options);
   }
 
   /**
@@ -184,7 +185,7 @@ export class PhotoService extends ServiceModule {
     if (options?.format) params.set('format', options.format);
     if (options?.quality) params.set('quality', String(options.quality));
     const qs = params.toString();
-    return `${this.client.getBaseUrl()}${this.basePath}/${photoId}/transform${qs ? `?${qs}` : ''}`;
+    return `${this.client.getBaseUrl()}${this.basePath}/${pathSegment(photoId, 'photoId')}/transform${qs ? `?${qs}` : ''}`;
   }
 
   /**
@@ -220,7 +221,7 @@ export class PhotoService extends ServiceModule {
     if (options?.format) params.set('format', options.format);
     if (options?.quality) params.set('quality', String(options.quality));
     const qs = params.toString();
-    return `${this.client.getBaseUrl()}${this.basePath}/public/${photoId}/transform${qs ? `?${qs}` : ''}`;
+    return `${this.client.getBaseUrl()}${this.basePath}/public/${pathSegment(photoId, 'photoId')}/transform${qs ? `?${qs}` : ''}`;
   }
 
   /**

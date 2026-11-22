@@ -18,6 +18,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, PaginatedResponse, PaginationParams, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -89,7 +90,7 @@ export class SchedulerService extends ServiceModule {
   }
 
   async getJob(id: string, options?: RequestOptions): Promise<ApiResponse<SchedulerJob>> {
-    return this._get<SchedulerJob>(`/jobs/${id}`, options);
+    return this._get<SchedulerJob>(`/jobs/${pathSegment(id, 'id')}`, options);
   }
 
   async updateJob(
@@ -97,11 +98,11 @@ export class SchedulerService extends ServiceModule {
     data: Partial<{ name: string; cron: string; config: unknown }>,
     options?: RequestOptions
   ): Promise<ApiResponse<SchedulerJob>> {
-    return this.patch<SchedulerJob>(`/jobs/${id}`, data, options);
+    return this.patch<SchedulerJob>(`/jobs/${pathSegment(id, 'id')}`, data, options);
   }
 
   async deleteJob(id: string, options?: RequestOptions): Promise<ApiResponse<{ deleted: boolean }>> {
-    return this.del<{ deleted: boolean }>(`/jobs/${id}`, options);
+    return this.del<{ deleted: boolean }>(`/jobs/${pathSegment(id, 'id')}`, options);
   }
 
   // --------------------------------------------------------------------------
@@ -109,15 +110,15 @@ export class SchedulerService extends ServiceModule {
   // --------------------------------------------------------------------------
 
   async pauseJob(id: string, options?: RequestOptions): Promise<ApiResponse<SchedulerJob>> {
-    return this.post<SchedulerJob>(`/jobs/${id}/pause`, undefined, options);
+    return this.post<SchedulerJob>(`/jobs/${pathSegment(id, 'id')}/pause`, undefined, options);
   }
 
   async resumeJob(id: string, options?: RequestOptions): Promise<ApiResponse<SchedulerJob>> {
-    return this.post<SchedulerJob>(`/jobs/${id}/resume`, undefined, options);
+    return this.post<SchedulerJob>(`/jobs/${pathSegment(id, 'id')}/resume`, undefined, options);
   }
 
   async runNow(id: string, options?: RequestOptions): Promise<ApiResponse<JobExecution>> {
-    return this.post<JobExecution>(`/jobs/${id}/run-now`, undefined, options);
+    return this.post<JobExecution>(`/jobs/${pathSegment(id, 'id')}/run-now`, undefined, options);
   }
 
   // --------------------------------------------------------------------------
@@ -129,10 +130,10 @@ export class SchedulerService extends ServiceModule {
     params?: PaginationParams,
     requestOptions?: RequestOptions
   ): Promise<PaginatedResponse<JobExecution>> {
-    return this._list<JobExecution>(`/jobs/${jobId}/executions`, params, requestOptions);
+    return this._list<JobExecution>(`/jobs/${pathSegment(jobId, 'jobId')}/executions`, params, requestOptions);
   }
 
   async getStats(jobId: string, options?: RequestOptions): Promise<ApiResponse<JobStats>> {
-    return this._get<JobStats>(`/jobs/${jobId}/stats`, options);
+    return this._get<JobStats>(`/jobs/${pathSegment(jobId, 'jobId')}/stats`, options);
   }
 }

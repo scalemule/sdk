@@ -9,12 +9,12 @@ describe('Community Maps SDK contracts', () => {
     const get = vi.fn(async () => ({ data: { items: [], next_cursor: null }, error: null }));
     const maps = new CommunityMapsService({ get } as unknown as ScaleMuleClient);
     await maps.listFeatures(
-      'город/map',
+      'город-map',
       { featured: false, geometry_type: 'LineString', bbox: '-123,37,-121,39', limit: 20 },
       { clientContext: { anonymousId: 'reader' }, headers: { 'x-request-id': 'request' } }
     );
     const [path, opts] = get.mock.calls[0] as unknown as [string, { headers: Record<string, string> }];
-    expect(path).toContain('/collections/%D0%B3%D0%BE%D1%80%D0%BE%D0%B4%2Fmap/features?');
+    expect(path).toContain('/collections/%D0%B3%D0%BE%D1%80%D0%BE%D0%B4-map/features?');
     const url = new URL(path, 'https://example.test');
     expect(url.searchParams.get('featured')).toBe('false');
     expect(url.searchParams.get('bbox')).toBe('-123,37,-121,39');
@@ -47,11 +47,11 @@ describe('Community Maps engagement contracts', () => {
     const post = vi.fn(async () => ({ data: {}, error: null }));
     const put = vi.fn(async () => ({ data: {}, error: null }));
     const maps = new CommunityMapsService({ get, post, put } as unknown as ScaleMuleClient);
-    await maps.vote('holiday/map', 'feature', -1);
-    await maps.vote('holiday/map', 'feature', 0);
-    await maps.listComments('holiday/map', { feature_id: 'feature', page: 2 });
+    await maps.vote('holiday-map', 'feature', -1);
+    await maps.vote('holiday-map', 'feature', 0);
+    await maps.listComments('holiday-map', { feature_id: 'feature', page: 2 });
     await maps.createComment(
-      'holiday/map',
+      'holiday-map',
       {
         body: 'Здравей 🎃',
         author_name: 'Neighbor',
@@ -63,7 +63,7 @@ describe('Community Maps engagement contracts', () => {
     await maps.editorial
       .forApplication('owner')
       .reviewComment('collection', 'comment', { status: 'approved', expected_revision: 2, guidelines_reviewed: true });
-    expect(post.mock.calls[0][0]).toContain('/collections/holiday%2Fmap/features/feature/vote');
+    expect(post.mock.calls[0][0]).toContain('/collections/holiday-map/features/feature/vote');
     expect(post.mock.calls[0][1]).toEqual({ value: -1 });
     expect(post.mock.calls[1][1]).toEqual({ value: 0 });
     expect(get.mock.calls[0][0]).toContain('feature_id=feature');

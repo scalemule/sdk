@@ -15,6 +15,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -60,7 +61,7 @@ export class LeaderboardService extends ServiceModule {
     data: { user_id: string; score: number },
     options?: RequestOptions
   ): Promise<ApiResponse<LeaderboardEntry>> {
-    return this.post<LeaderboardEntry>(`/${boardId}/scores`, data, options);
+    return this.post<LeaderboardEntry>(`/${pathSegment(boardId, 'boardId')}/scores`, data, options);
   }
 
   async getRankings(
@@ -68,11 +69,17 @@ export class LeaderboardService extends ServiceModule {
     rankingOptions?: { limit?: number; offset?: number },
     requestOptions?: RequestOptions
   ): Promise<ApiResponse<LeaderboardEntry[]>> {
-    return this._get<LeaderboardEntry[]>(this.withQuery(`/${boardId}/rankings`, rankingOptions), requestOptions);
+    return this._get<LeaderboardEntry[]>(
+      this.withQuery(`/${pathSegment(boardId, 'boardId')}/rankings`, rankingOptions),
+      requestOptions
+    );
   }
 
   async getUserRank(boardId: string, userId: string, options?: RequestOptions): Promise<ApiResponse<UserRank>> {
-    return this._get<UserRank>(`/${boardId}/users/${userId}/rank`, options);
+    return this._get<UserRank>(
+      `/${pathSegment(boardId, 'boardId')}/users/${pathSegment(userId, 'userId')}/rank`,
+      options
+    );
   }
 
   async getUserHistory(
@@ -80,7 +87,10 @@ export class LeaderboardService extends ServiceModule {
     userId: string,
     options?: RequestOptions
   ): Promise<ApiResponse<LeaderboardEntry[]>> {
-    return this._get<LeaderboardEntry[]>(`/${boardId}/users/${userId}/history`, options);
+    return this._get<LeaderboardEntry[]>(
+      `/${pathSegment(boardId, 'boardId')}/users/${pathSegment(userId, 'userId')}/history`,
+      options
+    );
   }
 
   async updateScore(
@@ -89,7 +99,11 @@ export class LeaderboardService extends ServiceModule {
     data: { score: number },
     options?: RequestOptions
   ): Promise<ApiResponse<LeaderboardEntry>> {
-    return this.patch<LeaderboardEntry>(`/${boardId}/users/${userId}/score`, data, options);
+    return this.patch<LeaderboardEntry>(
+      `/${pathSegment(boardId, 'boardId')}/users/${pathSegment(userId, 'userId')}/score`,
+      data,
+      options
+    );
   }
 
   async deleteScore(
@@ -97,6 +111,9 @@ export class LeaderboardService extends ServiceModule {
     userId: string,
     options?: RequestOptions
   ): Promise<ApiResponse<{ deleted: boolean }>> {
-    return this.del<{ deleted: boolean }>(`/${boardId}/users/${userId}/score`, options);
+    return this.del<{ deleted: boolean }>(
+      `/${pathSegment(boardId, 'boardId')}/users/${pathSegment(userId, 'userId')}/score`,
+      options
+    );
   }
 }

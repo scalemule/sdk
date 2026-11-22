@@ -46,6 +46,7 @@ interface RawApiResponse {
 }
 
 import { STORAGE_KEYS, ensureAnonymousId } from './anonymous-id';
+import { findUnsafePathReason, INVALID_PATH } from './utils/path';
 
 const SDK_VERSION = '0.0.1';
 const DEFAULT_TIMEOUT = 30000;
@@ -827,6 +828,12 @@ export class ScaleMuleClient {
       onAutoRefreshFailed?: (error: ApiError) => void;
     } = {}
   ): Promise<ApiResponse<T>> {
+    // Defence in depth: refuse traversal before anything is sent with this
+    // client's API key. Service methods encode IDs with pathSegment().
+    const unsafePath = findUnsafePathReason(path);
+    if (unsafePath) {
+      return { data: null, error: { code: INVALID_PATH, message: `Refused request: ${unsafePath}`, status: 400 } };
+    }
     const url = `${this.baseUrl}${path}`;
     const method = (init.method || 'GET').toUpperCase();
     const timeout = init.timeout || this.defaultTimeout;
@@ -1127,6 +1134,10 @@ export class ScaleMuleClient {
       return fd;
     };
 
+    const unsafePath = findUnsafePathReason(path);
+    if (unsafePath) {
+      return { data: null, error: { code: INVALID_PATH, message: `Refused upload: ${unsafePath}`, status: 400 } };
+    }
     const url = `${this.baseUrl}${path}`;
     if (this.debug) console.log(`[ScaleMule] UPLOAD ${path}`);
 

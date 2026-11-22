@@ -24,6 +24,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, PaginatedResponse, PaginationParams, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -87,7 +88,7 @@ export class TeamsService extends ServiceModule {
   }
 
   async get(id: string, options?: RequestOptions): Promise<ApiResponse<Team>> {
-    return this._get<Team>(`/${id}`, options);
+    return this._get<Team>(`/${pathSegment(id, 'id')}`, options);
   }
 
   async update(
@@ -95,11 +96,11 @@ export class TeamsService extends ServiceModule {
     data: Partial<{ name: string; description: string }>,
     options?: RequestOptions
   ): Promise<ApiResponse<Team>> {
-    return this.patch<Team>(`/${id}`, data, options);
+    return this.patch<Team>(`/${pathSegment(id, 'id')}`, data, options);
   }
 
   async delete(id: string, options?: RequestOptions): Promise<ApiResponse<{ deleted: boolean }>> {
-    return this.del<{ deleted: boolean }>(`/${id}`, options);
+    return this.del<{ deleted: boolean }>(`/${pathSegment(id, 'id')}`, options);
   }
 
   // --------------------------------------------------------------------------
@@ -111,7 +112,7 @@ export class TeamsService extends ServiceModule {
     params?: PaginationParams,
     requestOptions?: RequestOptions
   ): Promise<PaginatedResponse<TeamMember>> {
-    return this._list<TeamMember>(`/${teamId}/members`, params, requestOptions);
+    return this._list<TeamMember>(`/${pathSegment(teamId, 'teamId')}/members`, params, requestOptions);
   }
 
   async addMember(
@@ -119,7 +120,7 @@ export class TeamsService extends ServiceModule {
     data: { user_id: string; role: string },
     options?: RequestOptions
   ): Promise<ApiResponse<TeamMember>> {
-    return this.post<TeamMember>(`/${teamId}/members`, data, options);
+    return this.post<TeamMember>(`/${pathSegment(teamId, 'teamId')}/members`, data, options);
   }
 
   async updateMember(
@@ -128,7 +129,11 @@ export class TeamsService extends ServiceModule {
     data: { role: string },
     options?: RequestOptions
   ): Promise<ApiResponse<TeamMember>> {
-    return this.patch<TeamMember>(`/${teamId}/members/${userId}`, data, options);
+    return this.patch<TeamMember>(
+      `/${pathSegment(teamId, 'teamId')}/members/${pathSegment(userId, 'userId')}`,
+      data,
+      options
+    );
   }
 
   async removeMember(
@@ -136,7 +141,10 @@ export class TeamsService extends ServiceModule {
     userId: string,
     options?: RequestOptions
   ): Promise<ApiResponse<{ removed: boolean }>> {
-    return this.del<{ removed: boolean }>(`/${teamId}/members/${userId}`, options);
+    return this.del<{ removed: boolean }>(
+      `/${pathSegment(teamId, 'teamId')}/members/${pathSegment(userId, 'userId')}`,
+      options
+    );
   }
 
   // --------------------------------------------------------------------------
@@ -148,18 +156,18 @@ export class TeamsService extends ServiceModule {
     data: { email: string; role: string },
     options?: RequestOptions
   ): Promise<ApiResponse<TeamInvitation>> {
-    return this.post<TeamInvitation>(`/${teamId}/invitations`, data, options);
+    return this.post<TeamInvitation>(`/${pathSegment(teamId, 'teamId')}/invitations`, data, options);
   }
 
   async listInvitations(teamId: string, options?: RequestOptions): Promise<ApiResponse<TeamInvitation[]>> {
-    return this._get<TeamInvitation[]>(`/${teamId}/invitations`, options);
+    return this._get<TeamInvitation[]>(`/${pathSegment(teamId, 'teamId')}/invitations`, options);
   }
 
   async acceptInvitation(token: string, options?: RequestOptions): Promise<ApiResponse<TeamInvitation>> {
-    return this.post<TeamInvitation>(`/invitations/${token}/accept`, undefined, options);
+    return this.post<TeamInvitation>(`/invitations/${pathSegment(token, 'token')}/accept`, undefined, options);
   }
 
   async cancelInvitation(id: string, options?: RequestOptions): Promise<ApiResponse<{ cancelled: boolean }>> {
-    return this.del<{ cancelled: boolean }>(`/invitations/${id}`, options);
+    return this.del<{ cancelled: boolean }>(`/invitations/${pathSegment(id, 'id')}`, options);
   }
 }

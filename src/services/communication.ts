@@ -26,6 +26,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -141,7 +142,7 @@ export class CommunicationService extends ServiceModule {
     data: { to: string; variables?: Record<string, unknown> },
     options?: RequestOptions
   ): Promise<ApiResponse<MessageStatus>> {
-    return this.post<MessageStatus>(`/email/templates/${template}/send`, data, options);
+    return this.post<MessageStatus>(`/email/templates/${pathSegment(template, 'template')}/send`, data, options);
   }
 
   // --------------------------------------------------------------------------
@@ -157,7 +158,7 @@ export class CommunicationService extends ServiceModule {
     data: { to: string; variables?: Record<string, unknown> },
     options?: RequestOptions
   ): Promise<ApiResponse<MessageStatus>> {
-    return this.post<MessageStatus>(`/sms/templates/${template}/send`, data, options);
+    return this.post<MessageStatus>(`/sms/templates/${pathSegment(template, 'template')}/send`, data, options);
   }
 
   // --------------------------------------------------------------------------
@@ -181,11 +182,11 @@ export class CommunicationService extends ServiceModule {
 
   /** @deprecated Use unregisterPushTokenById() for web push tokens */
   async unregisterPushToken(token: string, options?: RequestOptions): Promise<ApiResponse<{ unregistered: boolean }>> {
-    return this.del<{ unregistered: boolean }>(`/push/tokens/${token}`, options);
+    return this.del<{ unregistered: boolean }>(`/push/tokens/${pathSegment(token, 'token')}`, options);
   }
 
   async unregisterPushTokenById(id: string, options?: RequestOptions): Promise<ApiResponse<void>> {
-    const result = await this.del<void>(`/push/tokens/by-id/${id}`, options);
+    const result = await this.del<void>(`/push/tokens/by-id/${pathSegment(id, 'id')}`, options);
     // 204 No Content — core client returns { data: { message: '' }, error: null }
     if (result.data && typeof result.data === 'object' && !('id' in (result.data as Record<string, unknown>))) {
       return { data: undefined as unknown as void, error: null };
@@ -197,11 +198,11 @@ export class CommunicationService extends ServiceModule {
     id: string,
     options?: RequestOptions
   ): Promise<ApiResponse<PushTokenAssociationResult>> {
-    return this.put<PushTokenAssociationResult>(`/push/tokens/by-id/${id}/user`, {}, options);
+    return this.put<PushTokenAssociationResult>(`/push/tokens/by-id/${pathSegment(id, 'id')}/user`, {}, options);
   }
 
   async disassociatePushTokenUser(id: string, options?: RequestOptions): Promise<ApiResponse<void>> {
-    const result = await this.del<void>(`/push/tokens/by-id/${id}/user`, options);
+    const result = await this.del<void>(`/push/tokens/by-id/${pathSegment(id, 'id')}/user`, options);
     if (result.data && typeof result.data === 'object' && !('id' in (result.data as Record<string, unknown>))) {
       return { data: undefined as unknown as void, error: null };
     }
@@ -229,11 +230,11 @@ export class CommunicationService extends ServiceModule {
     data?: { push_token_id?: string },
     options?: RequestOptions
   ): Promise<ApiResponse<void>> {
-    return this.post<void>(`/push/topics/${topicId}/subscribe`, data || {}, options);
+    return this.post<void>(`/push/topics/${pathSegment(topicId, 'topicId')}/subscribe`, data || {}, options);
   }
 
   async unsubscribeTopic(topicId: string, options?: RequestOptions): Promise<ApiResponse<void>> {
-    return this.del<void>(`/push/topics/${topicId}/subscribe`, options);
+    return this.del<void>(`/push/topics/${pathSegment(topicId, 'topicId')}/subscribe`, options);
   }
 
   async listSubscriptions(options?: RequestOptions): Promise<ApiResponse<PushSubscriptionInfo[]>> {
@@ -260,7 +261,7 @@ export class CommunicationService extends ServiceModule {
   // --------------------------------------------------------------------------
 
   async getMessageStatus(id: string, options?: RequestOptions): Promise<ApiResponse<MessageStatus>> {
-    return this._get<MessageStatus>(`/messages/${id}`, options);
+    return this._get<MessageStatus>(`/messages/${pathSegment(id, 'id')}`, options);
   }
 
   // --------------------------------------------------------------------------

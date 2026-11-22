@@ -48,6 +48,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -316,7 +317,7 @@ export class ComplianceService extends ServiceModule {
   }
 
   async getUserConsents(userId: string, options?: RequestOptions): Promise<ApiResponse<ConsentRecord[]>> {
-    return this._get<ConsentRecord[]>(`/consent/v2/${userId}`, options);
+    return this._get<ConsentRecord[]>(`/consent/v2/${pathSegment(userId, 'userId')}`, options);
   }
 
   async withdrawConsent(
@@ -324,7 +325,7 @@ export class ComplianceService extends ServiceModule {
     data?: { reason?: string; actor?: string },
     options?: RequestOptions
   ): Promise<ApiResponse<ConsentRecord>> {
-    return this.put<ConsentRecord>(`/consent/v2/${consentId}/withdraw`, data || {}, options);
+    return this.put<ConsentRecord>(`/consent/v2/${pathSegment(consentId, 'consentId')}/withdraw`, data || {}, options);
   }
 
   // --- Data Subject Requests ---
@@ -344,7 +345,7 @@ export class ComplianceService extends ServiceModule {
   }
 
   async getDataSubjectRequest(id: string, options?: RequestOptions): Promise<ApiResponse<DataSubjectRequest>> {
-    return this._get<DataSubjectRequest>(`/dsr/${id}`, options);
+    return this._get<DataSubjectRequest>(`/dsr/${pathSegment(id, 'id')}`, options);
   }
 
   async updateDsrStatus(
@@ -352,7 +353,7 @@ export class ComplianceService extends ServiceModule {
     data: UpdateDsrStatusRequest,
     options?: RequestOptions
   ): Promise<ApiResponse<DataSubjectRequest>> {
-    return this.put<DataSubjectRequest>(`/dsr/${id}/status`, data, options);
+    return this.put<DataSubjectRequest>(`/dsr/${pathSegment(id, 'id')}/status`, data, options);
   }
 
   async createDsrAction(
@@ -360,11 +361,11 @@ export class ComplianceService extends ServiceModule {
     data: CreateDsrActionRequest,
     options?: RequestOptions
   ): Promise<ApiResponse<DsrAction>> {
-    return this.post<DsrAction>(`/dsr/${dsrId}/actions`, data, options);
+    return this.post<DsrAction>(`/dsr/${pathSegment(dsrId, 'dsrId')}/actions`, data, options);
   }
 
   async listDsrActions(dsrId: string, options?: RequestOptions): Promise<ApiResponse<DsrAction[]>> {
-    return this._get<DsrAction[]>(`/dsr/${dsrId}/actions`, options);
+    return this._get<DsrAction[]>(`/dsr/${pathSegment(dsrId, 'dsrId')}/actions`, options);
   }
 
   // --- Data Breaches ---
@@ -381,7 +382,7 @@ export class ComplianceService extends ServiceModule {
   }
 
   async getBreach(id: string, options?: RequestOptions): Promise<ApiResponse<DataBreach>> {
-    return this._get<DataBreach>(`/breaches/${id}`, options);
+    return this._get<DataBreach>(`/breaches/${pathSegment(id, 'id')}`, options);
   }
 
   async updateBreach(
@@ -389,7 +390,7 @@ export class ComplianceService extends ServiceModule {
     data: UpdateBreachRequest,
     options?: RequestOptions
   ): Promise<ApiResponse<DataBreach>> {
-    return this.put<DataBreach>(`/breaches/${id}`, data, options);
+    return this.put<DataBreach>(`/breaches/${pathSegment(id, 'id')}`, data, options);
   }
 
   // --- Retention Policies ---
@@ -422,7 +423,7 @@ export class ComplianceService extends ServiceModule {
   }
 
   async getProcessingActivity(id: string, options?: RequestOptions): Promise<ApiResponse<ProcessingActivity>> {
-    return this._get<ProcessingActivity>(`/processing-activities/${id}`, options);
+    return this._get<ProcessingActivity>(`/processing-activities/${pathSegment(id, 'id')}`, options);
   }
 
   async updateProcessingActivity(
@@ -430,6 +431,6 @@ export class ComplianceService extends ServiceModule {
     data: Partial<CreateProcessingActivityRequest>,
     options?: RequestOptions
   ): Promise<ApiResponse<ProcessingActivity>> {
-    return this.put<ProcessingActivity>(`/processing-activities/${id}`, data, options);
+    return this.put<ProcessingActivity>(`/processing-activities/${pathSegment(id, 'id')}`, data, options);
   }
 }

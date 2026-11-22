@@ -16,6 +16,7 @@
 import { ServiceModule } from '../service';
 import type { ApiResponse, RequestOptions } from '../types';
 import type { DecisionReceipt } from './decisions';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -97,7 +98,7 @@ export class BookingsService extends ServiceModule {
   }
 
   async getQuote(quoteId: string, requestOptions?: RequestOptions): Promise<ApiResponse<Quote>> {
-    return this._get<Quote>(`/quotes/${encodeURIComponent(quoteId)}`, requestOptions);
+    return this._get<Quote>(`/quotes/${pathSegment(quoteId, 'quoteId')}`, requestOptions);
   }
 
   /**
@@ -110,11 +111,11 @@ export class BookingsService extends ServiceModule {
     input: AcceptQuoteInput,
     requestOptions?: RequestOptions
   ): Promise<ApiResponse<Quote>> {
-    return this.post<Quote>(`/quotes/${encodeURIComponent(quoteId)}/accept`, input, requestOptions);
+    return this.post<Quote>(`/quotes/${pathSegment(quoteId, 'quoteId')}/accept`, input, requestOptions);
   }
 
   async getCustomerStats(customerRef: string, requestOptions?: RequestOptions): Promise<ApiResponse<CustomerStats>> {
-    return this._get<CustomerStats>(`/customers/${encodeURIComponent(customerRef)}/stats`, requestOptions);
+    return this._get<CustomerStats>(`/customers/${pathSegment(customerRef, 'customerRef')}/stats`, requestOptions);
   }
 
   /** Host/admin: mark a booking completed (maintains the customer stats projection). */
@@ -124,7 +125,7 @@ export class BookingsService extends ServiceModule {
     requestOptions?: RequestOptions
   ): Promise<ApiResponse<BookingCompletionResult>> {
     return this.post<BookingCompletionResult>(
-      `/dashboard/bookings/${encodeURIComponent(bookingId)}/complete`,
+      `/dashboard/bookings/${pathSegment(bookingId, 'bookingId')}/complete`,
       { reason },
       requestOptions
     );
@@ -137,7 +138,7 @@ export class BookingsService extends ServiceModule {
     requestOptions?: RequestOptions
   ): Promise<ApiResponse<BookingCompletionResult>> {
     return this.post<BookingCompletionResult>(
-      `/dashboard/bookings/${encodeURIComponent(bookingId)}/no-show`,
+      `/dashboard/bookings/${pathSegment(bookingId, 'bookingId')}/no-show`,
       { reason },
       requestOptions
     );

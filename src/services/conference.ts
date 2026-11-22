@@ -21,6 +21,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -104,7 +105,7 @@ export class ConferenceService extends ServiceModule {
   }
 
   async getCall(callId: string, options?: RequestOptions): Promise<ApiResponse<CallSession>> {
-    return this._get<CallSession>(`/calls/${callId}`, options);
+    return this._get<CallSession>(`/calls/${pathSegment(callId, 'callId')}`, options);
   }
 
   async listCalls(
@@ -115,7 +116,7 @@ export class ConferenceService extends ServiceModule {
   }
 
   async endCall(callId: string, options?: RequestOptions): Promise<ApiResponse<CallSession>> {
-    return this.post<CallSession>(`/calls/${callId}/end`, undefined, options);
+    return this.post<CallSession>(`/calls/${pathSegment(callId, 'callId')}/end`, undefined, options);
   }
 
   // --------------------------------------------------------------------------
@@ -123,15 +124,15 @@ export class ConferenceService extends ServiceModule {
   // --------------------------------------------------------------------------
 
   async joinCall(callId: string, options?: RequestOptions): Promise<ApiResponse<JoinCallResponse>> {
-    return this.post<JoinCallResponse>(`/calls/${callId}/join`, undefined, options);
+    return this.post<JoinCallResponse>(`/calls/${pathSegment(callId, 'callId')}/join`, undefined, options);
   }
 
   async leaveCall(callId: string, options?: RequestOptions): Promise<ApiResponse<{ left: boolean }>> {
-    return this.post<{ left: boolean }>(`/calls/${callId}/leave`, undefined, options);
+    return this.post<{ left: boolean }>(`/calls/${pathSegment(callId, 'callId')}/leave`, undefined, options);
   }
 
   async listParticipants(callId: string, options?: RequestOptions): Promise<ApiResponse<CallParticipant[]>> {
-    return this._get<CallParticipant[]>(`/calls/${callId}/participants`, options);
+    return this._get<CallParticipant[]>(`/calls/${pathSegment(callId, 'callId')}/participants`, options);
   }
 
   // --------------------------------------------------------------------------
@@ -142,18 +143,18 @@ export class ConferenceService extends ServiceModule {
     callId: string,
     options?: RequestOptions
   ): Promise<ApiResponse<{ recording_id: string; status: string }>> {
-    return this.post(`/calls/${callId}/recording/start`, undefined, options);
+    return this.post(`/calls/${pathSegment(callId, 'callId')}/recording/start`, undefined, options);
   }
 
   async stopRecording(
     callId: string,
     options?: RequestOptions
   ): Promise<ApiResponse<{ recording_id: string; status: string }>> {
-    return this.post(`/calls/${callId}/recording/stop`, undefined, options);
+    return this.post(`/calls/${pathSegment(callId, 'callId')}/recording/stop`, undefined, options);
   }
 
   async consentToRecording(callId: string, options?: RequestOptions): Promise<ApiResponse<{ granted: boolean }>> {
-    return this.post(`/calls/${callId}/recording/consent`, undefined, options);
+    return this.post(`/calls/${pathSegment(callId, 'callId')}/recording/consent`, undefined, options);
   }
 
   // --------------------------------------------------------------------------
@@ -180,6 +181,6 @@ export class ConferenceService extends ServiceModule {
     stats: WebrtcStats,
     options?: RequestOptions
   ): Promise<ApiResponse<{ success: boolean }>> {
-    return this.post(`/calls/${callId}/stats`, stats, options);
+    return this.post(`/calls/${pathSegment(callId, 'callId')}/stats`, stats, options);
   }
 }

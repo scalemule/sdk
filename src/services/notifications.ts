@@ -8,6 +8,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -104,7 +105,7 @@ export class NotificationsService extends ServiceModule {
    * Mark a single notification as read.
    */
   async markRead(id: string, options?: RequestOptions): Promise<ApiResponse<void>> {
-    return this.patch<void>(`/${id}/read`, undefined, options);
+    return this.patch<void>(`/${pathSegment(id, 'id')}/read`, undefined, options);
   }
 
   /**
@@ -118,6 +119,6 @@ export class NotificationsService extends ServiceModule {
    * Dismiss a notification (soft delete).
    */
   async dismiss(id: string, options?: RequestOptions): Promise<ApiResponse<void>> {
-    return this.del<void>(`/${id}`, options);
+    return this.del<void>(`/${pathSegment(id, 'id')}`, options);
   }
 }

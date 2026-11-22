@@ -18,6 +18,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, PaginatedResponse, PaginationParams, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -86,7 +87,7 @@ export class DataService extends ServiceModule {
   }
 
   async deleteCollection(name: string, options?: RequestOptions): Promise<ApiResponse<{ deleted: boolean }>> {
-    return this.del<{ deleted: boolean }>(`/collections/${name}`, options);
+    return this.del<{ deleted: boolean }>(`/collections/${pathSegment(name, 'name')}`, options);
   }
 
   // --------------------------------------------------------------------------
@@ -94,11 +95,14 @@ export class DataService extends ServiceModule {
   // --------------------------------------------------------------------------
 
   async create(collection: string, data: unknown, options?: RequestOptions): Promise<ApiResponse<Document>> {
-    return this.post<Document>(`/${collection}/documents`, { data }, options);
+    return this.post<Document>(`/${pathSegment(collection, 'collection')}/documents`, { data }, options);
   }
 
   async get(collection: string, docId: string, options?: RequestOptions): Promise<ApiResponse<Document>> {
-    return this._get<Document>(`/${collection}/documents/${docId}`, options);
+    return this._get<Document>(
+      `/${pathSegment(collection, 'collection')}/documents/${pathSegment(docId, 'docId')}`,
+      options
+    );
   }
 
   async update(
@@ -107,7 +111,11 @@ export class DataService extends ServiceModule {
     data: unknown,
     options?: RequestOptions
   ): Promise<ApiResponse<Document>> {
-    return this.patch<Document>(`/${collection}/documents/${docId}`, { data }, options);
+    return this.patch<Document>(
+      `/${pathSegment(collection, 'collection')}/documents/${pathSegment(docId, 'docId')}`,
+      { data },
+      options
+    );
   }
 
   async delete(
@@ -115,7 +123,10 @@ export class DataService extends ServiceModule {
     docId: string,
     options?: RequestOptions
   ): Promise<ApiResponse<{ deleted: boolean }>> {
-    return this.del<{ deleted: boolean }>(`/${collection}/documents/${docId}`, options);
+    return this.del<{ deleted: boolean }>(
+      `/${pathSegment(collection, 'collection')}/documents/${pathSegment(docId, 'docId')}`,
+      options
+    );
   }
 
   // --------------------------------------------------------------------------
@@ -142,7 +153,11 @@ export class DataService extends ServiceModule {
       page: options?.page ?? 1,
       per_page: options?.perPage ?? 20
     };
-    const response = await this.post<Record<string, unknown>>(`/${collection}/query`, body, requestOptions);
+    const response = await this.post<Record<string, unknown>>(
+      `/${pathSegment(collection, 'collection')}/query`,
+      body,
+      requestOptions
+    );
 
     if (response.error) {
       return {
@@ -175,7 +190,7 @@ export class DataService extends ServiceModule {
     options: AggregateOptions,
     requestOptions?: RequestOptions
   ): Promise<ApiResponse<AggregateResult>> {
-    return this.post<AggregateResult>(`/${collection}/aggregate`, options, requestOptions);
+    return this.post<AggregateResult>(`/${pathSegment(collection, 'collection')}/aggregate`, options, requestOptions);
   }
 
   async myDocuments(
@@ -183,7 +198,7 @@ export class DataService extends ServiceModule {
     options?: PaginationParams,
     requestOptions?: RequestOptions
   ): Promise<PaginatedResponse<Document>> {
-    return this._list<Document>(`/${collection}/my-documents`, options, requestOptions);
+    return this._list<Document>(`/${pathSegment(collection, 'collection')}/my-documents`, options, requestOptions);
   }
 
   // --------------------------------------------------------------------------

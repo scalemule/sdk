@@ -25,6 +25,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, PaginatedResponse, PaginationParams, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -113,7 +114,7 @@ export class WorkspacesService extends ServiceModule {
   }
 
   async get(id: string, options?: RequestOptions): Promise<ApiResponse<Workspace>> {
-    return this._get<Workspace>(`/${id}`, options);
+    return this._get<Workspace>(`/${pathSegment(id, 'id')}`, options);
   }
 
   async update(
@@ -121,11 +122,11 @@ export class WorkspacesService extends ServiceModule {
     data: Partial<{ name: string; description: string }>,
     options?: RequestOptions
   ): Promise<ApiResponse<Workspace>> {
-    return this.patch<Workspace>(`/${id}`, data, options);
+    return this.patch<Workspace>(`/${pathSegment(id, 'id')}`, data, options);
   }
 
   async delete(id: string, options?: RequestOptions): Promise<ApiResponse<{ deleted: boolean }>> {
-    return this.del<{ deleted: boolean }>(`/${id}`, options);
+    return this.del<{ deleted: boolean }>(`/${pathSegment(id, 'id')}`, options);
   }
 
   // --------------------------------------------------------------------------
@@ -137,7 +138,7 @@ export class WorkspacesService extends ServiceModule {
     params?: PaginationParams,
     requestOptions?: RequestOptions
   ): Promise<PaginatedResponse<WorkspaceMember>> {
-    return this._list<WorkspaceMember>(`/${workspaceId}/members`, params, requestOptions);
+    return this._list<WorkspaceMember>(`/${pathSegment(workspaceId, 'workspaceId')}/members`, params, requestOptions);
   }
 
   async addMember(
@@ -145,7 +146,7 @@ export class WorkspacesService extends ServiceModule {
     data: { user_id: string; role: string },
     options?: RequestOptions
   ): Promise<ApiResponse<WorkspaceMember>> {
-    return this.post<WorkspaceMember>(`/${workspaceId}/members`, data, options);
+    return this.post<WorkspaceMember>(`/${pathSegment(workspaceId, 'workspaceId')}/members`, data, options);
   }
 
   async updateMember(
@@ -154,7 +155,11 @@ export class WorkspacesService extends ServiceModule {
     data: { role: string },
     options?: RequestOptions
   ): Promise<ApiResponse<WorkspaceMember>> {
-    return this.patch<WorkspaceMember>(`/${workspaceId}/members/${userId}`, data, options);
+    return this.patch<WorkspaceMember>(
+      `/${pathSegment(workspaceId, 'workspaceId')}/members/${pathSegment(userId, 'userId')}`,
+      data,
+      options
+    );
   }
 
   async removeMember(
@@ -162,7 +167,10 @@ export class WorkspacesService extends ServiceModule {
     userId: string,
     options?: RequestOptions
   ): Promise<ApiResponse<{ removed: boolean }>> {
-    return this.del<{ removed: boolean }>(`/${workspaceId}/members/${userId}`, options);
+    return this.del<{ removed: boolean }>(
+      `/${pathSegment(workspaceId, 'workspaceId')}/members/${pathSegment(userId, 'userId')}`,
+      options
+    );
   }
 
   // --------------------------------------------------------------------------
@@ -174,19 +182,19 @@ export class WorkspacesService extends ServiceModule {
     data: { email: string; role: string },
     options?: RequestOptions
   ): Promise<ApiResponse<WorkspaceInvitation>> {
-    return this.post<WorkspaceInvitation>(`/${workspaceId}/invitations`, data, options);
+    return this.post<WorkspaceInvitation>(`/${pathSegment(workspaceId, 'workspaceId')}/invitations`, data, options);
   }
 
   async listInvitations(workspaceId: string, options?: RequestOptions): Promise<ApiResponse<WorkspaceInvitation[]>> {
-    return this._get<WorkspaceInvitation[]>(`/${workspaceId}/invitations`, options);
+    return this._get<WorkspaceInvitation[]>(`/${pathSegment(workspaceId, 'workspaceId')}/invitations`, options);
   }
 
   async acceptInvitation(token: string, options?: RequestOptions): Promise<ApiResponse<WorkspaceInvitation>> {
-    return this.post<WorkspaceInvitation>(`/invitations/${token}/accept`, undefined, options);
+    return this.post<WorkspaceInvitation>(`/invitations/${pathSegment(token, 'token')}/accept`, undefined, options);
   }
 
   async cancelInvitation(id: string, options?: RequestOptions): Promise<ApiResponse<{ cancelled: boolean }>> {
-    return this.del<{ cancelled: boolean }>(`/invitations/${id}`, options);
+    return this.del<{ cancelled: boolean }>(`/invitations/${pathSegment(id, 'id')}`, options);
   }
 
   // --------------------------------------------------------------------------
@@ -198,10 +206,10 @@ export class WorkspacesService extends ServiceModule {
     data: { provider: string; domain: string; metadata_url?: string },
     options?: RequestOptions
   ): Promise<ApiResponse<SsoConfig>> {
-    return this.post<SsoConfig>(`/${workspaceId}/sso/configure`, data, options);
+    return this.post<SsoConfig>(`/${pathSegment(workspaceId, 'workspaceId')}/sso/configure`, data, options);
   }
 
   async getSso(workspaceId: string, options?: RequestOptions): Promise<ApiResponse<SsoConfig>> {
-    return this._get<SsoConfig>(`/${workspaceId}/sso`, options);
+    return this._get<SsoConfig>(`/${pathSegment(workspaceId, 'workspaceId')}/sso`, options);
   }
 }

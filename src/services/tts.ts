@@ -1,5 +1,6 @@
 import { ServiceModule } from '../service';
 import type { ApiResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 export type TtsAccessMode = 'owner_private' | 'tenant_shared' | 'public';
 export type TtsSpeechProfile = 'private_default' | 'developer_summary' | 'public_blog' | 'enterprise_strict';
@@ -117,7 +118,7 @@ export class TtsService extends ServiceModule {
   }
 
   async getJob(id: string, options?: RequestOptions): Promise<ApiResponse<TtsJobStatus>> {
-    return this._get<TtsJobStatus>(`/jobs/${id}`, options);
+    return this._get<TtsJobStatus>(`/jobs/${pathSegment(id, 'id')}`, options);
   }
 
   async listVoices(params?: TtsListVoicesParams, options?: RequestOptions): Promise<ApiResponse<TtsVoicesResponse>> {

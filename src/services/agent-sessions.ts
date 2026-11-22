@@ -1,5 +1,6 @@
 import { ServiceModule } from '../service';
 import type { ApiResponse, PaginatedResponse, PaginationParams, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 export interface Session {
   id: string;
@@ -72,11 +73,11 @@ export class AgentSessionsService extends ServiceModule {
   }
 
   async getSession(id: string, options?: RequestOptions): Promise<ApiResponse<Session>> {
-    return this._get<Session>(`/sessions/${id}`, options);
+    return this._get<Session>(`/sessions/${pathSegment(id, 'id')}`, options);
   }
 
   async startSession(id: string, options?: RequestOptions): Promise<ApiResponse<Session>> {
-    return this.post<Session>(`/sessions/${id}/start`, undefined, options);
+    return this.post<Session>(`/sessions/${pathSegment(id, 'id')}/start`, undefined, options);
   }
 
   async endSession(
@@ -84,7 +85,7 @@ export class AgentSessionsService extends ServiceModule {
     data: { status: 'ended' | 'failed'; exit_code?: number; error_message?: string },
     options?: RequestOptions
   ): Promise<ApiResponse<Session>> {
-    return this.post<Session>(`/sessions/${id}/end`, data, options);
+    return this.post<Session>(`/sessions/${pathSegment(id, 'id')}/end`, data, options);
   }
 
   // Logs
@@ -93,11 +94,11 @@ export class AgentSessionsService extends ServiceModule {
     data: { log_level: string; chunk_path: string; byte_size: number; line_count: number },
     options?: RequestOptions
   ): Promise<ApiResponse<SessionLog>> {
-    return this.post<SessionLog>(`/sessions/${sessionId}/logs`, data, options);
+    return this.post<SessionLog>(`/sessions/${pathSegment(sessionId, 'sessionId')}/logs`, data, options);
   }
 
   async listLogs(sessionId: string, options?: RequestOptions): Promise<ApiResponse<SessionLog[]>> {
-    return this._get<SessionLog[]>(`/sessions/${sessionId}/logs`, options);
+    return this._get<SessionLog[]>(`/sessions/${pathSegment(sessionId, 'sessionId')}/logs`, options);
   }
 
   // Artifacts
@@ -113,10 +114,10 @@ export class AgentSessionsService extends ServiceModule {
     },
     options?: RequestOptions
   ): Promise<ApiResponse<SessionArtifact>> {
-    return this.post<SessionArtifact>(`/sessions/${sessionId}/artifacts`, data, options);
+    return this.post<SessionArtifact>(`/sessions/${pathSegment(sessionId, 'sessionId')}/artifacts`, data, options);
   }
 
   async listArtifacts(sessionId: string, options?: RequestOptions): Promise<ApiResponse<SessionArtifact[]>> {
-    return this._get<SessionArtifact[]>(`/sessions/${sessionId}/artifacts`, options);
+    return this._get<SessionArtifact[]>(`/sessions/${pathSegment(sessionId, 'sessionId')}/artifacts`, options);
   }
 }

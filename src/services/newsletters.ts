@@ -21,6 +21,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -136,7 +137,7 @@ export class NewslettersService extends ServiceModule {
     // No automatic retry: a 500 can follow a stored request whose
     // confirmation email failed, and a retry would send another one.
     return this.post<NewsletterSubscribeResult>(
-      `/lists/${encodeURIComponent(slug)}/subscriptions`,
+      `/lists/${pathSegment(slug, 'slug')}/subscriptions`,
       { channel: 'email', ...input },
       { skipRetry: true, ...options }
     );

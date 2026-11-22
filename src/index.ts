@@ -56,6 +56,7 @@ export {
   countryFlag
 } from './utils/phone';
 export type { PhoneCountry, PhoneNormalizationResult } from './utils/phone';
+export { pathSegment, findUnsafePathReason, ScaleMulePathError } from './utils/path';
 
 // Re-export core service modules
 export { AuthService } from './services/auth';

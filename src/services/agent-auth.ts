@@ -1,5 +1,6 @@
 import { ServiceModule } from '../service';
 import type { ApiResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 export interface AuthRegisterAgentRequest {
   name: string;
@@ -98,14 +99,14 @@ export class AgentAuthService extends ServiceModule {
   }
 
   async revokeToken(id: string, options?: RequestOptions): Promise<ApiResponse<{ message: string }>> {
-    return this.del<{ message: string }>(`/agent-tokens/${id}`, options);
+    return this.del<{ message: string }>(`/agent-tokens/${pathSegment(id, 'id')}`, options);
   }
 
   async rotateToken(
     id: string,
     options?: RequestOptions
   ): Promise<ApiResponse<{ new_token: string; old_token_grace_expires_at: string }>> {
-    return this.post(`/agent-tokens/${id}/rotate`, undefined, options);
+    return this.post(`/agent-tokens/${pathSegment(id, 'id')}/rotate`, undefined, options);
   }
 
   async exchangeToken(
@@ -127,7 +128,7 @@ export class AgentAuthService extends ServiceModule {
   }
 
   async revokeSigningKey(id: string, options?: RequestOptions): Promise<ApiResponse<{ message: string }>> {
-    return this.del<{ message: string }>(`/agent-signing-keys/${id}`, options);
+    return this.del<{ message: string }>(`/agent-signing-keys/${pathSegment(id, 'id')}`, options);
   }
 
   async getProfile(options?: RequestOptions): Promise<ApiResponse<AgentProfile>> {
@@ -148,7 +149,7 @@ export class AgentAuthService extends ServiceModule {
   }
 
   async getSecurityPolicy(appId: string, options?: RequestOptions): Promise<ApiResponse<AgentSecurityPolicy>> {
-    return this._get<AgentSecurityPolicy>(`/applications/${appId}/agent-security`, options);
+    return this._get<AgentSecurityPolicy>(`/applications/${pathSegment(appId, 'appId')}/agent-security`, options);
   }
 
   async updateSecurityPolicy(
@@ -156,6 +157,6 @@ export class AgentAuthService extends ServiceModule {
     data: Partial<AgentSecurityPolicy>,
     options?: RequestOptions
   ): Promise<ApiResponse<AgentSecurityPolicy>> {
-    return this.put<AgentSecurityPolicy>(`/applications/${appId}/agent-security`, data, options);
+    return this.put<AgentSecurityPolicy>(`/applications/${pathSegment(appId, 'appId')}/agent-security`, data, options);
   }
 }

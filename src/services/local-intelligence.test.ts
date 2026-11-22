@@ -74,13 +74,13 @@ describe('local intelligence API', () => {
     vi.stubGlobal('fetch', fetcher);
     const sdk = new ScaleMule({ apiKey: 'test-key', baseUrl: 'https://api.example.org', retry: { maxRetries: 0 } });
     const response = await sdk.localIntelligence.changes(
-      'paper/id',
+      'paper:id',
       { cursor: 'opaque+/?', limit: 20 },
       { headers: { authorization: 'Bearer reader-session' } }
     );
     expect(response.error).toBeNull();
     const [url, init] = fetcher.mock.calls[0];
-    expect(String(url)).toContain('/v1/news/intelligence/publications/paper%2Fid/changes?');
+    expect(String(url)).toContain('/v1/news/intelligence/publications/paper%3Aid/changes?');
     expect(new URL(String(url)).searchParams.get('cursor')).toBe('opaque+/?');
     expect(new Headers(init.headers).get('authorization')).toBe('Bearer reader-session');
     expect(new Headers(init.headers).get('x-sm-internal-token')).toBeNull();

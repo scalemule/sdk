@@ -8,6 +8,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, PaginatedResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ── Types ──
 
@@ -98,12 +99,12 @@ export class CreatorMakerService extends ServiceModule {
 
   /** Get a generation job by ID. */
   async getJob(jobId: string, options?: RequestOptions): Promise<ApiResponse<GenerationJob>> {
-    return this._get<GenerationJob>(`/jobs/${jobId}`, options);
+    return this._get<GenerationJob>(`/jobs/${pathSegment(jobId, 'jobId')}`, options);
   }
 
   /** Long-poll for job completion (server holds up to 30s). */
   async pollJob(jobId: string, options?: RequestOptions): Promise<ApiResponse<GenerationJob>> {
-    return this._get<GenerationJob>(`/jobs/${jobId}/poll`, {
+    return this._get<GenerationJob>(`/jobs/${pathSegment(jobId, 'jobId')}/poll`, {
       ...options,
       timeout: 35_000
     });
@@ -119,17 +120,17 @@ export class CreatorMakerService extends ServiceModule {
 
   /** Cancel a pending or queued job. */
   async cancelJob(jobId: string, options?: RequestOptions): Promise<ApiResponse<{ id: string; status: string }>> {
-    return this.post(`/jobs/${jobId}/cancel`, undefined, options);
+    return this.post(`/jobs/${pathSegment(jobId, 'jobId')}/cancel`, undefined, options);
   }
 
   /** Retry a failed job. */
   async retryJob(jobId: string, options?: RequestOptions): Promise<ApiResponse<GenerationJob>> {
-    return this.post<GenerationJob>(`/jobs/${jobId}/retry`, undefined, options);
+    return this.post<GenerationJob>(`/jobs/${pathSegment(jobId, 'jobId')}/retry`, undefined, options);
   }
 
   /** Generate variations of a completed job. */
   async generateVariations(jobId: string, options?: RequestOptions): Promise<ApiResponse<GenerationJob[]>> {
-    return this.post<GenerationJob[]>(`/jobs/${jobId}/variations`, undefined, options);
+    return this.post<GenerationJob[]>(`/jobs/${pathSegment(jobId, 'jobId')}/variations`, undefined, options);
   }
 
   /** List available style presets, optionally filtered by mode. */
@@ -139,7 +140,7 @@ export class CreatorMakerService extends ServiceModule {
 
   /** Get a style preset by slug. */
   async getPreset(slug: string, options?: RequestOptions): Promise<ApiResponse<StylePreset>> {
-    return this._get<StylePreset>(`/presets/${slug}`, options);
+    return this._get<StylePreset>(`/presets/${pathSegment(slug, 'slug')}`, options);
   }
 
   /** Create a project. */
@@ -162,11 +163,11 @@ export class CreatorMakerService extends ServiceModule {
 
   /** Get a generation output by ID. */
   async getOutput(outputId: string, options?: RequestOptions): Promise<ApiResponse<GenerationOutput>> {
-    return this._get<GenerationOutput>(`/outputs/${outputId}`, options);
+    return this._get<GenerationOutput>(`/outputs/${pathSegment(outputId, 'outputId')}`, options);
   }
 
   /** Get a download URL for a generation output. */
   async getDownloadUrl(outputId: string, options?: RequestOptions): Promise<ApiResponse<{ cdn_url: string }>> {
-    return this._get(`/outputs/${outputId}/download`, options);
+    return this._get(`/outputs/${pathSegment(outputId, 'outputId')}/download`, options);
   }
 }

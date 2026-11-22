@@ -1,6 +1,7 @@
 import { ServiceModule } from '../service';
 import type { ApiResponse, PaginatedResponse, PaginationParams, RequestOptions } from '../types';
 import type { SecurityLayers } from './agent-auth';
+import { pathSegment } from '../utils/path';
 
 export interface AgentResponse {
   id: string;
@@ -87,7 +88,7 @@ export class AgentsService extends ServiceModule {
   }
 
   async deactivateAgent(id: string, options?: RequestOptions): Promise<ApiResponse<{ message: string }>> {
-    return this.post<{ message: string }>(`/agents/${id}/deactivate`, undefined, options);
+    return this.post<{ message: string }>(`/agents/${pathSegment(id, 'id')}/deactivate`, undefined, options);
   }
 
   // Agent CRUD
@@ -106,7 +107,7 @@ export class AgentsService extends ServiceModule {
   }
 
   async get(id: string, options?: RequestOptions): Promise<ApiResponse<AgentResponse>> {
-    return this._get<AgentResponse>(`/agents/${id}`, options);
+    return this._get<AgentResponse>(`/agents/${pathSegment(id, 'id')}`, options);
   }
 
   async update(
@@ -120,11 +121,11 @@ export class AgentsService extends ServiceModule {
     }>,
     options?: RequestOptions
   ): Promise<ApiResponse<AgentResponse>> {
-    return this.patch<AgentResponse>(`/agents/${id}`, data, options);
+    return this.patch<AgentResponse>(`/agents/${pathSegment(id, 'id')}`, data, options);
   }
 
   async remove(id: string, options?: RequestOptions): Promise<ApiResponse<void>> {
-    return this.del<void>(`/agents/${id}`, options);
+    return this.del<void>(`/agents/${pathSegment(id, 'id')}`, options);
   }
 
   async setDefaultWorkspace(
@@ -132,7 +133,7 @@ export class AgentsService extends ServiceModule {
     data: { workspace_id: string },
     options?: RequestOptions
   ): Promise<ApiResponse<AgentResponse>> {
-    return this.post<AgentResponse>(`/agents/${id}/set-default-workspace`, data, options);
+    return this.post<AgentResponse>(`/agents/${pathSegment(id, 'id')}/set-default-workspace`, data, options);
   }
 
   // Runtime Templates
@@ -155,7 +156,7 @@ export class AgentsService extends ServiceModule {
     options?: RequestOptions
   ): Promise<ApiResponse<{ template: RuntimeTemplate; versions: RuntimeTemplateVersion[] }>> {
     return this._get<{ template: RuntimeTemplate; versions: RuntimeTemplateVersion[] }>(
-      `/runtime-templates/${id}`,
+      `/runtime-templates/${pathSegment(id, 'id')}`,
       options
     );
   }
@@ -165,11 +166,11 @@ export class AgentsService extends ServiceModule {
     data: { config: Record<string, unknown>; changelog?: string },
     options?: RequestOptions
   ): Promise<ApiResponse<RuntimeTemplateVersion>> {
-    return this.post<RuntimeTemplateVersion>(`/runtime-templates/${id}/versions`, data, options);
+    return this.post<RuntimeTemplateVersion>(`/runtime-templates/${pathSegment(id, 'id')}/versions`, data, options);
   }
 
   async listTemplateVersions(id: string, options?: RequestOptions): Promise<ApiResponse<RuntimeTemplateVersion[]>> {
-    return this._get<RuntimeTemplateVersion[]>(`/runtime-templates/${id}/versions`, options);
+    return this._get<RuntimeTemplateVersion[]>(`/runtime-templates/${pathSegment(id, 'id')}/versions`, options);
   }
 
   // Workspaces
@@ -194,7 +195,7 @@ export class AgentsService extends ServiceModule {
   }
 
   async getWorkspace(id: string, options?: RequestOptions): Promise<ApiResponse<Workspace>> {
-    return this._get<Workspace>(`/workspaces/${id}`, options);
+    return this._get<Workspace>(`/workspaces/${pathSegment(id, 'id')}`, options);
   }
 
   async updateWorkspace(
@@ -202,7 +203,7 @@ export class AgentsService extends ServiceModule {
     data: Partial<{ name: string; description: string; status: string; config_overrides: Record<string, unknown> }>,
     options?: RequestOptions
   ): Promise<ApiResponse<Workspace>> {
-    return this.patch<Workspace>(`/workspaces/${id}`, data, options);
+    return this.patch<Workspace>(`/workspaces/${pathSegment(id, 'id')}`, data, options);
   }
 
   async addOsAccount(
@@ -210,6 +211,6 @@ export class AgentsService extends ServiceModule {
     data: { username: string; auth_type: string; secret_ref: string },
     options?: RequestOptions
   ): Promise<ApiResponse<{ id: string; workspace_id: string; username: string; auth_type: string }>> {
-    return this.post(`/workspaces/${workspaceId}/os-accounts`, data, options);
+    return this.post(`/workspaces/${pathSegment(workspaceId, 'workspaceId')}/os-accounts`, data, options);
   }
 }

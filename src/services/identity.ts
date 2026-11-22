@@ -11,6 +11,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -45,7 +46,7 @@ export class IdentityService extends ServiceModule {
   }
 
   async revokeApiKey(id: string, options?: RequestOptions): Promise<ApiResponse<{ revoked: boolean }>> {
-    return this.del<{ revoked: boolean }>(`/api-keys/${id}`, options);
+    return this.del<{ revoked: boolean }>(`/api-keys/${pathSegment(id, 'id')}`, options);
   }
 
   /**

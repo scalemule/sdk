@@ -456,6 +456,47 @@ async function resolveAnonymousId(storage) {
   return fresh;
 }
 
+// src/utils/path.ts
+var INVALID_PATH_SEGMENT = "invalid_path_segment";
+var INVALID_PATH = "invalid_path";
+var ScaleMulePathError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.code = INVALID_PATH_SEGMENT;
+    this.status = 400;
+    this.name = "ScaleMulePathError";
+  }
+};
+var CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+function pathSegment(value, name = "id") {
+  let text;
+  if (typeof value === "string") {
+    text = value;
+  } else if (typeof value === "number" && Number.isFinite(value)) {
+    text = String(value);
+  } else {
+    throw new ScaleMulePathError(`${name} must be a string`);
+  }
+  if (text.length === 0) throw new ScaleMulePathError(`${name} must not be empty`);
+  if (text === "." || text === "..") throw new ScaleMulePathError(`${name} must not be "." or ".."`);
+  if (/[/\\%?#]/.test(text) || CONTROL_CHARS.test(text)) {
+    throw new ScaleMulePathError(`${name} contains a character that is not allowed in a path segment`);
+  }
+  return encodeURIComponent(text);
+}
+function findUnsafePathReason(path) {
+  if (typeof path !== "string") return "path must be a string";
+  const end = path.search(/[?#]/);
+  const pathPart = end === -1 ? path : path.slice(0, end);
+  if (CONTROL_CHARS.test(pathPart)) return "path contains a control character";
+  if (pathPart.includes("\\")) return "path contains a backslash";
+  if (/%(25)*(2e|2f|5c)/i.test(pathPart)) return "path contains an encoded dot, slash or backslash";
+  for (const segment2 of pathPart.split("/")) {
+    if (segment2 === "." || segment2 === "..") return 'path contains a "." or ".." segment';
+  }
+  return null;
+}
+
 // src/client.ts
 var SDK_VERSION = "0.0.1";
 var DEFAULT_TIMEOUT = 3e4;
@@ -1052,6 +1093,10 @@ var ScaleMuleClient = class {
   // Core Request Method
   // --------------------------------------------------------------------------
   async request(path, init = {}) {
+    const unsafePath = findUnsafePathReason(path);
+    if (unsafePath) {
+      return { data: null, error: { code: INVALID_PATH, message: `Refused request: ${unsafePath}`, status: 400 } };
+    }
     const url = `${this.baseUrl}${path}`;
     const method = (init.method || "GET").toUpperCase();
     const timeout = init.timeout || this.defaultTimeout;
@@ -1265,6 +1310,10 @@ var ScaleMuleClient = class {
       }
       return fd;
     };
+    const unsafePath = findUnsafePathReason(path);
+    if (unsafePath) {
+      return { data: null, error: { code: INVALID_PATH, message: `Refused upload: ${unsafePath}`, status: 400 } };
+    }
     const url = `${this.baseUrl}${path}`;
     if (this.debug) console.log(`[ScaleMule] UPLOAD ${path}`);
     if (options?.signal?.aborted) {
@@ -1770,7 +1819,7 @@ var AuthSessionsApi = class extends ServiceModule {
     return this._get("");
   }
   async revoke(sessionId) {
-    return this.del(`/${sessionId}`);
+    return this.del(`/${pathSegment(sessionId, "sessionId")}`);
   }
   async revokeAll() {
     return this.del("/others");
@@ -1785,13 +1834,13 @@ var AuthDevicesApi = class extends ServiceModule {
     return this._get("");
   }
   async trust(deviceId) {
-    return this.post(`/${deviceId}/trust`);
+    return this.post(`/${pathSegment(deviceId, "deviceId")}/trust`);
   }
   async block(deviceId) {
-    return this.post(`/${deviceId}/block`);
+    return this.post(`/${pathSegment(deviceId, "deviceId")}/block`);
   }
   async delete(deviceId) {
-    return this.del(`/${deviceId}`);
+    return this.del(`/${pathSegment(deviceId, "deviceId")}`);
   }
 };
 var AuthLoginHistoryApi = class extends ServiceModule {
@@ -1933,7 +1982,7 @@ var AuthService = class extends ServiceModule {
    * reads are blocked at the gateway via the x-app-id header scope.
    */
   async getUser(userId, options) {
-    return this._get(`/users/${encodeURIComponent(userId)}`, options);
+    return this._get(`/users/${pathSegment(userId, "userId")}`, options);
   }
   /** Refresh the session. Alias: refreshToken() */
   async refreshSession(data, options) {
@@ -2070,11 +2119,17 @@ var AuthService = class extends ServiceModule {
   // OAuth
   // --------------------------------------------------------------------------
   async getOAuthUrl(provider, redirectUri, options) {
-    return this._get(this.withQuery(`/oauth/${provider}/authorize`, { redirect_uri: redirectUri }), options);
+    return this._get(
+      this.withQuery(`/oauth/${pathSegment(provider, "provider")}/authorize`, { redirect_uri: redirectUri }),
+      options
+    );
   }
   async handleOAuthCallback(data, options) {
     const { provider, ...rest } = data;
-    const result = await this._get(this.withQuery(`/oauth/${provider}/callback`, rest), options);
+    const result = await this._get(
+      this.withQuery(`/oauth/${pathSegment(provider, "provider")}/callback`, rest),
+      options
+    );
     if (result.data && this.client.isAccountSwitcherEnabled()) {
       await this.client.addKnownAccount({
         userId: result.data.user.id,
@@ -2091,7 +2146,7 @@ var AuthService = class extends ServiceModule {
     return this._get("/oauth/providers", options);
   }
   async unlinkOAuthProvider(provider, options) {
-    return this.del(`/oauth/providers/${provider}`, options);
+    return this.del(`/oauth/providers/${pathSegment(provider, "provider")}`, options);
   }
   // --------------------------------------------------------------------------
   // Token Management
@@ -3130,7 +3185,7 @@ var StorageService = class extends ServiceModule {
   // --------------------------------------------------------------------------
   /** Get file metadata (no signed URL). */
   async getInfo(fileId, options) {
-    return this._get(`/files/${fileId}/info`, options);
+    return this._get(`/files/${pathSegment(fileId, "fileId")}/info`, options);
   }
   /**
    * Get the calling app's storage + media settings — content policy,
@@ -3174,7 +3229,7 @@ var StorageService = class extends ServiceModule {
    * ```
    */
   async getFileStatus(fileId, options) {
-    return this._get(`/files/${fileId}/status`, options);
+    return this._get(`/files/${pathSegment(fileId, "fileId")}/status`, options);
   }
   /**
    * Read the application's active media policy. Lightweight endpoint
@@ -3195,7 +3250,7 @@ var StorageService = class extends ServiceModule {
    * Returns CloudFront signed URL (fast, ~1us) or S3 presigned fallback.
    */
   async getViewUrl(fileId, options) {
-    return this.post(`/signed-url/view/${fileId}`, {}, options);
+    return this.post(`/signed-url/view/${pathSegment(fileId, "fileId")}`, {}, options);
   }
   /**
    * Get signed view URLs for multiple files (batch, up to 100).
@@ -3210,11 +3265,11 @@ var StorageService = class extends ServiceModule {
    * Get a signed download URL (Content-Disposition: attachment).
    */
   async getDownloadUrl(fileId, options) {
-    return this.post(`/signed-url/download/${fileId}`, void 0, options);
+    return this.post(`/signed-url/download/${pathSegment(fileId, "fileId")}`, void 0, options);
   }
   /** Delete a file (soft delete). */
   async delete(fileId, options) {
-    return this.del(`/files/${fileId}`, options);
+    return this.del(`/files/${pathSegment(fileId, "fileId")}`, options);
   }
   /** List the current user's files (paginated). */
   async list(params, options) {
@@ -3222,7 +3277,7 @@ var StorageService = class extends ServiceModule {
   }
   /** Check file view/access status. */
   async getViewStatus(fileId, options) {
-    return this._get(`/files/${fileId}/view-status`, options);
+    return this._get(`/files/${pathSegment(fileId, "fileId")}/view-status`, options);
   }
   /**
    * Update a file's visibility.
@@ -3243,7 +3298,7 @@ var StorageService = class extends ServiceModule {
   async updateVisibility(fileId, visibility, options) {
     const body = typeof visibility === "boolean" ? { is_public: visibility } : { visibility };
     return this.patch(
-      `/files/${fileId}/visibility`,
+      `/files/${pathSegment(fileId, "fileId")}/visibility`,
       body,
       options
     );
@@ -4186,11 +4241,15 @@ var RealtimeService = class extends ServiceModule {
   }
   /** Broadcast to a specific channel. */
   async broadcastToChannel(channel, event, data, options) {
-    return this.post(`/broadcast/channel/${channel}`, { event, data }, options);
+    return this.post(
+      `/broadcast/channel/${pathSegment(channel, "channel")}`,
+      { event, data },
+      options
+    );
   }
   /** Send to a specific user's connections. */
   async sendToUser(userId, event, data, options) {
-    return this.post(`/broadcast/user/${userId}`, { event, data }, options);
+    return this.post(`/broadcast/user/${pathSegment(userId, "userId")}`, { event, data }, options);
   }
   // --------------------------------------------------------------------------
   // Connection Lifecycle
@@ -4603,7 +4662,7 @@ var VideoService = class extends ServiceModule {
       }
     }
     const completeResult = await this.post(
-      `/${video_id}/upload-complete`,
+      `/${pathSegment(video_id, "video_id")}/upload-complete`,
       {
         upload_id,
         parts
@@ -4617,7 +4676,7 @@ var VideoService = class extends ServiceModule {
   // --------------------------------------------------------------------------
   /** Get video metadata and status. */
   async get(videoId, options) {
-    return super._get(`/${videoId}`, options);
+    return super._get(`/${pathSegment(videoId, "videoId")}`, options);
   }
   /**
    * Register a video from a file already uploaded to scalemule-storage.
@@ -4722,7 +4781,7 @@ var VideoService = class extends ServiceModule {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const result = await this.get(videoId, requestOptions);
       if (result.data?.status === "ready") {
-        return `${this.client.getBaseUrl()}${this.basePath}/${videoId}/playlist.m3u8`;
+        return `${this.client.getBaseUrl()}${this.basePath}/${pathSegment(videoId, "videoId")}/playlist.m3u8`;
       }
       await new Promise((r) => setTimeout(r, intervalMs));
     }
@@ -4735,7 +4794,7 @@ var VideoService = class extends ServiceModule {
   async getStreamUrl(videoId) {
     const baseUrl = this.client.getBaseUrl();
     return {
-      data: { url: `${baseUrl}${this.basePath}/${videoId}/playlist.m3u8` },
+      data: { url: `${baseUrl}${this.basePath}/${pathSegment(videoId, "videoId")}/playlist.m3u8` },
       error: null
     };
   }
@@ -4743,12 +4802,12 @@ var VideoService = class extends ServiceModule {
    * Track a playback event (view, play, pause, seek, complete, etc.).
    */
   async trackPlayback(videoId, event, options) {
-    return this.post(`/${videoId}/track`, event, options);
+    return this.post(`/${pathSegment(videoId, "videoId")}/track`, event, options);
   }
   /** Get video analytics (views, watch time, etc.). */
   async getAnalytics(videoId, options) {
     return super._get(
-      `/${videoId}/analytics`,
+      `/${pathSegment(videoId, "videoId")}/analytics`,
       options
     );
   }
@@ -4757,7 +4816,11 @@ var VideoService = class extends ServiceModule {
    * Public videos get 7-day signed URLs; private get 1-hour signed URLs.
    */
   async updateAccessMode(videoId, accessMode, options) {
-    return this.patch(`/${videoId}`, { access_mode: accessMode }, options);
+    return this.patch(
+      `/${pathSegment(videoId, "videoId")}`,
+      { access_mode: accessMode },
+      options
+    );
   }
   // --------------------------------------------------------------------------
   // Legacy methods (backward compat)
@@ -4780,7 +4843,7 @@ var VideoService = class extends ServiceModule {
   async uploadPart(videoId, uploadId, partNumber, chunk, signal) {
     const formData = new FormData();
     formData.append("file", chunk);
-    const path = `${this.basePath}/${videoId}/upload-part?upload_id=${encodeURIComponent(uploadId)}&part_number=${partNumber}`;
+    const path = `${this.basePath}/${pathSegment(videoId, "videoId")}/upload-part?upload_id=${encodeURIComponent(uploadId)}&part_number=${partNumber}`;
     const headers = {
       "x-api-key": this.client.getApiKey()
     };
@@ -4838,22 +4901,32 @@ var DataService = class extends ServiceModule {
     return this._get("/collections", options);
   }
   async deleteCollection(name, options) {
-    return this.del(`/collections/${name}`, options);
+    return this.del(`/collections/${pathSegment(name, "name")}`, options);
   }
   // --------------------------------------------------------------------------
   // Documents — CRUD
   // --------------------------------------------------------------------------
   async create(collection, data, options) {
-    return this.post(`/${collection}/documents`, { data }, options);
+    return this.post(`/${pathSegment(collection, "collection")}/documents`, { data }, options);
   }
   async get(collection, docId, options) {
-    return this._get(`/${collection}/documents/${docId}`, options);
+    return this._get(
+      `/${pathSegment(collection, "collection")}/documents/${pathSegment(docId, "docId")}`,
+      options
+    );
   }
   async update(collection, docId, data, options) {
-    return this.patch(`/${collection}/documents/${docId}`, { data }, options);
+    return this.patch(
+      `/${pathSegment(collection, "collection")}/documents/${pathSegment(docId, "docId")}`,
+      { data },
+      options
+    );
   }
   async delete(collection, docId, options) {
-    return this.del(`/${collection}/documents/${docId}`, options);
+    return this.del(
+      `/${pathSegment(collection, "collection")}/documents/${pathSegment(docId, "docId")}`,
+      options
+    );
   }
   // --------------------------------------------------------------------------
   // Documents — Query & Aggregate
@@ -4871,7 +4944,11 @@ var DataService = class extends ServiceModule {
       page: options?.page ?? 1,
       per_page: options?.perPage ?? 20
     };
-    const response = await this.post(`/${collection}/query`, body, requestOptions);
+    const response = await this.post(
+      `/${pathSegment(collection, "collection")}/query`,
+      body,
+      requestOptions
+    );
     if (response.error) {
       return {
         data: [],
@@ -4895,10 +4972,10 @@ var DataService = class extends ServiceModule {
     };
   }
   async aggregate(collection, options, requestOptions) {
-    return this.post(`/${collection}/aggregate`, options, requestOptions);
+    return this.post(`/${pathSegment(collection, "collection")}/aggregate`, options, requestOptions);
   }
   async myDocuments(collection, options, requestOptions) {
-    return this._list(`/${collection}/my-documents`, options, requestOptions);
+    return this._list(`/${pathSegment(collection, "collection")}/my-documents`, options, requestOptions);
   }
   // --------------------------------------------------------------------------
   // Legacy methods (backward compat)
@@ -4941,61 +5018,89 @@ var ChatService = class extends ServiceModule {
     return this._list("/conversations", params, requestOptions);
   }
   async getConversation(id, options) {
-    return this._get(`/conversations/${id}`, options);
+    return this._get(`/conversations/${pathSegment(id, "id")}`, options);
   }
   async addParticipant(conversationId, userId, options) {
-    return this.post(`/conversations/${conversationId}/participants`, { user_id: userId }, options);
+    return this.post(
+      `/conversations/${pathSegment(conversationId, "conversationId")}/participants`,
+      { user_id: userId },
+      options
+    );
   }
   async removeParticipant(conversationId, userId, options) {
-    return this.del(`/conversations/${conversationId}/participants/${userId}`, options);
+    return this.del(
+      `/conversations/${pathSegment(conversationId, "conversationId")}/participants/${pathSegment(userId, "userId")}`,
+      options
+    );
   }
   // --------------------------------------------------------------------------
   // Messages
   // --------------------------------------------------------------------------
   async sendMessage(conversationId, data, options) {
-    return this.post(`/conversations/${conversationId}/messages`, data, options);
+    return this.post(
+      `/conversations/${pathSegment(conversationId, "conversationId")}/messages`,
+      data,
+      options
+    );
   }
   async getThreadReplies(messageId, params, requestOptions) {
-    return this._get(this.withQuery(`/messages/${messageId}/replies`, params), requestOptions);
+    return this._get(
+      this.withQuery(`/messages/${pathSegment(messageId, "messageId")}/replies`, params),
+      requestOptions
+    );
   }
   async getMessages(conversationId, options, requestOptions) {
     return this._get(
-      this.withQuery(`/conversations/${conversationId}/messages`, options),
+      this.withQuery(`/conversations/${pathSegment(conversationId, "conversationId")}/messages`, options),
       requestOptions
     );
   }
   async editMessage(messageId, data, options) {
-    return this.patch(`/messages/${messageId}`, data, options);
+    return this.patch(`/messages/${pathSegment(messageId, "messageId")}`, data, options);
   }
   async deleteMessage(messageId, options) {
-    return this.del(`/messages/${messageId}`, options);
+    return this.del(`/messages/${pathSegment(messageId, "messageId")}`, options);
   }
   async addReaction(messageId, data, options) {
-    return this.post(`/messages/${messageId}/reactions`, data, options);
+    return this.post(`/messages/${pathSegment(messageId, "messageId")}/reactions`, data, options);
   }
   // --------------------------------------------------------------------------
   // Pins
   // --------------------------------------------------------------------------
   async pinMessage(messageId, options) {
-    return this.post(`/messages/${messageId}/pin`, void 0, options);
+    return this.post(`/messages/${pathSegment(messageId, "messageId")}/pin`, void 0, options);
   }
   async unpinMessage(messageId, options) {
-    return this.del(`/messages/${messageId}/pin`, options);
+    return this.del(`/messages/${pathSegment(messageId, "messageId")}/pin`, options);
   }
   async getPinnedMessages(conversationId, options) {
-    return this._get(`/conversations/${conversationId}/pins`, options);
+    return this._get(
+      `/conversations/${pathSegment(conversationId, "conversationId")}/pins`,
+      options
+    );
   }
   // --------------------------------------------------------------------------
   // Typing & Read Receipts
   // --------------------------------------------------------------------------
   async sendTyping(conversationId, options) {
-    return this.post(`/conversations/${conversationId}/typing`, void 0, options);
+    return this.post(
+      `/conversations/${pathSegment(conversationId, "conversationId")}/typing`,
+      void 0,
+      options
+    );
   }
   async markRead(conversationId, options) {
-    return this.post(`/conversations/${conversationId}/read`, void 0, options);
+    return this.post(
+      `/conversations/${pathSegment(conversationId, "conversationId")}/read`,
+      void 0,
+      options
+    );
   }
   async getReadStatus(conversationId, options) {
-    return this._get(`/conversations/${conversationId}/read-status`, options);
+    return this._get(
+      `/conversations/${pathSegment(conversationId, "conversationId")}/read-status`,
+      options
+    );
   }
   // --------------------------------------------------------------------------
   // Legacy methods (backward compat)
@@ -5019,37 +5124,37 @@ var ConferenceService = class extends ServiceModule {
     return this.post("/calls", data, options);
   }
   async getCall(callId, options) {
-    return this._get(`/calls/${callId}`, options);
+    return this._get(`/calls/${pathSegment(callId, "callId")}`, options);
   }
   async listCalls(params, options) {
     return this._get(this.withQuery("/calls", params), options);
   }
   async endCall(callId, options) {
-    return this.post(`/calls/${callId}/end`, void 0, options);
+    return this.post(`/calls/${pathSegment(callId, "callId")}/end`, void 0, options);
   }
   // --------------------------------------------------------------------------
   // Participants
   // --------------------------------------------------------------------------
   async joinCall(callId, options) {
-    return this.post(`/calls/${callId}/join`, void 0, options);
+    return this.post(`/calls/${pathSegment(callId, "callId")}/join`, void 0, options);
   }
   async leaveCall(callId, options) {
-    return this.post(`/calls/${callId}/leave`, void 0, options);
+    return this.post(`/calls/${pathSegment(callId, "callId")}/leave`, void 0, options);
   }
   async listParticipants(callId, options) {
-    return this._get(`/calls/${callId}/participants`, options);
+    return this._get(`/calls/${pathSegment(callId, "callId")}/participants`, options);
   }
   // --------------------------------------------------------------------------
   // Recording
   // --------------------------------------------------------------------------
   async startRecording(callId, options) {
-    return this.post(`/calls/${callId}/recording/start`, void 0, options);
+    return this.post(`/calls/${pathSegment(callId, "callId")}/recording/start`, void 0, options);
   }
   async stopRecording(callId, options) {
-    return this.post(`/calls/${callId}/recording/stop`, void 0, options);
+    return this.post(`/calls/${pathSegment(callId, "callId")}/recording/stop`, void 0, options);
   }
   async consentToRecording(callId, options) {
-    return this.post(`/calls/${callId}/recording/consent`, void 0, options);
+    return this.post(`/calls/${pathSegment(callId, "callId")}/recording/consent`, void 0, options);
   }
   // --------------------------------------------------------------------------
   // Settings
@@ -5064,7 +5169,7 @@ var ConferenceService = class extends ServiceModule {
   // Stats
   // --------------------------------------------------------------------------
   async submitStats(callId, stats, options) {
-    return this.post(`/calls/${callId}/stats`, stats, options);
+    return this.post(`/calls/${pathSegment(callId, "callId")}/stats`, stats, options);
   }
 };
 
@@ -5085,19 +5190,19 @@ var SocialService = class extends ServiceModule {
   // Follow / Unfollow
   // --------------------------------------------------------------------------
   async follow(userId, options) {
-    return this.post(`/users/${userId}/follow`, void 0, options);
+    return this.post(`/users/${pathSegment(userId, "userId")}/follow`, void 0, options);
   }
   async unfollow(userId, options) {
-    return this.del(`/users/${userId}/follow`, options);
+    return this.del(`/users/${pathSegment(userId, "userId")}/follow`, options);
   }
   async getFollowers(userId, params, requestOptions) {
-    return this._list(`/users/${userId}/followers`, params, requestOptions);
+    return this._list(`/users/${pathSegment(userId, "userId")}/followers`, params, requestOptions);
   }
   async getFollowing(userId, params, requestOptions) {
-    return this._list(`/users/${userId}/following`, params, requestOptions);
+    return this._list(`/users/${pathSegment(userId, "userId")}/following`, params, requestOptions);
   }
   async getFollowStatus(userId, options) {
-    return this._get(`/users/${userId}/follow-status`, options);
+    return this._get(`/users/${pathSegment(userId, "userId")}/follow-status`, options);
   }
   // --------------------------------------------------------------------------
   // Posts
@@ -5106,13 +5211,13 @@ var SocialService = class extends ServiceModule {
     return this.post("/posts", data, options);
   }
   async getPost(postId, options) {
-    return this._get(`/posts/${postId}`, options);
+    return this._get(`/posts/${pathSegment(postId, "postId")}`, options);
   }
   async deletePost(postId, options) {
-    return this.del(`/posts/${postId}`, options);
+    return this.del(`/posts/${pathSegment(postId, "postId")}`, options);
   }
   async getUserPosts(userId, params, requestOptions) {
-    return this._list(`/users/${userId}/posts`, params, requestOptions);
+    return this._list(`/users/${pathSegment(userId, "userId")}/posts`, params, requestOptions);
   }
   async getFeed(options, requestOptions) {
     return this._list("/feed", options, requestOptions);
@@ -5121,13 +5226,24 @@ var SocialService = class extends ServiceModule {
   // Likes
   // --------------------------------------------------------------------------
   async like(targetType, targetId, options) {
-    return this.post(`/${targetType}/${targetId}/like`, void 0, options);
+    return this.post(
+      `/${pathSegment(targetType, "targetType")}/${pathSegment(targetId, "targetId")}/like`,
+      void 0,
+      options
+    );
   }
   async unlike(targetType, targetId, options) {
-    return this.del(`/${targetType}/${targetId}/like`, options);
+    return this.del(
+      `/${pathSegment(targetType, "targetType")}/${pathSegment(targetId, "targetId")}/like`,
+      options
+    );
   }
   async getLikes(targetType, targetId, params, requestOptions) {
-    return this._list(`/${targetType}/${targetId}/likes`, params, requestOptions);
+    return this._list(
+      `/${pathSegment(targetType, "targetType")}/${pathSegment(targetId, "targetId")}/likes`,
+      params,
+      requestOptions
+    );
   }
   // --------------------------------------------------------------------------
   // Voting (bipolar — up/down with score)
@@ -5145,7 +5261,11 @@ var SocialService = class extends ServiceModule {
    * Requires an authenticated session; anonymous calls return 401.
    */
   async vote(targetType, targetId, value, options) {
-    return this.put(`/${targetType}/${targetId}/vote`, { value }, options);
+    return this.put(
+      `/${pathSegment(targetType, "targetType")}/${pathSegment(targetId, "targetId")}/vote`,
+      { value },
+      options
+    );
   }
   /**
    * Read the caller's current vote on a target plus the aggregate counts.
@@ -5154,7 +5274,10 @@ var SocialService = class extends ServiceModule {
    * Requires an authenticated session.
    */
   async getVote(targetType, targetId, options) {
-    return this._get(`/${targetType}/${targetId}/vote`, options);
+    return this._get(
+      `/${pathSegment(targetType, "targetType")}/${pathSegment(targetId, "targetId")}/vote`,
+      options
+    );
   }
   // --------------------------------------------------------------------------
   // View counters
@@ -5171,22 +5294,29 @@ var SocialService = class extends ServiceModule {
    */
   async recordView(targetType, targetId, viewerFingerprint, options) {
     const body = viewerFingerprint ? { viewer_fingerprint: viewerFingerprint } : {};
-    return this.post(`/${targetType}/${targetId}/views`, body, options);
+    return this.post(
+      `/${pathSegment(targetType, "targetType")}/${pathSegment(targetId, "targetId")}/views`,
+      body,
+      options
+    );
   }
   /**
    * Read view counters for a target.
    */
   async getViews(targetType, targetId, options) {
-    return this._get(`/${targetType}/${targetId}/views`, options);
+    return this._get(
+      `/${pathSegment(targetType, "targetType")}/${pathSegment(targetId, "targetId")}/views`,
+      options
+    );
   }
   // --------------------------------------------------------------------------
   // Comments
   // --------------------------------------------------------------------------
   async comment(postId, data, options) {
-    return this.post(`/posts/${postId}/comments`, data, options);
+    return this.post(`/posts/${pathSegment(postId, "postId")}/comments`, data, options);
   }
   async getComments(postId, params, requestOptions) {
-    return this._list(`/posts/${postId}/comments`, params, requestOptions);
+    return this._list(`/posts/${pathSegment(postId, "postId")}/comments`, params, requestOptions);
   }
   // --------------------------------------------------------------------------
   // Activity Feed
@@ -5195,7 +5325,7 @@ var SocialService = class extends ServiceModule {
     return this._list("/activity", params, requestOptions);
   }
   async markActivityRead(activityId, options) {
-    return this.patch(`/activity/${activityId}/read`, {}, options);
+    return this.patch(`/activity/${pathSegment(activityId, "activityId")}/read`, {}, options);
   }
   async markAllRead(options) {
     return this.patch("/activity/read-all", {}, options);
@@ -5246,10 +5376,10 @@ var SocialPolicyService = class extends ServiceModule {
     return this.decideAction("connect_request", actor, target, options);
   }
   getSettings(identityId, options) {
-    return this._get(`/settings/${identityId}`, options);
+    return this._get(`/settings/${pathSegment(identityId, "identityId")}`, options);
   }
   updateSettings(identityId, request, options) {
-    return this.patch(`/settings/${identityId}`, request, options);
+    return this.patch(`/settings/${pathSegment(identityId, "identityId")}`, request, options);
   }
   createRelationship(request, options) {
     return this.post("/relationships", request, options);
@@ -5258,7 +5388,7 @@ var SocialPolicyService = class extends ServiceModule {
     return this._get(this.withQuery("/relationships", toQueryParams(params)), options);
   }
   deleteRelationship(relationshipId, options) {
-    return this.del(`/relationships/${relationshipId}`, options);
+    return this.del(`/relationships/${pathSegment(relationshipId, "relationshipId")}`, options);
   }
   createContactRequest(request, options) {
     return this.post("/contact-requests", request, options);
@@ -5276,16 +5406,32 @@ var SocialPolicyService = class extends ServiceModule {
     );
   }
   acceptContactRequest(requestId, options) {
-    return this.post(`/contact-requests/${requestId}/accept`, void 0, options);
+    return this.post(
+      `/contact-requests/${pathSegment(requestId, "requestId")}/accept`,
+      void 0,
+      options
+    );
   }
   ignoreContactRequest(requestId, options) {
-    return this.post(`/contact-requests/${requestId}/ignore`, void 0, options);
+    return this.post(
+      `/contact-requests/${pathSegment(requestId, "requestId")}/ignore`,
+      void 0,
+      options
+    );
   }
   declineContactRequest(requestId, options) {
-    return this.post(`/contact-requests/${requestId}/decline`, void 0, options);
+    return this.post(
+      `/contact-requests/${pathSegment(requestId, "requestId")}/decline`,
+      void 0,
+      options
+    );
   }
   reportContactRequest(requestId, options) {
-    return this.post(`/contact-requests/${requestId}/report`, void 0, options);
+    return this.post(
+      `/contact-requests/${pathSegment(requestId, "requestId")}/report`,
+      void 0,
+      options
+    );
   }
   block(request, options) {
     return this.post("/block", request, options);
@@ -5429,7 +5575,7 @@ var BillingService = class extends ServiceModule {
   // openapi/scalemule-money-billing-v1.yaml.
   // --------------------------------------------------------------------------
   accountBase(accountId) {
-    return `/v1/billing/accounts/${encodeURIComponent(accountId)}`;
+    return `/v1/billing/accounts/${pathSegment(accountId, "accountId")}`;
   }
   async getAccountCustomer(req, options) {
     const path = this.withQuery(`${this.accountBase(req.account_id)}/customer`, {
@@ -5451,14 +5597,14 @@ var BillingService = class extends ServiceModule {
   }
   async detachAccountPaymentMethod(req, paymentMethodId, options) {
     const path = this.withQuery(
-      `${this.accountBase(req.account_id)}/payment-methods/${encodeURIComponent(paymentMethodId)}`,
+      `${this.accountBase(req.account_id)}/payment-methods/${pathSegment(paymentMethodId, "paymentMethodId")}`,
       { billing_mode: req.billing_mode }
     );
     return this.client.del(path, options);
   }
   async setDefaultAccountPaymentMethod(req, paymentMethodId, options) {
     const path = this.withQuery(
-      `${this.accountBase(req.account_id)}/payment-methods/${encodeURIComponent(paymentMethodId)}/default`,
+      `${this.accountBase(req.account_id)}/payment-methods/${pathSegment(paymentMethodId, "paymentMethodId")}/default`,
       { billing_mode: req.billing_mode }
     );
     return this.client.put(path, void 0, options);
@@ -5472,7 +5618,7 @@ var BillingService = class extends ServiceModule {
     return this.client.get(path, options);
   }
   async getAccountInvoice(req, invoiceId, options) {
-    const path = this.withQuery(`${this.accountBase(req.account_id)}/invoices/${encodeURIComponent(invoiceId)}`, {
+    const path = this.withQuery(`${this.accountBase(req.account_id)}/invoices/${pathSegment(invoiceId, "invoiceId")}`, {
       billing_mode: req.billing_mode
     });
     return this.client.get(path, options);
@@ -5528,13 +5674,13 @@ var BillingService = class extends ServiceModule {
     return this._list("/invoices", params, options);
   }
   async getInvoice(id, options) {
-    return this._get(`/invoices/${id}`, options);
+    return this._get(`/invoices/${pathSegment(id, "id")}`, options);
   }
   async payInvoice(id, options) {
-    return this.post(`/invoices/${id}/pay`, void 0, options);
+    return this.post(`/invoices/${pathSegment(id, "id")}/pay`, void 0, options);
   }
   async getInvoicePdf(id, options) {
-    return this._get(`/invoices/${id}/pdf`, options);
+    return this._get(`/invoices/${pathSegment(id, "id")}/pdf`, options);
   }
   // --------------------------------------------------------------------------
   // Connected Accounts (Marketplace)
@@ -5543,20 +5689,24 @@ var BillingService = class extends ServiceModule {
     return this.post("/connected-accounts", data, options);
   }
   async getConnectedAccount(id, options) {
-    return this._get(`/connected-accounts/${id}`, options);
+    return this._get(`/connected-accounts/${pathSegment(id, "id")}`, options);
   }
   async getMyConnectedAccount(options) {
     return this._get("/connected-accounts/me", options);
   }
   async createOnboardingLink(id, data, options) {
-    return this.post(`/connected-accounts/${id}/onboarding-link`, data, options);
+    return this.post(`/connected-accounts/${pathSegment(id, "id")}/onboarding-link`, data, options);
   }
   async getAccountBalance(id, options) {
     void options;
     return this.retiredSurface(`/v1/money/billing/connected-accounts/${id}/balance`);
   }
   async createAccountSession(id, options) {
-    return this.post(`/connected-accounts/${id}/account-session`, void 0, options);
+    return this.post(
+      `/connected-accounts/${pathSegment(id, "id")}/account-session`,
+      void 0,
+      options
+    );
   }
   // --------------------------------------------------------------------------
   // Config
@@ -5598,10 +5748,17 @@ var BillingService = class extends ServiceModule {
     return this.retiredSurface(`/v1/money/billing/connected-accounts/${accountId}/payouts`);
   }
   async getPayoutSchedule(accountId, options) {
-    return this._get(`/connected-accounts/${accountId}/payout-schedule`, options);
+    return this._get(
+      `/connected-accounts/${pathSegment(accountId, "accountId")}/payout-schedule`,
+      options
+    );
   }
   async setPayoutSchedule(accountId, data, options) {
-    return this.put(`/connected-accounts/${accountId}/payout-schedule`, data, options);
+    return this.put(
+      `/connected-accounts/${pathSegment(accountId, "accountId")}/payout-schedule`,
+      data,
+      options
+    );
   }
   // --------------------------------------------------------------------------
   // Ledger
@@ -5812,7 +5969,7 @@ var AnalyticsService = class extends ServiceModule {
     return this._get("/funnels");
   }
   async getFunnelConversions(id) {
-    return this._get(`/funnels/${id}/conversions`);
+    return this._get(`/funnels/${pathSegment(id, "id")}/conversions`);
   }
   // --------------------------------------------------------------------------
   // Custom Metrics
@@ -5875,47 +6032,47 @@ var FlagsService = class extends ServiceModule {
     );
   }
   async get(id, options) {
-    return this._get(`/${id}`, options);
+    return this._get(`/${pathSegment(id, "id")}`, options);
   }
   async create(data, params, options) {
     const path = this.withQuery("", { application_id: params?.applicationId });
     return this.post(path, data, options);
   }
   async update(id, data, options) {
-    return this.patch(`/${id}`, data, options);
+    return this.patch(`/${pathSegment(id, "id")}`, data, options);
   }
   async archive(id, options) {
-    return this.del(`/${id}`, options);
+    return this.del(`/${pathSegment(id, "id")}`, options);
   }
   async activate(id, options) {
-    return this.post(`/${id}/activate`, void 0, options);
+    return this.post(`/${pathSegment(id, "id")}/activate`, void 0, options);
   }
   async deactivate(id, options) {
-    return this.post(`/${id}/deactivate`, void 0, options);
+    return this.post(`/${pathSegment(id, "id")}/deactivate`, void 0, options);
   }
   async listRules(id, options) {
-    return this._get(`/${id}/rules`, options);
+    return this._get(`/${pathSegment(id, "id")}/rules`, options);
   }
   async createRule(id, data, options) {
-    return this.post(`/${id}/rules`, data, options);
+    return this.post(`/${pathSegment(id, "id")}/rules`, data, options);
   }
   async updateRule(id, data, options) {
-    return this.patch(`/rules/${id}`, data, options);
+    return this.patch(`/rules/${pathSegment(id, "id")}`, data, options);
   }
   async deleteRule(id, options) {
-    return this.del(`/rules/${id}`, options);
+    return this.del(`/rules/${pathSegment(id, "id")}`, options);
   }
   async listVariants(id, options) {
-    return this._get(`/${id}/variants`, options);
+    return this._get(`/${pathSegment(id, "id")}/variants`, options);
   }
   async createVariant(id, data, options) {
-    return this.post(`/${id}/variants`, data, options);
+    return this.post(`/${pathSegment(id, "id")}/variants`, data, options);
   }
   async updateVariant(id, data, options) {
-    return this.patch(`/variants/${id}`, data, options);
+    return this.patch(`/variants/${pathSegment(id, "id")}`, data, options);
   }
   async deleteVariant(id, options) {
-    return this.del(`/variants/${id}`, options);
+    return this.del(`/variants/${pathSegment(id, "id")}`, options);
   }
   async listSegments(params, options) {
     return this._get(this.withQuery("/segments", { application_id: params?.applicationId }), options);
@@ -5928,19 +6085,23 @@ var FlagsService = class extends ServiceModule {
     );
   }
   async updateSegment(id, data, options) {
-    return this.patch(`/segments/${id}`, data, options);
+    return this.patch(`/segments/${pathSegment(id, "id")}`, data, options);
   }
   async deleteSegment(id, options) {
-    return this.del(`/segments/${id}`, options);
+    return this.del(`/segments/${pathSegment(id, "id")}`, options);
   }
   async listEnvironments(id, options) {
-    return this._get(`/${id}/environments`, options);
+    return this._get(`/${pathSegment(id, "id")}/environments`, options);
   }
   async upsertEnvironment(id, environment, data, options) {
-    return this.put(`/${id}/environments/${encodeURIComponent(environment)}`, data, options);
+    return this.put(
+      `/${pathSegment(id, "id")}/environments/${pathSegment(environment, "environment")}`,
+      data,
+      options
+    );
   }
   async listAudit(id, limit, options) {
-    return this._get(this.withQuery(`/${id}/audit`, { limit }), options);
+    return this._get(this.withQuery(`/${pathSegment(id, "id")}/audit`, { limit }), options);
   }
 };
 
@@ -5957,7 +6118,7 @@ var CommunicationService = class extends ServiceModule {
     return this.post("/email/send", data, options);
   }
   async sendEmailTemplate(template, data, options) {
-    return this.post(`/email/templates/${template}/send`, data, options);
+    return this.post(`/email/templates/${pathSegment(template, "template")}/send`, data, options);
   }
   // --------------------------------------------------------------------------
   // SMS
@@ -5966,7 +6127,7 @@ var CommunicationService = class extends ServiceModule {
     return this.post("/sms/send", data, options);
   }
   async sendSmsTemplate(template, data, options) {
-    return this.post(`/sms/templates/${template}/send`, data, options);
+    return this.post(`/sms/templates/${pathSegment(template, "template")}/send`, data, options);
   }
   // --------------------------------------------------------------------------
   // Push Notifications — Send
@@ -5982,20 +6143,20 @@ var CommunicationService = class extends ServiceModule {
   }
   /** @deprecated Use unregisterPushTokenById() for web push tokens */
   async unregisterPushToken(token, options) {
-    return this.del(`/push/tokens/${token}`, options);
+    return this.del(`/push/tokens/${pathSegment(token, "token")}`, options);
   }
   async unregisterPushTokenById(id, options) {
-    const result = await this.del(`/push/tokens/by-id/${id}`, options);
+    const result = await this.del(`/push/tokens/by-id/${pathSegment(id, "id")}`, options);
     if (result.data && typeof result.data === "object" && !("id" in result.data)) {
       return { data: void 0, error: null };
     }
     return result;
   }
   async associatePushTokenUserById(id, options) {
-    return this.put(`/push/tokens/by-id/${id}/user`, {}, options);
+    return this.put(`/push/tokens/by-id/${pathSegment(id, "id")}/user`, {}, options);
   }
   async disassociatePushTokenUser(id, options) {
-    const result = await this.del(`/push/tokens/by-id/${id}/user`, options);
+    const result = await this.del(`/push/tokens/by-id/${pathSegment(id, "id")}/user`, options);
     if (result.data && typeof result.data === "object" && !("id" in result.data)) {
       return { data: void 0, error: null };
     }
@@ -6014,10 +6175,10 @@ var CommunicationService = class extends ServiceModule {
     return this._get("/push/topics", options);
   }
   async subscribeTopic(topicId, data, options) {
-    return this.post(`/push/topics/${topicId}/subscribe`, data || {}, options);
+    return this.post(`/push/topics/${pathSegment(topicId, "topicId")}/subscribe`, data || {}, options);
   }
   async unsubscribeTopic(topicId, options) {
-    return this.del(`/push/topics/${topicId}/subscribe`, options);
+    return this.del(`/push/topics/${pathSegment(topicId, "topicId")}/subscribe`, options);
   }
   async listSubscriptions(options) {
     return this._get("/push/subscriptions", options);
@@ -6035,7 +6196,7 @@ var CommunicationService = class extends ServiceModule {
   // Message Status
   // --------------------------------------------------------------------------
   async getMessageStatus(id, options) {
-    return this._get(`/messages/${id}`, options);
+    return this._get(`/messages/${pathSegment(id, "id")}`, options);
   }
   // --------------------------------------------------------------------------
   // Legacy methods (backward compat)
@@ -6098,7 +6259,7 @@ var NotificationsService = class extends ServiceModule {
    * Mark a single notification as read.
    */
   async markRead(id, options) {
-    return this.patch(`/${id}/read`, void 0, options);
+    return this.patch(`/${pathSegment(id, "id")}/read`, void 0, options);
   }
   /**
    * Mark all notifications as read.
@@ -6110,7 +6271,7 @@ var NotificationsService = class extends ServiceModule {
    * Dismiss a notification (soft delete).
    */
   async dismiss(id, options) {
-    return this.del(`/${id}`, options);
+    return this.del(`/${pathSegment(id, "id")}`, options);
   }
 };
 
@@ -6420,34 +6581,34 @@ var SchedulerService = class extends ServiceModule {
     return this._list("/jobs", params, requestOptions);
   }
   async getJob(id, options) {
-    return this._get(`/jobs/${id}`, options);
+    return this._get(`/jobs/${pathSegment(id, "id")}`, options);
   }
   async updateJob(id, data, options) {
-    return this.patch(`/jobs/${id}`, data, options);
+    return this.patch(`/jobs/${pathSegment(id, "id")}`, data, options);
   }
   async deleteJob(id, options) {
-    return this.del(`/jobs/${id}`, options);
+    return this.del(`/jobs/${pathSegment(id, "id")}`, options);
   }
   // --------------------------------------------------------------------------
   // Job Control
   // --------------------------------------------------------------------------
   async pauseJob(id, options) {
-    return this.post(`/jobs/${id}/pause`, void 0, options);
+    return this.post(`/jobs/${pathSegment(id, "id")}/pause`, void 0, options);
   }
   async resumeJob(id, options) {
-    return this.post(`/jobs/${id}/resume`, void 0, options);
+    return this.post(`/jobs/${pathSegment(id, "id")}/resume`, void 0, options);
   }
   async runNow(id, options) {
-    return this.post(`/jobs/${id}/run-now`, void 0, options);
+    return this.post(`/jobs/${pathSegment(id, "id")}/run-now`, void 0, options);
   }
   // --------------------------------------------------------------------------
   // Execution History & Stats
   // --------------------------------------------------------------------------
   async getExecutions(jobId, params, requestOptions) {
-    return this._list(`/jobs/${jobId}/executions`, params, requestOptions);
+    return this._list(`/jobs/${pathSegment(jobId, "jobId")}/executions`, params, requestOptions);
   }
   async getStats(jobId, options) {
-    return this._get(`/jobs/${jobId}/stats`, options);
+    return this._get(`/jobs/${pathSegment(jobId, "jobId")}/stats`, options);
   }
 };
 
@@ -6470,7 +6631,7 @@ var DecisionsService = class extends ServiceModule {
    */
   async evaluate(decisionKey, inputs, options, requestOptions) {
     return this.post(
-      `/evaluate/${encodeURIComponent(decisionKey)}`,
+      `/evaluate/${pathSegment(decisionKey, "decisionKey")}`,
       { inputs, options: options ?? {} },
       requestOptions
     );
@@ -6481,12 +6642,12 @@ var DecisionsService = class extends ServiceModule {
   }
   /** Fetch a stored receipt (end users only see their own). */
   async getReceipt(receiptId, requestOptions) {
-    return this._get(`/receipts/${encodeURIComponent(receiptId)}`, requestOptions);
+    return this._get(`/receipts/${pathSegment(receiptId, "receiptId")}`, requestOptions);
   }
   /** Server-side verification of a stored receipt against the receipt ring. */
   async verifyReceipt(receiptId, requestOptions) {
     return this.post(
-      `/receipts/${encodeURIComponent(receiptId)}/verify`,
+      `/receipts/${pathSegment(receiptId, "receiptId")}/verify`,
       void 0,
       requestOptions
     );
@@ -6543,7 +6704,7 @@ var BookingsService = class extends ServiceModule {
     return this.post("/quotes", input, requestOptions);
   }
   async getQuote(quoteId, requestOptions) {
-    return this._get(`/quotes/${encodeURIComponent(quoteId)}`, requestOptions);
+    return this._get(`/quotes/${pathSegment(quoteId, "quoteId")}`, requestOptions);
   }
   /**
    * Accept a quote with a verified deposit receipt. Bookings re-verifies the
@@ -6551,15 +6712,15 @@ var BookingsService = class extends ServiceModule {
    * and deposit on the quote.
    */
   async acceptQuote(quoteId, input, requestOptions) {
-    return this.post(`/quotes/${encodeURIComponent(quoteId)}/accept`, input, requestOptions);
+    return this.post(`/quotes/${pathSegment(quoteId, "quoteId")}/accept`, input, requestOptions);
   }
   async getCustomerStats(customerRef, requestOptions) {
-    return this._get(`/customers/${encodeURIComponent(customerRef)}/stats`, requestOptions);
+    return this._get(`/customers/${pathSegment(customerRef, "customerRef")}/stats`, requestOptions);
   }
   /** Host/admin: mark a booking completed (maintains the customer stats projection). */
   async completeBooking(bookingId, reason, requestOptions) {
     return this.post(
-      `/dashboard/bookings/${encodeURIComponent(bookingId)}/complete`,
+      `/dashboard/bookings/${pathSegment(bookingId, "bookingId")}/complete`,
       { reason },
       requestOptions
     );
@@ -6567,7 +6728,7 @@ var BookingsService = class extends ServiceModule {
   /** Host/admin: mark a booking as a no-show (maintains the customer stats projection). */
   async markNoShow(bookingId, reason, requestOptions) {
     return this.post(
-      `/dashboard/bookings/${encodeURIComponent(bookingId)}/no-show`,
+      `/dashboard/bookings/${pathSegment(bookingId, "bookingId")}/no-show`,
       { reason },
       requestOptions
     );
@@ -6601,10 +6762,14 @@ var PermissionsService = class extends ServiceModule {
     return this._get("/roles", options);
   }
   async assignPermissions(roleId, permissions, options) {
-    return this.post(`/roles/${roleId}/permissions`, { permissions }, options);
+    return this.post(`/roles/${pathSegment(roleId, "roleId")}/permissions`, { permissions }, options);
   }
   async assignRole(userId, roleId, options) {
-    return this.post(`/users/${userId}/roles`, { role_id: roleId }, options);
+    return this.post(
+      `/users/${pathSegment(userId, "userId")}/roles`,
+      { role_id: roleId },
+      options
+    );
   }
   // --------------------------------------------------------------------------
   // Permission Checks (unified — supports both member and user identity types)
@@ -6643,7 +6808,7 @@ var PermissionsService = class extends ServiceModule {
     return this._get(`/matrix?${params.toString()}`, options);
   }
   async getUserPermissions(userId, options) {
-    return this._get(`/users/${userId}/permissions`, options);
+    return this._get(`/users/${pathSegment(userId, "userId")}/permissions`, options);
   }
   // --------------------------------------------------------------------------
   // Policies
@@ -6689,52 +6854,59 @@ var WorkspacesService = class extends ServiceModule {
     return this._list("/mine", params, options);
   }
   async get(id, options) {
-    return this._get(`/${id}`, options);
+    return this._get(`/${pathSegment(id, "id")}`, options);
   }
   async update(id, data, options) {
-    return this.patch(`/${id}`, data, options);
+    return this.patch(`/${pathSegment(id, "id")}`, data, options);
   }
   async delete(id, options) {
-    return this.del(`/${id}`, options);
+    return this.del(`/${pathSegment(id, "id")}`, options);
   }
   // --------------------------------------------------------------------------
   // Members
   // --------------------------------------------------------------------------
   async listMembers(workspaceId, params, requestOptions) {
-    return this._list(`/${workspaceId}/members`, params, requestOptions);
+    return this._list(`/${pathSegment(workspaceId, "workspaceId")}/members`, params, requestOptions);
   }
   async addMember(workspaceId, data, options) {
-    return this.post(`/${workspaceId}/members`, data, options);
+    return this.post(`/${pathSegment(workspaceId, "workspaceId")}/members`, data, options);
   }
   async updateMember(workspaceId, userId, data, options) {
-    return this.patch(`/${workspaceId}/members/${userId}`, data, options);
+    return this.patch(
+      `/${pathSegment(workspaceId, "workspaceId")}/members/${pathSegment(userId, "userId")}`,
+      data,
+      options
+    );
   }
   async removeMember(workspaceId, userId, options) {
-    return this.del(`/${workspaceId}/members/${userId}`, options);
+    return this.del(
+      `/${pathSegment(workspaceId, "workspaceId")}/members/${pathSegment(userId, "userId")}`,
+      options
+    );
   }
   // --------------------------------------------------------------------------
   // Invitations
   // --------------------------------------------------------------------------
   async invite(workspaceId, data, options) {
-    return this.post(`/${workspaceId}/invitations`, data, options);
+    return this.post(`/${pathSegment(workspaceId, "workspaceId")}/invitations`, data, options);
   }
   async listInvitations(workspaceId, options) {
-    return this._get(`/${workspaceId}/invitations`, options);
+    return this._get(`/${pathSegment(workspaceId, "workspaceId")}/invitations`, options);
   }
   async acceptInvitation(token, options) {
-    return this.post(`/invitations/${token}/accept`, void 0, options);
+    return this.post(`/invitations/${pathSegment(token, "token")}/accept`, void 0, options);
   }
   async cancelInvitation(id, options) {
-    return this.del(`/invitations/${id}`, options);
+    return this.del(`/invitations/${pathSegment(id, "id")}`, options);
   }
   // --------------------------------------------------------------------------
   // SSO (workspace-only)
   // --------------------------------------------------------------------------
   async configureSso(workspaceId, data, options) {
-    return this.post(`/${workspaceId}/sso/configure`, data, options);
+    return this.post(`/${pathSegment(workspaceId, "workspaceId")}/sso/configure`, data, options);
   }
   async getSso(workspaceId, options) {
-    return this._get(`/${workspaceId}/sso`, options);
+    return this._get(`/${pathSegment(workspaceId, "workspaceId")}/sso`, options);
   }
 };
 
@@ -6757,43 +6929,50 @@ var TeamsService = class extends ServiceModule {
     return this._list("/mine", params, options);
   }
   async get(id, options) {
-    return this._get(`/${id}`, options);
+    return this._get(`/${pathSegment(id, "id")}`, options);
   }
   async update(id, data, options) {
-    return this.patch(`/${id}`, data, options);
+    return this.patch(`/${pathSegment(id, "id")}`, data, options);
   }
   async delete(id, options) {
-    return this.del(`/${id}`, options);
+    return this.del(`/${pathSegment(id, "id")}`, options);
   }
   // --------------------------------------------------------------------------
   // Members
   // --------------------------------------------------------------------------
   async listMembers(teamId, params, requestOptions) {
-    return this._list(`/${teamId}/members`, params, requestOptions);
+    return this._list(`/${pathSegment(teamId, "teamId")}/members`, params, requestOptions);
   }
   async addMember(teamId, data, options) {
-    return this.post(`/${teamId}/members`, data, options);
+    return this.post(`/${pathSegment(teamId, "teamId")}/members`, data, options);
   }
   async updateMember(teamId, userId, data, options) {
-    return this.patch(`/${teamId}/members/${userId}`, data, options);
+    return this.patch(
+      `/${pathSegment(teamId, "teamId")}/members/${pathSegment(userId, "userId")}`,
+      data,
+      options
+    );
   }
   async removeMember(teamId, userId, options) {
-    return this.del(`/${teamId}/members/${userId}`, options);
+    return this.del(
+      `/${pathSegment(teamId, "teamId")}/members/${pathSegment(userId, "userId")}`,
+      options
+    );
   }
   // --------------------------------------------------------------------------
   // Invitations
   // --------------------------------------------------------------------------
   async invite(teamId, data, options) {
-    return this.post(`/${teamId}/invitations`, data, options);
+    return this.post(`/${pathSegment(teamId, "teamId")}/invitations`, data, options);
   }
   async listInvitations(teamId, options) {
-    return this._get(`/${teamId}/invitations`, options);
+    return this._get(`/${pathSegment(teamId, "teamId")}/invitations`, options);
   }
   async acceptInvitation(token, options) {
-    return this.post(`/invitations/${token}/accept`, void 0, options);
+    return this.post(`/invitations/${pathSegment(token, "token")}/accept`, void 0, options);
   }
   async cancelInvitation(id, options) {
-    return this.del(`/invitations/${id}`, options);
+    return this.del(`/invitations/${pathSegment(id, "id")}`, options);
   }
 };
 
@@ -6807,22 +6986,31 @@ var GraphService = class extends ServiceModule {
     return this.post("/nodes", data, requestOptions);
   }
   async updateNode(nodeId, data, requestOptions) {
-    return this.patch(`/nodes/${nodeId}`, data, requestOptions);
+    return this.patch(`/nodes/${pathSegment(nodeId, "nodeId")}`, data, requestOptions);
   }
   async createEdge(data, requestOptions) {
     return this.post("/edges", data, requestOptions);
   }
   async getEdges(nodeId, options, requestOptions) {
-    return this._get(this.withQuery(`/nodes/${nodeId}/edges`, options), requestOptions);
+    return this._get(
+      this.withQuery(`/nodes/${pathSegment(nodeId, "nodeId")}/edges`, options),
+      requestOptions
+    );
   }
   async traverse(nodeId, options, requestOptions) {
-    return this._get(this.withQuery(`/nodes/${nodeId}/traverse`, options), requestOptions);
+    return this._get(
+      this.withQuery(`/nodes/${pathSegment(nodeId, "nodeId")}/traverse`, options),
+      requestOptions
+    );
   }
   async shortestPath(options, requestOptions) {
     return this.post("/shortest-path", options, requestOptions);
   }
   async neighbors(nodeId, options, requestOptions) {
-    return this._get(this.withQuery(`/nodes/${nodeId}/neighbors`, options), requestOptions);
+    return this._get(
+      this.withQuery(`/nodes/${pathSegment(nodeId, "nodeId")}/neighbors`, options),
+      requestOptions
+    );
   }
   async pageRank(options, requestOptions) {
     return this.post("/algorithms/pagerank", options, requestOptions);
@@ -6848,28 +7036,28 @@ var FunctionsService = class extends ServiceModule {
     return this._get("", options);
   }
   async get(name, options) {
-    return this._get(`/${name}`, options);
+    return this._get(`/${pathSegment(name, "name")}`, options);
   }
   async update(name, data, options) {
-    return this.patch(`/${name}`, data, options);
+    return this.patch(`/${pathSegment(name, "name")}`, data, options);
   }
   async delete(name, options) {
-    return this.del(`/${name}`, options);
+    return this.del(`/${pathSegment(name, "name")}`, options);
   }
   async invoke(name, payload, options) {
-    return this.post(`/${name}/invoke`, payload, options);
+    return this.post(`/${pathSegment(name, "name")}/invoke`, payload, options);
   }
   async invokeAsync(name, payload, options) {
-    return this.post(`/${name}/invoke-async`, payload, options);
+    return this.post(`/${pathSegment(name, "name")}/invoke-async`, payload, options);
   }
   async getLogs(name, options) {
-    return this._get(`/${name}/logs`, options);
+    return this._get(`/${pathSegment(name, "name")}/logs`, options);
   }
   async getExecutions(name, params, requestOptions) {
-    return this._list(`/${name}/executions`, params, requestOptions);
+    return this._list(`/${pathSegment(name, "name")}/executions`, params, requestOptions);
   }
   async getMetrics(name, options) {
-    return this._get(`/${name}/metrics`, options);
+    return this._get(`/${pathSegment(name, "name")}/metrics`, options);
   }
   /** @deprecated Use deploy() instead */
   async deployFunction(data) {
@@ -6891,13 +7079,13 @@ var ListingsService = class extends ServiceModule {
     return this.post("", data, options);
   }
   async get(id, options) {
-    return this._get(`/${id}`, options);
+    return this._get(`/${pathSegment(id, "id")}`, options);
   }
   async update(id, data, options) {
-    return this.patch(`/${id}`, data, options);
+    return this.patch(`/${pathSegment(id, "id")}`, data, options);
   }
   async delete(id, options) {
-    return this.del(`/${id}`, options);
+    return this.del(`/${pathSegment(id, "id")}`, options);
   }
   async search(query, filters, options) {
     return this._get(this.withQuery("/search", { query, ...filters }), options);
@@ -6906,19 +7094,19 @@ var ListingsService = class extends ServiceModule {
     return this._get(this.withQuery("/nearby", nearbyOptions), options);
   }
   async getByCategory(category, params, requestOptions) {
-    return this._list(`/categories/${category}`, params, requestOptions);
+    return this._list(`/categories/${pathSegment(category, "category")}`, params, requestOptions);
   }
   async favorite(listingId, options) {
-    return this.post(`/${listingId}/favorite`, void 0, options);
+    return this.post(`/${pathSegment(listingId, "listingId")}/favorite`, void 0, options);
   }
   async unfavorite(listingId, options) {
-    return this.del(`/${listingId}/favorite`, options);
+    return this.del(`/${pathSegment(listingId, "listingId")}/favorite`, options);
   }
   async getFavorites(params, requestOptions) {
     return this._list("/favorites", params, requestOptions);
   }
   async trackView(listingId, options) {
-    return this.post(`/${listingId}/view`, void 0, options);
+    return this.post(`/${pathSegment(listingId, "listingId")}/view`, void 0, options);
   }
   /** @deprecated Use create() instead */
   async createListing(data) {
@@ -6935,7 +7123,7 @@ var ListingsService = class extends ServiceModule {
 };
 
 // src/services/community-maps.ts
-var segment = (value) => encodeURIComponent(value);
+var segment = (value) => pathSegment(value);
 function devicePositionPayload(p) {
   return {
     latitude: p.latitude,
@@ -6969,7 +7157,7 @@ var CommunityMapsService = class extends ServiceModule {
   }
   listOwnSubmissions(slug, after, options) {
     return this._get(
-      "/collections/" + segment(slug) + "/submissions" + (after ? "?after=" + segment(after) : ""),
+      "/collections/" + segment(slug) + "/submissions" + (after ? "?after=" + encodeURIComponent(after) : ""),
       options
     );
   }
@@ -7162,13 +7350,13 @@ var LocalIntelligenceService = class extends ServiceModule {
     this.basePath = "/v1/news";
   }
   scope(publication) {
-    return `/intelligence/publications/${encodeURIComponent(publication)}`;
+    return `/intelligence/publications/${pathSegment(publication, "publication")}`;
   }
   records(publication, params = {}, options) {
     return this._get(this.withQuery(`${this.scope(publication)}/records`, params), options);
   }
   get(publication, record, options) {
-    return this._get(`${this.scope(publication)}/records/${encodeURIComponent(record)}`, options);
+    return this._get(`${this.scope(publication)}/records/${pathSegment(record, "record")}`, options);
   }
   changes(publication, params = {}, options) {
     return this._get(this.withQuery(`${this.scope(publication)}/changes`, params), options);
@@ -7195,24 +7383,24 @@ var LocalIntelligenceService = class extends ServiceModule {
   }
   feedback(publication, record, recordRevision, outcome, options) {
     return this.post(
-      `${this.scope(publication)}/records/${encodeURIComponent(record)}/feedback`,
+      `${this.scope(publication)}/records/${pathSegment(record, "record")}/feedback`,
       { record_revision: recordRevision, outcome },
       options
     );
   }
   deleteFeedback(publication, record, options) {
-    return this.del(`${this.scope(publication)}/records/${encodeURIComponent(record)}/feedback`, options);
+    return this.del(`${this.scope(publication)}/records/${pathSegment(record, "record")}/feedback`, options);
   }
   /** Requires a human editor with publication publish authority. */
   release(publication, input, idempotencyKey, options) {
-    return this.post(`/publications/${encodeURIComponent(publication)}/intelligence`, input, {
+    return this.post(`/publications/${pathSegment(publication, "publication")}/intelligence`, input, {
       ...options,
       headers: { ...options?.headers, "idempotency-key": idempotencyKey }
     });
   }
   withdraw(publication, record, expectedRevision, reason, options) {
     return this.post(
-      `/publications/${encodeURIComponent(publication)}/intelligence/${encodeURIComponent(record)}/withdraw`,
+      `/publications/${pathSegment(publication, "publication")}/intelligence/${pathSegment(record, "record")}/withdraw`,
       { expected_revision: expectedRevision, reason },
       options
     );
@@ -7259,29 +7447,29 @@ var PollsService = class extends ServiceModule {
     return this._get(this.withQuery("/manage", params), options);
   }
   async get(id, options) {
-    return this._get(`/manage/${encodeURIComponent(id)}`, options);
+    return this._get(`/manage/${pathSegment(id, "id")}`, options);
   }
   async update(id, data, options) {
-    return this.patch(`/manage/${encodeURIComponent(id)}`, data, options);
+    return this.patch(`/manage/${pathSegment(id, "id")}`, data, options);
   }
   async publish(id, options) {
-    return this.post(`/manage/${encodeURIComponent(id)}/publish`, {}, options);
+    return this.post(`/manage/${pathSegment(id, "id")}/publish`, {}, options);
   }
   async close(id, options) {
-    return this.post(`/manage/${encodeURIComponent(id)}/close`, {}, options);
+    return this.post(`/manage/${pathSegment(id, "id")}/close`, {}, options);
   }
   async listPublic(params, options) {
     return this._get(this.withQuery("/public", params), options);
   }
   async getPublic(slug, params, options) {
     return this._get(
-      this.withQuery(`/public/${encodeURIComponent(slug)}`, params),
+      this.withQuery(`/public/${pathSegment(slug, "slug")}`, params),
       options
     );
   }
   async vote(slug, choiceId, voterKey, options) {
     return this.post(
-      `/public/${encodeURIComponent(slug)}/votes`,
+      `/public/${pathSegment(slug, "slug")}/votes`,
       {
         choice_id: choiceId,
         voter_key: voterKey
@@ -7322,28 +7510,28 @@ var EventsService = class extends ServiceModule {
     return this.post("", data, options);
   }
   async get(eventId, options) {
-    return this._get(`/${eventId}`, options);
+    return this._get(`/${pathSegment(eventId, "eventId")}`, options);
   }
   async update(eventId, data, options) {
-    return this.patch(`/${eventId}`, data, options);
+    return this.patch(`/${pathSegment(eventId, "eventId")}`, data, options);
   }
   async delete(eventId, options) {
-    return this.del(`/${eventId}`, options);
+    return this.del(`/${pathSegment(eventId, "eventId")}`, options);
   }
   async list(filters, requestOptions) {
     return this._list("", filters, requestOptions);
   }
   async register(eventId, options) {
-    return this.post(`/${eventId}/register`, void 0, options);
+    return this.post(`/${pathSegment(eventId, "eventId")}/register`, void 0, options);
   }
   async unregister(eventId, options) {
-    return this.del(`/${eventId}/register`, options);
+    return this.del(`/${pathSegment(eventId, "eventId")}/register`, options);
   }
   async getAttendees(eventId, params, requestOptions) {
-    return this._list(`/${eventId}/attendees`, params, requestOptions);
+    return this._list(`/${pathSegment(eventId, "eventId")}/attendees`, params, requestOptions);
   }
   async checkIn(eventId, options) {
-    return this.post(`/${eventId}/check-in`, void 0, options);
+    return this.post(`/${pathSegment(eventId, "eventId")}/check-in`, void 0, options);
   }
   /** @deprecated Use create() instead */
   async createEvent(data) {
@@ -7365,22 +7553,38 @@ var LeaderboardService = class extends ServiceModule {
     return this.post("", data, options);
   }
   async submitScore(boardId, data, options) {
-    return this.post(`/${boardId}/scores`, data, options);
+    return this.post(`/${pathSegment(boardId, "boardId")}/scores`, data, options);
   }
   async getRankings(boardId, rankingOptions, requestOptions) {
-    return this._get(this.withQuery(`/${boardId}/rankings`, rankingOptions), requestOptions);
+    return this._get(
+      this.withQuery(`/${pathSegment(boardId, "boardId")}/rankings`, rankingOptions),
+      requestOptions
+    );
   }
   async getUserRank(boardId, userId, options) {
-    return this._get(`/${boardId}/users/${userId}/rank`, options);
+    return this._get(
+      `/${pathSegment(boardId, "boardId")}/users/${pathSegment(userId, "userId")}/rank`,
+      options
+    );
   }
   async getUserHistory(boardId, userId, options) {
-    return this._get(`/${boardId}/users/${userId}/history`, options);
+    return this._get(
+      `/${pathSegment(boardId, "boardId")}/users/${pathSegment(userId, "userId")}/history`,
+      options
+    );
   }
   async updateScore(boardId, userId, data, options) {
-    return this.patch(`/${boardId}/users/${userId}/score`, data, options);
+    return this.patch(
+      `/${pathSegment(boardId, "boardId")}/users/${pathSegment(userId, "userId")}/score`,
+      data,
+      options
+    );
   }
   async deleteScore(boardId, userId, options) {
-    return this.del(`/${boardId}/users/${userId}/score`, options);
+    return this.del(
+      `/${pathSegment(boardId, "boardId")}/users/${pathSegment(userId, "userId")}/score`,
+      options
+    );
   }
 };
 
@@ -7397,13 +7601,13 @@ var WebhooksService = class extends ServiceModule {
     return this._get("", options);
   }
   async get(id, options) {
-    return this._get(`/${id}`, options);
+    return this._get(`/${pathSegment(id, "id")}`, options);
   }
   async update(id, data, options) {
-    return this.patch(`/${id}`, data, options);
+    return this.patch(`/${pathSegment(id, "id")}`, data, options);
   }
   async delete(id, options) {
-    return this.del(`/${id}`, options);
+    return this.del(`/${pathSegment(id, "id")}`, options);
   }
   async listEvents(options) {
     return this._get("/events", options);
@@ -7435,7 +7639,7 @@ var NewslettersService = class extends ServiceModule {
   /** Signs a reader up. Call from the reader's browser so their own evidence is recorded. */
   async subscribe(slug, input, options) {
     return this.post(
-      `/lists/${encodeURIComponent(slug)}/subscriptions`,
+      `/lists/${pathSegment(slug, "slug")}/subscriptions`,
       { channel: "email", ...input },
       { skipRetry: true, ...options }
     );
@@ -7481,7 +7685,10 @@ var SearchService = class extends ServiceModule {
     return this.post("/documents", { index: indexName, ...document2 }, options);
   }
   async removeDocument(indexName, docId, options) {
-    return this.del(`/documents/${indexName}/${docId}`, options);
+    return this.del(
+      `/documents/${pathSegment(indexName, "indexName")}/${pathSegment(docId, "docId")}`,
+      options
+    );
   }
   /** @deprecated Use query() instead */
   async search(queryStr, options) {
@@ -7516,22 +7723,22 @@ var PhotoService = class extends ServiceModule {
     });
   }
   async transform(photoId, transformations, options) {
-    return this.post(`/${photoId}/transform`, transformations, options);
+    return this.post(`/${pathSegment(photoId, "photoId")}/transform`, transformations, options);
   }
   async get(id, options) {
-    return this._get(`/${id}`, options);
+    return this._get(`/${pathSegment(id, "id")}`, options);
   }
   async delete(id, options) {
-    return this.del(`/${id}`, options);
+    return this.del(`/${pathSegment(id, "id")}`, options);
   }
   async getPresets(options) {
     return this._get("/presets", options);
   }
   async getManifest(id, params, options) {
-    return this._get(this.withQuery(`/${id}/manifest`, params), options);
+    return this._get(this.withQuery(`/${pathSegment(id, "id")}/manifest`, params), options);
   }
   async getPublicManifest(id, params, options) {
-    return this._get(this.withQuery(`/public/${id}/manifest`, params), options);
+    return this._get(this.withQuery(`/public/${pathSegment(id, "id")}/manifest`, params), options);
   }
   /**
    * Build an absolute URL for the on-demand transform endpoint.
@@ -7548,7 +7755,7 @@ var PhotoService = class extends ServiceModule {
     if (options?.format) params.set("format", options.format);
     if (options?.quality) params.set("quality", String(options.quality));
     const qs = params.toString();
-    return `${this.client.getBaseUrl()}${this.basePath}/${photoId}/transform${qs ? `?${qs}` : ""}`;
+    return `${this.client.getBaseUrl()}${this.basePath}/${pathSegment(photoId, "photoId")}/transform${qs ? `?${qs}` : ""}`;
   }
   /**
    * Build an absolute URL for the **public** transform endpoint —
@@ -7583,7 +7790,7 @@ var PhotoService = class extends ServiceModule {
     if (options?.format) params.set("format", options.format);
     if (options?.quality) params.set("quality", String(options.quality));
     const qs = params.toString();
-    return `${this.client.getBaseUrl()}${this.basePath}/public/${photoId}/transform${qs ? `?${qs}` : ""}`;
+    return `${this.client.getBaseUrl()}${this.basePath}/public/${pathSegment(photoId, "photoId")}/transform${qs ? `?${qs}` : ""}`;
   }
   /**
    * Get a transform URL optimized for the given display area.
@@ -7982,7 +8189,7 @@ var MediaService = class extends ServiceModule {
   }
   async releaseQuarantine(fileId, reason = "Released via @scalemule/sdk media.releaseQuarantine()", options) {
     const response = await this.client.post(
-      `/v1/storage/admin/files/${fileId}/scan-override`,
+      `/v1/storage/admin/files/${pathSegment(fileId, "fileId")}/scan-override`,
       { scan_status: "clean", reason },
       options
     );
@@ -8460,7 +8667,7 @@ var TtsService = class extends ServiceModule {
     );
   }
   async getJob(id, options) {
-    return this._get(`/jobs/${id}`, options);
+    return this._get(`/jobs/${pathSegment(id, "id")}`, options);
   }
   async listVoices(params, options) {
     return this._get(this.withQuery("/voices", { provider: params?.provider }), options);
@@ -8477,13 +8684,13 @@ var DeadLetterApi = class extends ServiceModule {
     return this._get("", options);
   }
   async get(id, options) {
-    return this._get(`/${id}`, options);
+    return this._get(`/${pathSegment(id, "id")}`, options);
   }
   async retry(id, options) {
-    return this.post(`/${id}/retry`, void 0, options);
+    return this.post(`/${pathSegment(id, "id")}/retry`, void 0, options);
   }
   async delete(id, options) {
-    return this.del(`/${id}`, options);
+    return this.del(`/${pathSegment(id, "id")}`, options);
   }
 };
 var QueueService = class extends ServiceModule {
@@ -8496,7 +8703,7 @@ var QueueService = class extends ServiceModule {
     return this.post("/jobs", data, options);
   }
   async getJob(id, options) {
-    return this._get(`/jobs/${id}`, options);
+    return this._get(`/jobs/${pathSegment(id, "id")}`, options);
   }
 };
 
@@ -8507,13 +8714,13 @@ var CacheService = class extends ServiceModule {
     this.basePath = "/v1/cache";
   }
   async get(key, options) {
-    return this._get(`/${key}`, options);
+    return this._get(`/${pathSegment(key, "key")}`, options);
   }
   async set(key, value, ttl, options) {
     return this.post("", { key, value, ttl }, options);
   }
   async delete(key, options) {
-    return this.del(`/${key}`, options);
+    return this.del(`/${pathSegment(key, "key")}`, options);
   }
   async flush(options) {
     return this.del("", options);
@@ -8565,10 +8772,10 @@ var ComplianceService = class extends ServiceModule {
     return this.post("/consent/v2", data, options);
   }
   async getUserConsents(userId, options) {
-    return this._get(`/consent/v2/${userId}`, options);
+    return this._get(`/consent/v2/${pathSegment(userId, "userId")}`, options);
   }
   async withdrawConsent(consentId, data, options) {
-    return this.put(`/consent/v2/${consentId}/withdraw`, data || {}, options);
+    return this.put(`/consent/v2/${pathSegment(consentId, "consentId")}/withdraw`, data || {}, options);
   }
   // --- Data Subject Requests ---
   async createDataSubjectRequest(data, options) {
@@ -8578,16 +8785,16 @@ var ComplianceService = class extends ServiceModule {
     return this._get(`/dsr${this.qs(params)}`, requestOptions);
   }
   async getDataSubjectRequest(id, options) {
-    return this._get(`/dsr/${id}`, options);
+    return this._get(`/dsr/${pathSegment(id, "id")}`, options);
   }
   async updateDsrStatus(id, data, options) {
-    return this.put(`/dsr/${id}/status`, data, options);
+    return this.put(`/dsr/${pathSegment(id, "id")}/status`, data, options);
   }
   async createDsrAction(dsrId, data, options) {
-    return this.post(`/dsr/${dsrId}/actions`, data, options);
+    return this.post(`/dsr/${pathSegment(dsrId, "dsrId")}/actions`, data, options);
   }
   async listDsrActions(dsrId, options) {
-    return this._get(`/dsr/${dsrId}/actions`, options);
+    return this._get(`/dsr/${pathSegment(dsrId, "dsrId")}/actions`, options);
   }
   // --- Data Breaches ---
   async reportBreach(data, options) {
@@ -8597,10 +8804,10 @@ var ComplianceService = class extends ServiceModule {
     return this._get(`/breaches${this.qs(params)}`, requestOptions);
   }
   async getBreach(id, options) {
-    return this._get(`/breaches/${id}`, options);
+    return this._get(`/breaches/${pathSegment(id, "id")}`, options);
   }
   async updateBreach(id, data, options) {
-    return this.put(`/breaches/${id}`, data, options);
+    return this.put(`/breaches/${pathSegment(id, "id")}`, data, options);
   }
   // --- Retention Policies ---
   async listRetentionPolicies(options) {
@@ -8617,10 +8824,10 @@ var ComplianceService = class extends ServiceModule {
     return this._get(`/processing-activities${this.qs(params)}`, requestOptions);
   }
   async getProcessingActivity(id, options) {
-    return this._get(`/processing-activities/${id}`, options);
+    return this._get(`/processing-activities/${pathSegment(id, "id")}`, options);
   }
   async updateProcessingActivity(id, data, options) {
-    return this.put(`/processing-activities/${id}`, data, options);
+    return this.put(`/processing-activities/${pathSegment(id, "id")}`, data, options);
   }
 };
 
@@ -8634,10 +8841,10 @@ var OrchestratorService = class extends ServiceModule {
     return this.post("/workflows", data, options);
   }
   async execute(workflowId, input, options) {
-    return this.post(`/workflows/${workflowId}/execute`, input, options);
+    return this.post(`/workflows/${pathSegment(workflowId, "workflowId")}/execute`, input, options);
   }
   async getExecution(executionId, options) {
-    return this._get(`/executions/${executionId}`, options);
+    return this._get(`/executions/${pathSegment(executionId, "executionId")}`, options);
   }
   /** @deprecated Use execute() instead */
   async executeWorkflow(workflowId, input) {
@@ -8678,7 +8885,7 @@ var IdentityService = class extends ServiceModule {
     return this._get("/api-keys", options);
   }
   async revokeApiKey(id, options) {
-    return this.del(`/api-keys/${id}`, options);
+    return this.del(`/api-keys/${pathSegment(id, "id")}`, options);
   }
   /**
    * Explicitly link an anonymous_id to the current authenticated user.
@@ -8704,7 +8911,7 @@ var CatalogService = class extends ServiceModule {
     return this._get("/services", options);
   }
   async getServiceHealth(name, options) {
-    return this._get(`/services/${name}/health`, options);
+    return this._get(`/services/${pathSegment(name, "name")}/health`, options);
   }
 };
 
@@ -8721,13 +8928,13 @@ var FlagContentService = class extends ServiceModule {
     return this._get(this.withQuery("/flags/check", params), requestOptions);
   }
   async getFlag(id, options) {
-    return this._get(`/flags/${id}`, options);
+    return this._get(`/flags/${pathSegment(id, "id")}`, options);
   }
   async submitAppeal(data, options) {
     return this.post("/appeals", data, options);
   }
   async getAppeal(id, options) {
-    return this._get(`/appeals/${id}`, options);
+    return this._get(`/appeals/${pathSegment(id, "id")}`, options);
   }
 };
 
@@ -8743,11 +8950,11 @@ var CreatorMakerService = class extends ServiceModule {
   }
   /** Get a generation job by ID. */
   async getJob(jobId, options) {
-    return this._get(`/jobs/${jobId}`, options);
+    return this._get(`/jobs/${pathSegment(jobId, "jobId")}`, options);
   }
   /** Long-poll for job completion (server holds up to 30s). */
   async pollJob(jobId, options) {
-    return this._get(`/jobs/${jobId}/poll`, {
+    return this._get(`/jobs/${pathSegment(jobId, "jobId")}/poll`, {
       ...options,
       timeout: 35e3
     });
@@ -8758,15 +8965,15 @@ var CreatorMakerService = class extends ServiceModule {
   }
   /** Cancel a pending or queued job. */
   async cancelJob(jobId, options) {
-    return this.post(`/jobs/${jobId}/cancel`, void 0, options);
+    return this.post(`/jobs/${pathSegment(jobId, "jobId")}/cancel`, void 0, options);
   }
   /** Retry a failed job. */
   async retryJob(jobId, options) {
-    return this.post(`/jobs/${jobId}/retry`, void 0, options);
+    return this.post(`/jobs/${pathSegment(jobId, "jobId")}/retry`, void 0, options);
   }
   /** Generate variations of a completed job. */
   async generateVariations(jobId, options) {
-    return this.post(`/jobs/${jobId}/variations`, void 0, options);
+    return this.post(`/jobs/${pathSegment(jobId, "jobId")}/variations`, void 0, options);
   }
   /** List available style presets, optionally filtered by mode. */
   async listPresets(params, options) {
@@ -8774,7 +8981,7 @@ var CreatorMakerService = class extends ServiceModule {
   }
   /** Get a style preset by slug. */
   async getPreset(slug, options) {
-    return this._get(`/presets/${slug}`, options);
+    return this._get(`/presets/${pathSegment(slug, "slug")}`, options);
   }
   /** Create a project. */
   async createProject(data, options) {
@@ -8790,11 +8997,11 @@ var CreatorMakerService = class extends ServiceModule {
   }
   /** Get a generation output by ID. */
   async getOutput(outputId, options) {
-    return this._get(`/outputs/${outputId}`, options);
+    return this._get(`/outputs/${pathSegment(outputId, "outputId")}`, options);
   }
   /** Get a download URL for a generation output. */
   async getDownloadUrl(outputId, options) {
-    return this._get(`/outputs/${outputId}/download`, options);
+    return this._get(`/outputs/${pathSegment(outputId, "outputId")}/download`, options);
   }
 };
 
@@ -8814,10 +9021,10 @@ var AgentAuthService = class extends ServiceModule {
     return this.post("/agent-tokens", data, options);
   }
   async revokeToken(id, options) {
-    return this.del(`/agent-tokens/${id}`, options);
+    return this.del(`/agent-tokens/${pathSegment(id, "id")}`, options);
   }
   async rotateToken(id, options) {
-    return this.post(`/agent-tokens/${id}/rotate`, void 0, options);
+    return this.post(`/agent-tokens/${pathSegment(id, "id")}/rotate`, void 0, options);
   }
   async exchangeToken(data, options) {
     return this.post("/agent-tokens/exchange", data, options);
@@ -8829,7 +9036,7 @@ var AgentAuthService = class extends ServiceModule {
     return this.post("/agent-signing-keys", data, options);
   }
   async revokeSigningKey(id, options) {
-    return this.del(`/agent-signing-keys/${id}`, options);
+    return this.del(`/agent-signing-keys/${pathSegment(id, "id")}`, options);
   }
   async getProfile(options) {
     return this._get("/agent-profile", options);
@@ -8838,10 +9045,10 @@ var AgentAuthService = class extends ServiceModule {
     return this.patch("/agent-profile", data, options);
   }
   async getSecurityPolicy(appId, options) {
-    return this._get(`/applications/${appId}/agent-security`, options);
+    return this._get(`/applications/${pathSegment(appId, "appId")}/agent-security`, options);
   }
   async updateSecurityPolicy(appId, data, options) {
-    return this.put(`/applications/${appId}/agent-security`, data, options);
+    return this.put(`/applications/${pathSegment(appId, "appId")}/agent-security`, data, options);
   }
 };
 
@@ -8856,7 +9063,7 @@ var AgentsService = class extends ServiceModule {
     return this.post("/register-agent", data, options);
   }
   async deactivateAgent(id, options) {
-    return this.post(`/agents/${id}/deactivate`, void 0, options);
+    return this.post(`/agents/${pathSegment(id, "id")}/deactivate`, void 0, options);
   }
   // Agent CRUD
   async create(data, options) {
@@ -8866,16 +9073,16 @@ var AgentsService = class extends ServiceModule {
     return this._list("/agents", params, options);
   }
   async get(id, options) {
-    return this._get(`/agents/${id}`, options);
+    return this._get(`/agents/${pathSegment(id, "id")}`, options);
   }
   async update(id, data, options) {
-    return this.patch(`/agents/${id}`, data, options);
+    return this.patch(`/agents/${pathSegment(id, "id")}`, data, options);
   }
   async remove(id, options) {
-    return this.del(`/agents/${id}`, options);
+    return this.del(`/agents/${pathSegment(id, "id")}`, options);
   }
   async setDefaultWorkspace(id, data, options) {
-    return this.post(`/agents/${id}/set-default-workspace`, data, options);
+    return this.post(`/agents/${pathSegment(id, "id")}/set-default-workspace`, data, options);
   }
   // Runtime Templates
   async createTemplate(data, options) {
@@ -8886,15 +9093,15 @@ var AgentsService = class extends ServiceModule {
   }
   async getTemplate(id, options) {
     return this._get(
-      `/runtime-templates/${id}`,
+      `/runtime-templates/${pathSegment(id, "id")}`,
       options
     );
   }
   async createTemplateVersion(id, data, options) {
-    return this.post(`/runtime-templates/${id}/versions`, data, options);
+    return this.post(`/runtime-templates/${pathSegment(id, "id")}/versions`, data, options);
   }
   async listTemplateVersions(id, options) {
-    return this._get(`/runtime-templates/${id}/versions`, options);
+    return this._get(`/runtime-templates/${pathSegment(id, "id")}/versions`, options);
   }
   // Workspaces
   async createWorkspace(data, options) {
@@ -8904,13 +9111,13 @@ var AgentsService = class extends ServiceModule {
     return this._list("/workspaces", params, options);
   }
   async getWorkspace(id, options) {
-    return this._get(`/workspaces/${id}`, options);
+    return this._get(`/workspaces/${pathSegment(id, "id")}`, options);
   }
   async updateWorkspace(id, data, options) {
-    return this.patch(`/workspaces/${id}`, data, options);
+    return this.patch(`/workspaces/${pathSegment(id, "id")}`, data, options);
   }
   async addOsAccount(workspaceId, data, options) {
-    return this.post(`/workspaces/${workspaceId}/os-accounts`, data, options);
+    return this.post(`/workspaces/${pathSegment(workspaceId, "workspaceId")}/os-accounts`, data, options);
   }
 };
 
@@ -8931,49 +9138,66 @@ var AgentProjectsService = class extends ServiceModule {
     return this._list("/projects", params, options);
   }
   async getProject(id, applicationId, options) {
-    return this._get(this.withAppId(`/projects/${id}`, applicationId), options);
+    return this._get(this.withAppId(`/projects/${pathSegment(id, "id")}`, applicationId), options);
   }
   async updateProject(id, data, applicationId, options) {
-    return this.patch(this.withAppId(`/projects/${id}`, applicationId), data, options);
+    return this.patch(this.withAppId(`/projects/${pathSegment(id, "id")}`, applicationId), data, options);
   }
   // Members (use auth user_id)
   async addMember(projectId, data, applicationId, options) {
-    return this.post(this.withAppId(`/projects/${projectId}/members`, applicationId), data, options);
+    return this.post(
+      this.withAppId(`/projects/${pathSegment(projectId, "projectId")}/members`, applicationId),
+      data,
+      options
+    );
   }
   async listMembers(projectId, params, options) {
     const qs = {};
     if (params?.application_id) qs.application_id = params.application_id;
     if (params?.hydrate) qs.hydrate = "true";
-    const path = Object.keys(qs).length ? this.withQuery(`/projects/${projectId}/members`, qs) : `/projects/${projectId}/members`;
+    const path = Object.keys(qs).length ? this.withQuery(`/projects/${pathSegment(projectId, "projectId")}/members`, qs) : `/projects/${pathSegment(projectId, "projectId")}/members`;
     const result = await this._get(path, options);
     return { data: result.data?.members ?? [], error: result.error };
   }
   async updateMember(projectId, userId, data, applicationId, options) {
     return this.patch(
-      this.withAppId(`/projects/${projectId}/members/${userId}`, applicationId),
+      this.withAppId(
+        `/projects/${pathSegment(projectId, "projectId")}/members/${pathSegment(userId, "userId")}`,
+        applicationId
+      ),
       data,
       options
     );
   }
   async removeMember(projectId, userId, applicationId, options) {
-    return this.del(this.withAppId(`/projects/${projectId}/members/${userId}`, applicationId), options);
+    return this.del(
+      this.withAppId(
+        `/projects/${pathSegment(projectId, "projectId")}/members/${pathSegment(userId, "userId")}`,
+        applicationId
+      ),
+      options
+    );
   }
   // Tasks
   async createTask(projectId, data, applicationId, options) {
-    return this.post(this.withAppId(`/projects/${projectId}/tasks`, applicationId), data, options);
+    return this.post(
+      this.withAppId(`/projects/${pathSegment(projectId, "projectId")}/tasks`, applicationId),
+      data,
+      options
+    );
   }
   async listTasks(projectId, params, options) {
-    return this._list(`/projects/${projectId}/tasks`, params, options);
+    return this._list(`/projects/${pathSegment(projectId, "projectId")}/tasks`, params, options);
   }
   async getTask(id, applicationId, options) {
-    return this._get(this.withAppId(`/tasks/${id}`, applicationId), options);
+    return this._get(this.withAppId(`/tasks/${pathSegment(id, "id")}`, applicationId), options);
   }
   async updateTask(id, data, applicationId, options) {
-    return this.patch(this.withAppId(`/tasks/${id}`, applicationId), data, options);
+    return this.patch(this.withAppId(`/tasks/${pathSegment(id, "id")}`, applicationId), data, options);
   }
   async reorderTasks(projectId, taskIds, applicationId, options) {
     return this.post(
-      this.withAppId(`/projects/${projectId}/tasks/reorder`, applicationId),
+      this.withAppId(`/projects/${pathSegment(projectId, "projectId")}/tasks/reorder`, applicationId),
       { task_ids: taskIds },
       options
     );
@@ -8992,88 +9216,113 @@ var AgentProjectsService = class extends ServiceModule {
   }
   async claim(taskId, agentId, applicationId, options) {
     return this.post(
-      this.withAppId(`/tasks/${taskId}/claim`, applicationId),
+      this.withAppId(`/tasks/${pathSegment(taskId, "taskId")}/claim`, applicationId),
       { agent_id: agentId },
       options
     );
   }
   async heartbeat(taskId, agentId, applicationId, options) {
     return this.post(
-      this.withAppId(`/tasks/${taskId}/heartbeat`, applicationId),
+      this.withAppId(`/tasks/${pathSegment(taskId, "taskId")}/heartbeat`, applicationId),
       { agent_id: agentId },
       options
     );
   }
   async startTask(taskId, agentId, applicationId, options) {
     return this.post(
-      this.withAppId(`/tasks/${taskId}/start`, applicationId),
+      this.withAppId(`/tasks/${pathSegment(taskId, "taskId")}/start`, applicationId),
       { agent_id: agentId },
       options
     );
   }
   async submit(taskId, data, applicationId, options) {
-    return this.post(this.withAppId(`/tasks/${taskId}/submit`, applicationId), data, options);
+    return this.post(
+      this.withAppId(`/tasks/${pathSegment(taskId, "taskId")}/submit`, applicationId),
+      data,
+      options
+    );
   }
   async block(taskId, data, applicationId, options) {
-    return this.post(this.withAppId(`/tasks/${taskId}/block`, applicationId), data, options);
+    return this.post(
+      this.withAppId(`/tasks/${pathSegment(taskId, "taskId")}/block`, applicationId),
+      data,
+      options
+    );
   }
   // Assignment
   async assignAgent(taskId, data, applicationId, options) {
-    return this.post(this.withAppId(`/tasks/${taskId}/assign`, applicationId), data, options);
+    return this.post(this.withAppId(`/tasks/${pathSegment(taskId, "taskId")}/assign`, applicationId), data, options);
   }
   async unassignAgent(taskId, agentId, applicationId, options) {
-    return this.del(this.withAppId(`/tasks/${taskId}/assign/${agentId}`, applicationId), options);
+    return this.del(
+      this.withAppId(
+        `/tasks/${pathSegment(taskId, "taskId")}/assign/${pathSegment(agentId, "agentId")}`,
+        applicationId
+      ),
+      options
+    );
   }
   // History
   async listAttempts(taskId, applicationId, options) {
     const result = await this._get(
-      this.withAppId(`/tasks/${taskId}/attempts`, applicationId),
+      this.withAppId(`/tasks/${pathSegment(taskId, "taskId")}/attempts`, applicationId),
       options
     );
     return { data: result.data?.attempts ?? [], error: result.error };
   }
   async listTransitions(taskId, applicationId, options) {
     const result = await this._get(
-      this.withAppId(`/tasks/${taskId}/transitions`, applicationId),
+      this.withAppId(`/tasks/${pathSegment(taskId, "taskId")}/transitions`, applicationId),
       options
     );
     return { data: result.data?.transitions ?? [], error: result.error };
   }
   // Documents
   async createDocument(projectId, data, applicationId, options) {
-    return this.post(this.withAppId(`/projects/${projectId}/documents`, applicationId), data, options);
+    return this.post(
+      this.withAppId(`/projects/${pathSegment(projectId, "projectId")}/documents`, applicationId),
+      data,
+      options
+    );
   }
   async listDocuments(projectId, applicationId, options) {
     const result = await this._get(
-      this.withAppId(`/projects/${projectId}/documents`, applicationId),
+      this.withAppId(`/projects/${pathSegment(projectId, "projectId")}/documents`, applicationId),
       options
     );
     return { data: result.data?.documents ?? [], error: result.error };
   }
   async deleteDocument(documentId, applicationId, options) {
-    return this.del(this.withAppId(`/documents/${documentId}`, applicationId), options);
+    return this.del(
+      this.withAppId(`/documents/${pathSegment(documentId, "documentId")}`, applicationId),
+      options
+    );
   }
   // Pipelines
   async createPipeline(projectId, data, applicationId, options) {
-    return this.post(this.withAppId(`/projects/${projectId}/pipelines`, applicationId), data, options);
+    return this.post(
+      this.withAppId(`/projects/${pathSegment(projectId, "projectId")}/pipelines`, applicationId),
+      data,
+      options
+    );
   }
   async listPipelines(projectId, applicationId, options) {
     const result = await this._get(
-      this.withAppId(`/projects/${projectId}/pipelines`, applicationId),
+      this.withAppId(`/projects/${pathSegment(projectId, "projectId")}/pipelines`, applicationId),
       options
     );
     return { data: result.data?.pipelines ?? [], error: result.error };
   }
   async createPipelineVersion(pipelineId, data, applicationId, options) {
     return this.post(
-      this.withAppId(`/pipelines/${pipelineId}/versions`, applicationId),
+      this.withAppId(`/pipelines/${pathSegment(pipelineId, "pipelineId")}/versions`, applicationId),
       data,
       options
     );
   }
   async listPipelineVersions(pipelineId, applicationId, options) {
     const result = await this._get(
-      this.withAppId(`/pipelines/${pipelineId}/versions`, applicationId),
+      this.withAppId(`/pipelines/${pathSegment(pipelineId, "pipelineId")}/versions`, applicationId),
       options
     );
     return { data: result.data?.versions ?? [], error: result.error };
@@ -9092,20 +9341,20 @@ var AgentProjectsService = class extends ServiceModule {
     return { data: result.data?.grants ?? result.data ?? [], error: result.error };
   }
   async getGrant(id, options) {
-    return this._get(`/project-grants/${id}`, options);
+    return this._get(`/project-grants/${pathSegment(id, "id")}`, options);
   }
   /** Public endpoint — no auth required. Returns masked email + project name. */
   async getGrantInfo(id, options) {
-    return this._get(`/project-grants/${id}/info`, { skipAuth: true, ...options });
+    return this._get(`/project-grants/${pathSegment(id, "id")}/info`, { skipAuth: true, ...options });
   }
   async revokeGrant(id, options) {
-    return this.del(`/project-grants/${id}`, options);
+    return this.del(`/project-grants/${pathSegment(id, "id")}`, options);
   }
   async resendGrantInvitation(id, data, options) {
-    return this.post(`/project-grants/${id}/resend`, data, options);
+    return this.post(`/project-grants/${pathSegment(id, "id")}/resend`, data, options);
   }
   async redeemGrant(id, options) {
-    return this.post(`/project-grants/${id}/redeem`, void 0, options);
+    return this.post(`/project-grants/${pathSegment(id, "id")}/redeem`, void 0, options);
   }
 };
 
@@ -9123,13 +9372,13 @@ var AgentToolsService = class extends ServiceModule {
     return this._list("/tools", params, options);
   }
   async getTool(id, options) {
-    return this._get(`/tools/${id}`, options);
+    return this._get(`/tools/${pathSegment(id, "id")}`, options);
   }
   async createCapability(toolId, data, options) {
-    return this.post(`/tools/${toolId}/capabilities`, data, options);
+    return this.post(`/tools/${pathSegment(toolId, "toolId")}/capabilities`, data, options);
   }
   async listCapabilities(toolId, options) {
-    return this._get(`/tools/${toolId}/capabilities`, options);
+    return this._get(`/tools/${pathSegment(toolId, "toolId")}/capabilities`, options);
   }
   // Tool Integrations
   async createIntegration(data, options) {
@@ -9139,7 +9388,7 @@ var AgentToolsService = class extends ServiceModule {
     return this._list("/tool-integrations", params, options);
   }
   async updateIntegration(id, data, options) {
-    return this.patch(`/tool-integrations/${id}`, data, options);
+    return this.patch(`/tool-integrations/${pathSegment(id, "id")}`, data, options);
   }
   // Credentials
   async createCredential(data, options) {
@@ -9149,13 +9398,17 @@ var AgentToolsService = class extends ServiceModule {
     return this._list("/credentials", params, options);
   }
   async updateCredential(id, data, options) {
-    return this.patch(`/credentials/${id}`, data, options);
+    return this.patch(`/credentials/${pathSegment(id, "id")}`, data, options);
   }
   async createScope(credentialId, data, options) {
-    return this.post(`/credentials/${credentialId}/scopes`, data, options);
+    return this.post(
+      `/credentials/${pathSegment(credentialId, "credentialId")}/scopes`,
+      data,
+      options
+    );
   }
   async listScopes(credentialId, options) {
-    return this._get(`/credentials/${credentialId}/scopes`, options);
+    return this._get(`/credentials/${pathSegment(credentialId, "credentialId")}/scopes`, options);
   }
   // Entitlements
   async grantEntitlement(data, options) {
@@ -9165,7 +9418,7 @@ var AgentToolsService = class extends ServiceModule {
     return this._list("/agent-tool-entitlements", params, options);
   }
   async revokeEntitlement(id, options) {
-    return this.del(`/agent-tool-entitlements/${id}`, options);
+    return this.del(`/agent-tool-entitlements/${pathSegment(id, "id")}`, options);
   }
   async authorizeAction(data, options) {
     return this.post("/authorize-action", data, options);
@@ -9207,13 +9460,13 @@ var AgentModelsService = class extends ServiceModule {
     return this._list("/models", params, options);
   }
   async getModel(id, options) {
-    return this._get(`/models/${id}`, options);
+    return this._get(`/models/${pathSegment(id, "id")}`, options);
   }
   async createPricing(modelId, data, options) {
-    return this.post(`/models/${modelId}/pricing`, data, options);
+    return this.post(`/models/${pathSegment(modelId, "modelId")}/pricing`, data, options);
   }
   async listPricing(modelId, options) {
-    return this._get(`/models/${modelId}/pricing`, options);
+    return this._get(`/models/${pathSegment(modelId, "modelId")}/pricing`, options);
   }
   // Entitlements
   async createEntitlement(data, options) {
@@ -9223,7 +9476,7 @@ var AgentModelsService = class extends ServiceModule {
     return this._list("/model-entitlements", params, options);
   }
   async deleteEntitlement(id, options) {
-    return this.del(`/model-entitlements/${id}`, options);
+    return this.del(`/model-entitlements/${pathSegment(id, "id")}`, options);
   }
   // Usage & Reporting
   async recordUsage(data, options) {
@@ -9254,27 +9507,27 @@ var AgentSessionsService = class extends ServiceModule {
     return this._list("/sessions", params, options);
   }
   async getSession(id, options) {
-    return this._get(`/sessions/${id}`, options);
+    return this._get(`/sessions/${pathSegment(id, "id")}`, options);
   }
   async startSession(id, options) {
-    return this.post(`/sessions/${id}/start`, void 0, options);
+    return this.post(`/sessions/${pathSegment(id, "id")}/start`, void 0, options);
   }
   async endSession(id, data, options) {
-    return this.post(`/sessions/${id}/end`, data, options);
+    return this.post(`/sessions/${pathSegment(id, "id")}/end`, data, options);
   }
   // Logs
   async appendLog(sessionId, data, options) {
-    return this.post(`/sessions/${sessionId}/logs`, data, options);
+    return this.post(`/sessions/${pathSegment(sessionId, "sessionId")}/logs`, data, options);
   }
   async listLogs(sessionId, options) {
-    return this._get(`/sessions/${sessionId}/logs`, options);
+    return this._get(`/sessions/${pathSegment(sessionId, "sessionId")}/logs`, options);
   }
   // Artifacts
   async addArtifact(sessionId, data, options) {
-    return this.post(`/sessions/${sessionId}/artifacts`, data, options);
+    return this.post(`/sessions/${pathSegment(sessionId, "sessionId")}/artifacts`, data, options);
   }
   async listArtifacts(sessionId, options) {
-    return this._get(`/sessions/${sessionId}/artifacts`, options);
+    return this._get(`/sessions/${pathSegment(sessionId, "sessionId")}/artifacts`, options);
   }
 };
 
@@ -9626,6 +9879,7 @@ export {
   STORAGE_KEYS,
   ScaleMule,
   ScaleMuleClient,
+  ScaleMulePathError,
   SchedulerService,
   SearchService,
   ServiceModule,
@@ -9659,6 +9913,7 @@ export {
   extractClientContext,
   findPhoneCountryByCode,
   findPhoneCountryByDialCode,
+  findUnsafePathReason,
   generateAnonymousId,
   generateUploadSessionId,
   getMeasuredBandwidthMbps,
@@ -9670,6 +9925,7 @@ export {
   normalizeAndValidatePhone,
   normalizeExperiments,
   normalizePhoneNumber,
+  pathSegment,
   pollSharePercent,
   pollVoterKey,
   prepareCommunityMapAttachment,

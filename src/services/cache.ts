@@ -12,6 +12,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 // ============================================================================
 // Types
@@ -32,7 +33,7 @@ export class CacheService extends ServiceModule {
   protected basePath = '/v1/cache';
 
   async get(key: string, options?: RequestOptions): Promise<ApiResponse<CacheEntry>> {
-    return this._get<CacheEntry>(`/${key}`, options);
+    return this._get<CacheEntry>(`/${pathSegment(key, 'key')}`, options);
   }
 
   async set(key: string, value: unknown, ttl?: number, options?: RequestOptions): Promise<ApiResponse<CacheEntry>> {
@@ -40,7 +41,7 @@ export class CacheService extends ServiceModule {
   }
 
   async delete(key: string, options?: RequestOptions): Promise<ApiResponse<{ deleted: boolean }>> {
-    return this.del<{ deleted: boolean }>(`/${key}`, options);
+    return this.del<{ deleted: boolean }>(`/${pathSegment(key, 'key')}`, options);
   }
 
   async flush(options?: RequestOptions): Promise<ApiResponse<{ flushed: boolean }>> {

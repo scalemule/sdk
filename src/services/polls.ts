@@ -19,6 +19,7 @@
 
 import { ServiceModule } from '../service';
 import type { ApiResponse, RequestOptions } from '../types';
+import { pathSegment } from '../utils/path';
 
 export type PollMediaKind = 'text' | 'image' | 'video' | 'audio';
 export type PollBallot = 'account' | 'key';
@@ -109,19 +110,19 @@ export class PollsService extends ServiceModule {
   }
 
   async get(id: string, options?: RequestOptions): Promise<ApiResponse<Poll>> {
-    return this._get<Poll>(`/manage/${encodeURIComponent(id)}`, options);
+    return this._get<Poll>(`/manage/${pathSegment(id, 'id')}`, options);
   }
 
   async update(id: string, data: UpdatePollInput, options?: RequestOptions): Promise<ApiResponse<Poll>> {
-    return this.patch<Poll>(`/manage/${encodeURIComponent(id)}`, data, options);
+    return this.patch<Poll>(`/manage/${pathSegment(id, 'id')}`, data, options);
   }
 
   async publish(id: string, options?: RequestOptions): Promise<ApiResponse<Poll>> {
-    return this.post<Poll>(`/manage/${encodeURIComponent(id)}/publish`, {}, options);
+    return this.post<Poll>(`/manage/${pathSegment(id, 'id')}/publish`, {}, options);
   }
 
   async close(id: string, options?: RequestOptions): Promise<ApiResponse<Poll>> {
-    return this.post<Poll>(`/manage/${encodeURIComponent(id)}/close`, {}, options);
+    return this.post<Poll>(`/manage/${pathSegment(id, 'id')}/close`, {}, options);
   }
 
   async listPublic(params?: PollListOptions, options?: RequestOptions): Promise<ApiResponse<Poll[]>> {
@@ -130,14 +131,14 @@ export class PollsService extends ServiceModule {
 
   async getPublic(slug: string, params?: { voter_key?: string }, options?: RequestOptions): Promise<ApiResponse<Poll>> {
     return this._get<Poll>(
-      this.withQuery(`/public/${encodeURIComponent(slug)}`, params as Record<string, unknown> | undefined),
+      this.withQuery(`/public/${pathSegment(slug, 'slug')}`, params as Record<string, unknown> | undefined),
       options
     );
   }
 
   async vote(slug: string, choiceId: string, voterKey?: string, options?: RequestOptions): Promise<ApiResponse<Poll>> {
     return this.post<Poll>(
-      `/public/${encodeURIComponent(slug)}/votes`,
+      `/public/${pathSegment(slug, 'slug')}/votes`,
       {
         choice_id: choiceId,
         voter_key: voterKey
